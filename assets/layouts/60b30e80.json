@@ -1,0 +1,93 @@
+{
+  "nome": "HORTIFRUTI NOVO",
+  "imagem_base": "layout_bcad7e82.png",
+  "contorno_preto": true,
+  "contorno_largura": 6,
+  "girar_imagens": false,
+  "debug_areas": false,
+  "campos": [
+    {
+      "area": [
+        100,
+        290,
+        949,
+        682
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "id": "campo_1",
+      "label": "TOMATE",
+      "maiusculo": true,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area_centavos": [
+        680,
+        752,
+        862,
+        932
+      ],
+      "area_inteiro": [
+        248,
+        752,
+        669,
+        1145
+      ],
+      "centavos_ajustado": true,
+      "cor": [
+        255,
+        0,
+        0
+      ],
+      "fonte_path": "assets/impact.ttf",
+      "id": "campo_2",
+      "label": "PREÇO",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "preco_split"
+    },
+    {
+      "area": [
+        829,
+        1043,
+        959,
+        1169
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "fonte_path": "",
+      "id": "campo_3",
+      "label": "UN",
+      "maiusculo": true,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        91,
+        873,
+        237,
+        1005
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "fonte_path": "assets/impact.ttf",
+      "id": "campo_4",
+      "label": "CIFRAO",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "texto",
+      "valor_fixo": "R$"
+    }
+  ]
+}

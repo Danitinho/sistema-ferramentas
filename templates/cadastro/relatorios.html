@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Relatórios de Venda{% endblock %}
+{% block header_title %}Relatórios de venda{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
+{% block content %}
+<div class="card">
+  <span class="badge badge-cadastro">Cadastro</span>
+  <div class="card-title">Consultar relatório de vendas</div>
+
+  <label>Produto ou código</label>
+  <input type="text" id="busca" placeholder="Nome ou código do produto" inputmode="search">
+
+  <label>Período</label>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+    <div>
+      <label style="margin-top:0">De</label>
+      <input type="date" id="data-ini">
+    </div>
+    <div>
+      <label style="margin-top:0">Até</label>
+      <input type="date" id="data-fim">
+    </div>
+  </div>
+
+  <button class="btn btn-primary" onclick="consultar()">Consultar</button>
+
+  <div class="result-box" id="resultado" style="display:none">
+    <div class="result-label">Resultado</div>
+    <div id="conteudo-resultado" style="margin-top:8px; font-size:14px; color:#3B6D11"></div>
+  </div>
+
+  <div class="result-box error" id="erro" style="display:none">
+    <div class="result-value error" id="msg-erro"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Como integrar</div>
+  <p style="font-size:13px; color:#5F5E5A; line-height:1.6">
+    No <code>app.py</code>, na rota <code>/cadastro/relatorios/consultar</code>,
+    chame seu script de relatório passando os parâmetros recebidos via POST.
+    Retorne os dados como JSON e exiba aqui.
+  </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function consultar() {
+  const busca   = document.getElementById("busca").value;
+  const dataIni = document.getElementById("data-ini").value;
+  const dataFim = document.getElementById("data-fim").value;
+  document.getElementById("resultado").style.display = "none";
+  document.getElementById("erro").style.display = "none";
+
+  const res = await postJSON("/cadastro/relatorios/consultar", { busca, dataIni, dataFim });
+
+  if (res.erro) {
+    document.getElementById("msg-erro").textContent = res.erro;
+    document.getElementById("erro").style.display = "block";
+  } else {
+    document.getElementById("conteudo-resultado").textContent = res.mensagem || JSON.stringify(res);
+    document.getElementById("resultado").style.display = "block";
+  }
+}
+</script>
+{% endblock %}

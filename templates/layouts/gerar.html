@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}Gerar — {{ layout.nome }}{% endblock %}
+{% block header_title %}{{ layout.nome }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/">Menu</a> › <a href="/layouts">Layouts</a> › Gerar
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .info-box {
+    background: #f9f8f4; border-radius: 10px; padding: 12px 14px;
+    font-size: 12px; color: #666; margin-bottom: 16px; line-height: 1.7;
+  }
+  .info-box b { color: #333; }
+  .campos-header {
+    display: flex; gap: 6px; margin-bottom: 4px;
+    font-size: 11px; color: #888780; font-weight: 600; padding: 0 2px;
+  }
+  .campo-col       { flex: 1; }
+  .campo-col.small { flex: 0.6; }
+  .produto-row     { display: flex; gap: 6px; margin-bottom: 7px; }
+  .produto-row input { flex: 1; }
+  .produto-row input.small { flex: 0.6; }
+  .btn-remove {
+    background: none; border: none; color: #dc3545;
+    cursor: pointer; font-size: 16px; padding: 0 4px;
+  }
+  .separador { text-align:center; margin:18px 0; color:#888780; font-weight:bold; }
+
+  /* ── Painel de prévia + impressão ────────────────────────────────────────── */
+  #painel-previa {
+    display: none; margin-top: 24px;
+    border: 0.5px solid rgba(0,0,0,0.1); border-radius: 14px; overflow: hidden;
+  }
+  #painel-previa.ativo { display: block; }
+  .previa-header {
+    background: #f9f8f4; border-bottom: 0.5px solid rgba(0,0,0,0.08);
+    padding: 12px 16px; display: flex; align-items: center;
+    justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  }
+  .previa-info { font-size: 13px; color: #333; }
+  .previa-info strong { color: #1a1a18; }
+  .previa-badge {
+    font-size: 11px; font-weight: 600; padding: 3px 10px;
+    border-radius: 20px; background: var(--accent-light); color: var(--accent-dark);
+  }
+  #pdf-iframe {
+    width: 100%; height: 72vh; border: none; display: block;
+    background: #e8e8e8;
+  }
+  .previa-footer {
+    background: #f9f8f4; border-top: 0.5px solid rgba(0,0,0,0.08);
+    padding: 12px 16px; display: flex; align-items: center;
+    justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  }
+  #status-impressao {
+    font-size: 13px; color: #888780; display: flex; align-items: center; gap: 6px;
+  }
+  #status-impressao.ok     { color: #166534; }
+  #status-impressao.erro   { color: #991b1b; }
+  #status-impressao.aguard { color: var(--accent-dark); }
+  .dot-pulse {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor; animation: pulse 1s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .btn-imprimir {
+    background: var(--brand); color: #fff; border: none;
+    border-radius: 8px; padding: 10px 22px; font-size: 13px;
+    font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;
+  }
+  .btn-imprimir:hover  { background: var(--brand-dark); }
+  .btn-imprimir:disabled { background: #aaa; cursor: not-allowed; }
+
+  /* ── Erro geral ──────────────────────────────────────────────────────────── */
+  .result-box.error { background:#fee2e2; border-radius:10px; padding:12px 14px; display:none; margin-top:12px; }
+  .result-box.error.show { display:block; }
+  .result-box.error .result-value { color:#991b1b; font-size:13px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <span class="badge badge-cadastro">Cadastro</span>
+  <div class="card-title">Gerar placas — {{ layout.nome }}</div>
+
+  <!-- Info campos -->
+  <div class="info-box">
+    <b>Campos deste layout:</b>
+    {% for c in layout.campos %}
+      {% if not c.valor_fixo %}
+        <b>{{ c.label }}</b>{% if not loop.last %} · {% endif %}
+      {% endif %}
+    {% endfor %}
+    <br>
+    <b>Formato do arquivo .txt:</b>
+    <code>{{ formato }}</code>
+  </div>
+
+  <form id="form-gerar" enctype="multipart/form-data">
+
+    <!-- Opção 1: arquivo txt -->
+    <label>Opção 1: Enviar arquivo .txt</label>
+    <div class="upload-area" onclick="this.querySelector('input').click()">
+      <input type="file" name="produtos" accept=".txt" id="input-arquivo">
+      <div class="upload-label">Toque para selecionar o arquivo</div>
+      <div style="font-size:12px;color:#888780;margin-top:4px;">
+        Formato: <code>{{ formato }}</code>
+      </div>
+    </div>
+
+    <div class="separador">— OU —</div>
+
+    <!-- Opção 2: lista manual -->
+    <label>Opção 2: Preencher manualmente</label>
+    <div class="campos-header">
+      {% for c in layout.campos %}
+      {% if not c.valor_fixo %}
+      <span class="campo-col {% if c.tipo == 'texto' and c.id == 'unidade' %}small{% endif %}">
+        {{ c.label }}
+        {% if c.opcional %}<span style="color:#aaa;">(opc.)</span>{% endif %}
+      </span>
+      {% endif %}
+      {% endfor %}
+      <span style="width:28px;"></span>
+    </div>
+
+    <div id="lista-produtos"></div>
+
+    <button type="button" onclick="adicionarLinha()"
+            style="margin-bottom:20px; font-size:13px; padding:5px 10px;"
+            class="btn btn-secondary">
+      + Adicionar produto
+    </button>
+
+    <hr style="border:0; border-top:1px solid #eee; margin:16px 0;">
+
+    <!-- Layout do PDF -->
+    <label>Layout do PDF</label>
+    <select name="pdf_layout" id="pdf-layout">
+      <option value="4">4 por página (2×2) — recomendado</option>
+      <option value="2">2 por página</option>
+      <option value="1">1 por página</option>
+    </select>
+
+    <button type="button" class="btn btn-primary" id="btn-gerar" onclick="gerar()">
+      <span class="spinner" id="spinner"></span>
+      <span id="btn-label">Gerar placas</span>
+    </button>
+  </form>
+
+  <!-- Erro -->
+  <div class="result-box error" id="erro">
+    <div class="result-value error" id="msg-erro"></div>
+  </div>
+</div>
+
+<!-- ── Painel de prévia ────────────────────────────────────────────────────── -->
+<div id="painel-previa">
+  <div class="previa-header">
+    <div class="previa-info">
+      <strong id="previa-nome">ofertas_final.pdf</strong>
+      <span id="previa-paginas" class="previa-badge" style="margin-left:8px;"></span>
+    </div>
+  </div>
+
+  <iframe id="pdf-iframe" title="Prévia do PDF"></iframe>
+
+  <div class="previa-footer">
+    <div id="status-impressao">Pronto para imprimir</div>
+    <button class="btn-imprimir" id="btn-imprimir" onclick="imprimir()">
+      🖨 Imprimir
+    </button>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const CAMPOS    = {{ layout.campos | tojson }}.filter(c => !c.valor_fixo);
+const LAYOUT_ID = "{{ layout_id }}";
+let   pdfArquivo = null;  // nome do arquivo PDF no servidor
+
+// ── Linhas de produto ─────────────────────────────────────────────────────────
+function buildLinha() {
+  const row = document.createElement('div');
+  row.className = 'produto-row';
+  CAMPOS.forEach(c => {
+    const inp       = document.createElement('input');
+    inp.type        = 'text';
+    inp.name        = `${c.id}[]`;
+    inp.placeholder = c.label + (c.opcional ? ' (opc.)' : '');
+    if (c.id === 'unidade') inp.classList.add('small');
+    row.appendChild(inp);
+  });
+  const btn       = document.createElement('button');
+  btn.type        = 'button';
+  btn.className   = 'btn-remove';
+  btn.textContent = '✕';
+  btn.onclick     = () => removerLinha(btn);
+  row.appendChild(btn);
+  return row;
+}
+function adicionarLinha() {
+  document.getElementById('lista-produtos').appendChild(buildLinha());
+}
+function removerLinha(btn) {
+  const linhas = document.querySelectorAll('.produto-row');
+  if (linhas.length > 1) btn.parentElement.remove();
+  else btn.parentElement.querySelectorAll('input').forEach(i => i.value = '');
+}
+adicionarLinha();
+
+// ── Gerar ─────────────────────────────────────────────────────────────────────
+async function gerar() {
+  const btn    = document.getElementById('btn-gerar');
+  const label  = document.getElementById('btn-label');
+  const spinner = document.getElementById('spinner');
+  document.getElementById('erro').classList.remove('show');
+  document.getElementById('painel-previa').classList.remove('ativo');
+
+  btn.disabled          = true;
+  spinner.style.display = 'block';
+  label.textContent     = 'Gerando...';
+
+  try {
+    const fd = new FormData(document.getElementById('form-gerar'));
+    fd.set('pdf_layout', document.getElementById('pdf-layout').value);
+
+    const res = await fetch(`/layouts/${LAYOUT_ID}/gerar`, {
+      method: 'POST', body: fd
+    });
+    const d = await res.json();
+
+    if (d.ok) {
+      pdfArquivo = d.pdf_url.split('/').pop();
+
+      // Atualiza header da prévia
+      document.getElementById('previa-paginas').textContent =
+        `${d.paginas} página${d.paginas !== 1 ? 's' : ''}  ·  ${d.geradas} placa${d.geradas !== 1 ? 's' : ''}`;
+
+      // Carrega PDF no iframe
+      document.getElementById('pdf-iframe').src = d.pdf_url;
+
+      // Reseta status de impressão
+      setStatus('idle', 'Pronto para imprimir');
+      document.getElementById('btn-imprimir').disabled = false;
+
+      // Mostra painel e rola até ele
+      const painel = document.getElementById('painel-previa');
+      painel.classList.add('ativo');
+      painel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      mostrarErro(d.mensagem || 'Erro ao gerar.');
+    }
+  } catch(e) {
+    mostrarErro('Erro de conexão.');
+  }
+
+  btn.disabled          = false;
+  spinner.style.display = 'none';
+  label.textContent     = 'Gerar placas';
+}
+
+// ── Imprimir ──────────────────────────────────────────────────────────────────
+async function imprimir() {
+  if (!pdfArquivo) return;
+  const btn = document.getElementById('btn-imprimir');
+  btn.disabled = true;
+  setStatus('aguard', '<span class="dot-pulse"></span> Enviando para impressora...');
+
+  try {
+    const res = await fetch(`/layouts/imprimir/${pdfArquivo}`, { method: 'POST' });
+    const d   = await res.json();
+    if (d.ok) {
+      const info = document.getElementById('previa-paginas').textContent;
+      setStatus('ok', `✔ Impresso — ${info}`);
+    } else {
+      setStatus('erro', '✕ Erro: ' + (d.msg || 'falha na impressora'));
+      btn.disabled = false;
+    }
+  } catch(e) {
+    setStatus('erro', '✕ Erro de conexão com o servidor');
+    btn.disabled = false;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setStatus(tipo, html) {
+  const el = document.getElementById('status-impressao');
+  el.innerHTML = html;
+  el.className = 'status-impressao';
+  if (tipo !== 'idle') el.classList.add(tipo);
+}
+
+function mostrarErro(msg) {
+  document.getElementById('msg-erro').textContent = msg;
+  document.getElementById('erro').classList.add('show');
+}
+</script>
+{% endblock %}

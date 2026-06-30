@@ -1,0 +1,10 @@
+# Sistema de Ferramentas — dependências
+# Instale com o python do serviço:
+#   "C:\...\Python313\python.exe" -m pip install -r requirements.txt
+# (ver CLAUDE.md, seção 11 — armadilha do pip)
+
+flask>=3.0.0
+waitress>=3.0.0      # servidor de produção (server.py, porta 80)
+pillow>=10.0.0       # geração de imagens das placas de oferta
+pdfplumber>=0.11.0   # extração dos relatórios Curva ABC (PDF)
+openpyxl>=3.1.0      # planilhas Excel (débitos e relatórios)

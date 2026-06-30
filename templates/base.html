@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Sistema de Ferramentas{% endblock %}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Paleta — Grafite & Âmbar */
+    --graphite:     #26262B;
+    --graphite-2:   #34343C;
+    --graphite-dark:#15151A;
+    --amber:        #E5A23B;
+    --amber-dark:   #8A5B12;
+    --amber-light:  #FBEFD9;
+
+    /* Aliases de marca (mantidos p/ compatibilidade dos templates) */
+    --brand:        var(--graphite);
+    --brand-light:  #ECEBE6;
+    --brand-dark:   var(--graphite-dark);
+
+    /* Acento */
+    --accent:       var(--amber);
+    --accent-dark:  var(--amber-dark);
+    --accent-light: var(--amber-light);
+
+    /* Semânticas */
+    --success:     #3B6D11;
+    --success-bg:  #EAF3DE;
+    --warning:     #854F0B;
+    --warning-bg:  #FAEEDA;
+    --danger:      #A32D2D;
+    --danger-bg:   #FCEBEB;
+
+    --gray:        #5F5E5A;
+    --gray-light:  #F1EFEB;
+    --ink:         #1A1A1A;
+    --border:      rgba(0,0,0,0.10);
+
+    --radius:      14px;
+    --radius-sm:   9px;
+
+    --maxw:        1200px;   /* largura máxima do app no desktop */
+    --maxw-read:   880px;    /* largura confortável p/ conteúdo/formulários */
+    --pad-x:       clamp(16px, 3.5vw, 40px);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #F6F5F2;
+    color: var(--ink);
+    min-height: 100vh;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Topo ── */
+  header {
+    background: var(--graphite);
+    color: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25), 0 2px 10px rgba(0,0,0,0.12);
+  }
+  .header-inner {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 13px var(--pad-x);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header a { color: #fff; text-decoration: none; font-size: 14px; opacity: 0.8; transition: opacity .15s, color .15s; }
+  header a:hover { opacity: 1; color: var(--amber); }
+  .header-title { font-size: 17px; font-weight: 600; flex: 1; line-height: 1.2; }
+  .breadcrumb { font-size: 13px; opacity: 0.7; }
+
+  /* ── Conteúdo ── */
+  main {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: clamp(18px, 3vw, 32px) var(--pad-x) 56px;
+  }
+  /* Por padrão, cartões de conteúdo ficam numa coluna legível e centralizada.
+     O menu usa .full (abaixo) p/ ocupar toda a largura no desktop. */
+  main > .card { max-width: var(--maxw-read); margin-left: auto; margin-right: auto; }
+  .full { max-width: none !important; }
+
+  /* ── Cards ── */
+  .card {
+    background: #fff;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border);
+    padding: clamp(18px, 2.4vw, 26px);
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--ink);
+  }
+
+  /* ── Campos ── */
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--gray);
+    margin-bottom: 5px;
+    margin-top: 12px;
+  }
+  label:first-child { margin-top: 0; }
+  input[type=text], input[type=number], input[type=date],
+  select, textarea {
+    width: 100%;
+    padding: 11px 14px;
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+    background: #fff;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
+  }
+
+  /* ── Botões ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px 20px;
+    border-radius: var(--radius-sm);
+    border: none;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 16px;
+    transition: background 0.15s, opacity 0.15s;
+  }
+  .btn:active { transform: translateY(0.5px); opacity: 0.92; }
+  .btn-primary { background: var(--graphite); color: #fff; }
+  .btn-primary:hover { background: var(--graphite-2); }
+  .btn-secondary { background: var(--gray-light); color: var(--ink); }
+  .btn-secondary:hover { background: #E8E6DF; }
+  .btn-accent { background: var(--amber); color: #1A1A1A; }
+  .btn-accent:hover { background: #D8922B; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Resultado ── */
+  .result-box {
+    background: var(--success-bg);
+    border: 0.5px solid #C0DD97;
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    margin-top: 16px;
+    display: none;
+  }
+  .result-box.error { background: var(--danger-bg); border-color: #F09595; }
+  .result-box.show { display: block; }
+  .result-value { font-size: 28px; font-weight: 700; color: var(--success); }
+  .result-value.error { color: var(--danger); font-size: 15px; }
+  .result-label { font-size: 13px; color: var(--gray); margin-top: 2px; }
+
+  /* ── Grid de métricas ── */
+  .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+  .metric { background: var(--gray-light); border-radius: var(--radius-sm); padding: 14px; text-align: center; }
+  .metric-value { font-size: 22px; font-weight: 600; color: var(--ink); }
+  .metric-label { font-size: 11px; color: var(--gray); margin-top: 3px; }
+
+  /* ── Upload ── */
+  .upload-area {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius-sm);
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--gray);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .upload-area:hover, .upload-area.drag { border-color: var(--accent); background: var(--accent-light); }
+  .upload-area input { display: none; }
+
+  /* ── Badge de setor ── */
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+    margin-bottom: 10px;
+  }
+  .badge-cadastro { background: var(--accent-light); color: var(--accent-dark); }
+  .badge-loja     { background: var(--success-bg);  color: var(--success); }
+
+  /* ── Spinner ── */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div style="flex:1;">
+      <div class="header-title">{% block header_title %}Sistema de Ferramentas{% endblock %}</div>
+      {% block breadcrumb %}<a href="/">Menu principal</a>{% endblock %}
+    </div>
+  </div>
+</header>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<script>
+// Utilitário: POST JSON e retorna resposta
+async function postJSON(url, data) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
+// Utilitário: formata moeda BRL
+function brl(valor) {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// Upload drag-and-drop
+document.querySelectorAll(".upload-area").forEach(area => {
+  area.addEventListener("dragover", e => { e.preventDefault(); area.classList.add("drag"); });
+  area.addEventListener("dragleave", () => area.classList.remove("drag"));
+  area.addEventListener("drop", e => {
+    e.preventDefault(); area.classList.remove("drag");
+    const input = area.querySelector("input[type=file]");
+    if (input && e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      const label = area.querySelector(".upload-label");
+      if (label) label.textContent = e.dataTransfer.files[0].name;
+    }
+  });
+  const input = area.querySelector("input[type=file]");
+  if (input) input.addEventListener("change", () => {
+    const label = area.querySelector(".upload-label");
+    if (label && input.files.length) label.textContent = input.files[0].name;
+  });
+});
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

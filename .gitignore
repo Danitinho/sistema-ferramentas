@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Dados sensíveis
+dados/debitos.xlsx
+scripts/*.xlsx
+
+# Dados de runtime gerados pelo módulo de relatórios
+dados/relatorios/entrada/
+dados/relatorios/processados/
+dados/relatorios/saida/
+dados/relatorios/vendas.db
+
+# Uploads e saídas temporárias
+uploads/*
+outputs/*
+!uploads/.gitkeep
+!outputs/.gitkeep
+
+# Mídia de desenvolvimento (áudios/vídeos do WhatsApp)
+*.ogg
+*.mp4
+
+# SO
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/settings.local.json

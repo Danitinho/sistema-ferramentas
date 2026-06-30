@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ emp.razao_social }} — Débitos</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { background: #f0f2f5; }
+    .page-header { background: var(--brand); color: #fff; padding: 1.2rem 2rem; }
+    .page-header h1 { font-size: 1.4rem; margin: 0; }
+    .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,.08); border-radius: 12px; }
+    .card-titulo { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #6c757d; }
+    .card-valor  { font-size: 1.8rem; font-weight: 700; line-height: 1.1; }
+    .table th    { background: var(--brand); color: #fff; font-size: .82rem; font-weight: 500; }
+    .table td    { vertical-align: middle; font-size: .88rem; }
+    .badge-vencimento { background: #dc3545; }
+    .badge-rebaxa     { background: #fd7e14; }
+    .section-title    { font-size: 1rem; font-weight: 600; color: var(--brand); border-left: 4px solid var(--brand); padding-left: .6rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <a href="/debitos" class="text-white text-decoration-none me-3">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <h1 class="d-inline">{{ emp.razao_social }}</h1>
+    <span class="ms-3 text-white-50 font-monospace small">{{ emp.cnpj }}</span>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#modalDebito">
+      <i class="bi bi-dash-circle me-1"></i> Registrar Débito
+    </button>
+    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalBonif">
+      <i class="bi bi-plus-circle me-1"></i> Registrar Bonificação
+    </button>
+  </div>
+</div>
+
+<div class="container-fluid px-4 py-4">
+
+  <!-- Cards de saldo -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="card p-3">
+        <div class="card-titulo">Total em Débitos</div>
+        <div class="card-valor text-danger">R$ {{ "%.2f"|format(saldo.total_debito) }}</div>
+        <div class="text-muted small">{{ debitos|length }} lançamento(s)</div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3">
+        <div class="card-titulo">Total Bonificado</div>
+        <div class="card-valor text-success">R$ {{ "%.2f"|format(saldo.total_bonificacao) }}</div>
+        <div class="text-muted small">{{ bonificacoes|length }} nota(s) fiscal(is)</div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3">
+        <div class="card-titulo">Saldo Devedor</div>
+        <div class="card-valor {% if saldo.saldo_devedor > 0 %}text-danger{% else %}text-success{% endif %}">
+          R$ {{ "%.2f"|format(saldo.saldo_devedor) }}
+        </div>
+        <div class="text-muted small">
+          {% if saldo.saldo_devedor > 0 %}Empresa deve ao mercado{% else %}Sem pendências{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabela de Débitos -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="section-title"><i class="bi bi-dash-circle-fill text-danger me-2"></i>Débitos</div>
+      {% if debitos %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Data</th><th>Tipo</th><th>Produto</th>
+              <th class="text-end">Qtd</th>
+              <th class="text-end">Vlr Unit.</th>
+              <th class="text-end">Total</th>
+              <th>Obs</th>
+              <th class="text-center">Del</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in debitos %}
+            <tr>
+              <td class="text-muted small">{{ d.data }}</td>
+              <td>
+                <span class="badge {% if d.tipo == 'vencimento' %}badge-vencimento{% else %}badge-rebaxa{% endif %}">
+                  {{ d.tipo }}
+                </span>
+              </td>
+              <td class="fw-semibold">{{ d.produto }}</td>
+              <td class="text-end">{{ d.quantidade }}</td>
+              <td class="text-end">R$ {{ "%.2f"|format(d.valor_unit|float) }}</td>
+              <td class="text-end fw-bold text-danger">R$ {{ "%.2f"|format(d.valor_debito|float) }}</td>
+              <td class="text-muted small">{{ d.obs or '—' }}</td>
+              <td class="text-center">
+                <button class="btn btn-sm btn-outline-danger py-0"
+                        onclick="excluir('debito','{{ d.id }}')">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted text-center my-3">Nenhum débito registrado.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Tabela de Bonificações -->
+  <div class="card">
+    <div class="card-body">
+      <div class="section-title"><i class="bi bi-plus-circle-fill text-success me-2"></i>Bonificações</div>
+      {% if bonificacoes %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Data</th><th>NF</th><th>Produto</th>
+              <th class="text-end">Qtd</th>
+              <th class="text-end">Vlr Unit.</th>
+              <th class="text-end">Total</th>
+              <th>Obs</th>
+              <th class="text-center">Del</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in bonificacoes %}
+            <tr>
+              <td class="text-muted small">{{ b.data }}</td>
+              <td class="font-monospace text-primary">{{ b.nf_numero }}</td>
+              <td class="fw-semibold">{{ b.produto }}</td>
+              <td class="text-end">{{ b.quantidade }}</td>
+              <td class="text-end">R$ {{ "%.2f"|format(b.valor_unit|float) }}</td>
+              <td class="text-end fw-bold text-success">R$ {{ "%.2f"|format(b.valor_bonif|float) }}</td>
+              <td class="text-muted small">{{ b.obs or '—' }}</td>
+              <td class="text-center">
+                <button class="btn btn-sm btn-outline-danger py-0"
+                        onclick="excluir('bonificacao','{{ b.id }}')">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted text-center my-3">Nenhuma bonificação registrada.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Registrar Débito -->
+<div class="modal fade" id="modalDebito" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title"><i class="bi bi-dash-circle me-2"></i>Registrar Débito</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Seletor de tipo -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Tipo</label>
+          <select id="d_tipo" class="form-select" onchange="trocarTipoDebito()">
+            <option value="vencimento">Vencimento</option>
+            <option value="rebaxa">Rebaxa de Preço</option>
+          </select>
+        </div>
+
+        <!-- Campos: VENCIMENTO -->
+        <div id="campos_vencimento">
+          <div class="alert alert-secondary py-2 small mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            Lançamento vindo do ERP — informe a NF e o valor total da nota de vencido.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Número da NF</label>
+            <input type="text" id="v_nf" class="form-control" placeholder="Ex: NF-001234">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Valor total da NF (R$)</label>
+            <input type="number" id="v_total" class="form-control" placeholder="0,00" min="0" step="0.01">
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Observação <span class="text-muted fw-normal">(opcional)</span></label>
+            <input type="text" id="v_obs" class="form-control" placeholder="Lote, período, etc.">
+          </div>
+        </div>
+
+        <!-- Campos: REBAXA -->
+        <div id="campos_rebaxa" class="d-none">
+          <div class="alert alert-secondary py-2 small mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            Informe o produto, a quantidade vendida e a <strong>diferença unitária</strong> entre o preço original e o rebaixado.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Produto</label>
+            <input type="text" id="r_produto" class="form-control" placeholder="Ex: Sopinha de Legumes">
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label fw-semibold">Quantidade vendida</label>
+              <input type="number" id="r_qtd" class="form-control" placeholder="0" min="0" step="1"
+                     oninput="calcPreview('r_qtd','r_vunit','r_preview')">
+            </div>
+            <div class="col">
+              <label class="form-label fw-semibold">Diferença unitária (R$)</label>
+              <input type="number" id="r_vunit" class="form-control" placeholder="0,50" min="0" step="0.01"
+                     oninput="calcPreview('r_qtd','r_vunit','r_preview')">
+            </div>
+          </div>
+          <div class="alert alert-warning py-2 text-center mb-2" id="r_preview">Total: R$ 0,00</div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Observação <span class="text-muted fw-normal">(opcional)</span></label>
+            <input type="text" id="r_obs" class="form-control" placeholder="Preço original, preço rebaixado, etc.">
+          </div>
+        </div>
+
+        <div id="msg_debito" class="alert d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" onclick="salvarDebito()">
+          <i class="bi bi-check2 me-1"></i> Registrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Registrar Bonificação -->
+<div class="modal fade" id="modalBonif" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Registrar Bonificação</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-secondary py-2 small mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Informe a NF de entrada da bonificação. O valor será abatido do saldo devedor.
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Número da NF</label>
+          <input type="text" id="b_nf" class="form-control" placeholder="Ex: NF-001234">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Valor total da NF (R$)</label>
+          <input type="number" id="b_total" class="form-control" placeholder="0,00" min="0" step="0.01">
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold">Observação <span class="text-muted fw-normal">(opcional)</span></label>
+          <input type="text" id="b_obs" class="form-control" placeholder="Observações da NF">
+        </div>
+        <div id="msg_bonif" class="alert d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success" onclick="salvarBonificacao()">
+          <i class="bi bi-check2 me-1"></i> Registrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const CNPJ = "{{ emp.cnpj }}";
+
+function calcPreview(idQtd, idVunit, idPreview) {
+  const qtd   = parseFloat(document.getElementById(idQtd).value)   || 0;
+  const vunit = parseFloat(document.getElementById(idVunit).value)  || 0;
+  document.getElementById(idPreview).textContent = `Total: R$ ${(qtd * vunit).toFixed(2).replace('.', ',')}`;
+}
+
+function trocarTipoDebito() {
+  const tipo = document.getElementById('d_tipo').value;
+  document.getElementById('campos_vencimento').classList.toggle('d-none', tipo !== 'vencimento');
+  document.getElementById('campos_rebaxa').classList.toggle('d-none', tipo !== 'rebaxa');
+  document.getElementById('msg_debito').classList.add('d-none');
+}
+
+async function salvarDebito() {
+  const msg  = document.getElementById('msg_debito');
+  const tipo = document.getElementById('d_tipo').value;
+  let url, body;
+
+  if (tipo === 'vencimento') {
+    const nf    = document.getElementById('v_nf').value.trim();
+    const total = parseFloat(document.getElementById('v_total').value);
+    const obs   = document.getElementById('v_obs').value.trim();
+    if (!nf || !total) { showMsg(msg, 'Informe o número da NF e o valor total.', 'warning'); return; }
+    url  = '/debitos/api/debito/vencimento';
+    body = { cnpj: CNPJ, nf_numero: nf, valor_total: total, obs };
+  } else {
+    const produto = document.getElementById('r_produto').value.trim();
+    const qtd     = parseFloat(document.getElementById('r_qtd').value);
+    const vunit   = parseFloat(document.getElementById('r_vunit').value);
+    const obs     = document.getElementById('r_obs').value.trim();
+    if (!produto || !qtd || !vunit) { showMsg(msg, 'Preencha produto, quantidade e diferença unitária.', 'warning'); return; }
+    url  = '/debitos/api/debito/rebaxa';
+    body = { cnpj: CNPJ, produto, quantidade: qtd, valor_unit: vunit, obs };
+  }
+
+  const r = await fetch(url, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else showMsg(msg, d.msg, 'danger');
+}
+
+async function salvarBonificacao() {
+  const msg   = document.getElementById('msg_bonif');
+  const nf    = document.getElementById('b_nf').value.trim();
+  const total = parseFloat(document.getElementById('b_total').value);
+  const obs   = document.getElementById('b_obs').value.trim();
+  if (!nf || !total) {
+    showMsg(msg, 'Informe o número da NF e o valor total.', 'warning'); return;
+  }
+  const r = await fetch('/debitos/api/bonificacao', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ cnpj: CNPJ, nf_numero: nf, valor_total: total, obs })
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else showMsg(msg, d.msg, 'danger');
+}
+
+async function excluir(tipo, id) {
+  const label = tipo === 'debito' ? 'este débito' : 'esta bonificação';
+  if (!confirm(`Excluir ${label}?`)) return;
+  await fetch(`/debitos/api/${tipo}/${id}`, {method: 'DELETE'});
+  location.reload();
+}
+
+function showMsg(el, texto, tipo) {
+  el.className = `alert alert-${tipo}`;
+  el.textContent = texto;
+}
+</script>
+</body>
+</html>

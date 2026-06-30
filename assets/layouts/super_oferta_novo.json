@@ -1,0 +1,95 @@
+{
+  "nome": "Super Oferta — Layout Novo",
+  "imagem_base": "modelo_novo.png",
+  "contorno_preto": true,
+  "contorno_largura": 6,
+  "girar_imagens": false,
+  "debug_areas": false,
+  "campos": [
+    {
+      "area": [
+        16,
+        310,
+        1395,
+        852
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "id": "produto",
+      "label": "Nome do produto",
+      "maiusculo": true,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        182,
+        964,
+        1225,
+        1206
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "cor_x": [
+        180,
+        0,
+        0
+      ],
+      "id": "preco_anterior",
+      "label": "Preço anterior",
+      "maiusculo": false,
+      "opcional": true,
+      "tipo": "texto_riscado",
+      "fonte_path": "assets/impact.ttf"
+    },
+    {
+      "area_centavos": [
+        1027,
+        1306,
+        1302,
+        1548
+      ],
+      "area_inteiro": [
+        434,
+        1272,
+        1021,
+        1811
+      ],
+      "centavos_ajustado": true,
+      "cor": [
+        203,
+        0,
+        0
+      ],
+      "id": "preco_oferta",
+      "label": "Preço oferta",
+      "opcional": false,
+      "tipo": "preco_split",
+      "fonte_path": "assets/impact.ttf"
+    },
+    {
+      "area": [
+        1027,
+        1620,
+        1301,
+        1814
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "id": "unidade",
+      "label": "Unidade",
+      "maiusculo": true,
+      "opcional": true,
+      "tipo": "texto"
+    }
+  ]
+}

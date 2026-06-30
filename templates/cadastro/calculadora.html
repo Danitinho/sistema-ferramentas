@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Calculadora de Preço{% endblock %}
+{% block header_title %}Calculadora de preço{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
+
+{% block content %}
+<div class="card">
+  <span class="badge badge-cadastro">Cadastro</span>
+  <div class="card-title">Calcular preço de venda</div>
+
+  <label>Custo do produto (R$)</label>
+  <input type="number" id="custo" placeholder="0,00" step="0.01" min="0" inputmode="decimal">
+
+  <label>Margem de lucro desejada (%)</label>
+  <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" max="99" inputmode="decimal">
+
+  <label>Impostos / encargos (%)</label>
+  <input type="number" id="imposto" placeholder="ex: 12 (deixe 0 se não souber)" step="0.1" min="0" inputmode="decimal" value="0">
+
+  <button class="btn btn-primary" id="btn-calcular" onclick="calcular()">
+    <span class="spinner" id="spinner"></span>
+    <span id="btn-label">Calcular preço de venda</span>
+  </button>
+
+  <div class="result-box" id="resultado">
+    <div class="result-label">Preço de venda sugerido</div>
+    <div class="result-value" id="preco-final"></div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-value" id="m-lucro"></div>
+        <div class="metric-label">Lucro bruto</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value" id="m-markup"></div>
+        <div class="metric-label">Markup</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value" id="m-margem"></div>
+        <div class="metric-label">Margem real</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="result-box error" id="erro">
+    <div class="result-value error" id="msg-erro"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Como funciona o cálculo?</div>
+  <p style="font-size:14px; color:#5F5E5A; line-height:1.6">
+    A fórmula usada é: <strong>Preço = Custo ÷ (1 − Margem − Imposto)</strong>.<br><br>
+    Exemplo: custo R$10, margem 30%, imposto 12% →<br>
+    Preço = 10 ÷ (1 − 0,30 − 0,12) = <strong>R$ 17,24</strong>
+  </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function calcular() {
+  const custo   = parseFloat(document.getElementById("custo").value);
+  const margem  = parseFloat(document.getElementById("margem").value);
+  const imposto = parseFloat(document.getElementById("imposto").value) || 0;
+
+  document.getElementById("resultado").classList.remove("show");
+  document.getElementById("erro").classList.remove("show");
+
+  if (isNaN(custo) || isNaN(margem)) {
+    document.getElementById("msg-erro").textContent = "Preencha custo e margem.";
+    document.getElementById("erro").classList.add("show");
+    return;
+  }
+
+  const btn = document.getElementById("btn-calcular");
+  btn.disabled = true;
+  document.getElementById("spinner").style.display = "block";
+  document.getElementById("btn-label").textContent = "Calculando...";
+
+  const res = await postJSON("/cadastro/calculadora/calcular", { custo, margem, imposto });
+
+  btn.disabled = false;
+  document.getElementById("spinner").style.display = "none";
+  document.getElementById("btn-label").textContent = "Calcular preço de venda";
+
+  if (res.erro) {
+    document.getElementById("msg-erro").textContent = res.erro;
+    document.getElementById("erro").classList.add("show");
+    return;
+  }
+
+  document.getElementById("preco-final").textContent = brl(res.preco);
+  document.getElementById("m-lucro").textContent = brl(res.lucro);
+  document.getElementById("m-markup").textContent = res.markup.toFixed(1) + "%";
+  document.getElementById("m-margem").textContent = margem.toFixed(1) + "%";
+  document.getElementById("resultado").classList.add("show");
+}
+
+document.querySelectorAll("input").forEach(i =>
+  i.addEventListener("keydown", e => { if (e.key === "Enter") calcular(); })
+);
+</script>
+{% endblock %}

@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Relatórios de Venda{% endblock %}
+{% block header_title %}Relatórios de venda{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
+
+{% block extra_head %}
+<style>
+  .mini-list { list-style:none; margin-top:10px; }
+  .mini-list li {
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:13px; padding:8px 10px; border-radius:8px;
+    background:var(--gray-light); margin-bottom:6px; color:#1a1a18;
+  }
+  .mini-list li .q { color:var(--gray); font-size:12px; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:12px;
+          background:var(--brand-light); color:var(--brand-dark); }
+  .log-line { font-size:13px; padding:6px 0; border-bottom:0.5px solid var(--border); }
+  .log-line:last-child { border-bottom:none; }
+  .log-ok  { color:var(--success); }
+  .log-err { color:var(--danger); }
+  .tbl-wrap { overflow-x:auto; margin-top:14px; -webkit-overflow-scrolling:touch; }
+  table.res { border-collapse:collapse; width:100%; font-size:13px; }
+  table.res th, table.res td { border:0.5px solid var(--border); padding:7px 9px; white-space:nowrap; }
+  table.res th { background:var(--brand); color:#fff; font-weight:600; position:sticky; top:0; }
+  table.res td.num { text-align:right; }
+  table.res td.desc { white-space:normal; min-width:200px; }
+  table.res tr.nao td { background:var(--danger-bg); color:var(--danger); }
+  table.res tr:nth-child(even):not(.nao) td { background:#fafaf7; }
+  table.res td.tot, table.res th.tot { font-weight:700; background:var(--gray-light); }
+  .hint { font-size:13px; color:var(--gray); line-height:1.6; }
+  .row-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row-btns .btn { margin-top:0; }
+
+  /* ── Gatilho discreto da função administrativa ── */
+  .admin-trigger {
+    display:inline-flex; align-items:center; gap:6px;
+    background:none; border:none; cursor:pointer;
+    font-size:13px; color:var(--gray);
+    padding:6px 2px; margin-top:4px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .admin-trigger:hover { color:var(--brand); }
+  .admin-trigger .gear { font-size:15px; }
+
+  /* ── Modal (pop-up) ── */
+  .modal-overlay {
+    position:fixed; inset:0; z-index:200;
+    background:rgba(0,0,0,0.45);
+    display:none; align-items:flex-start; justify-content:center;
+    padding:24px 14px; overflow-y:auto;
+  }
+  .modal-overlay.show { display:flex; }
+  .modal {
+    background:#fff; border-radius:var(--radius);
+    width:100%; max-width:520px; margin:auto 0;
+    box-shadow:0 12px 40px rgba(0,0,0,0.25);
+    overflow:hidden;
+    animation:modal-in 0.15s ease-out;
+  }
+  @keyframes modal-in { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+  .modal-head {
+    display:flex; align-items:center; gap:10px;
+    padding:16px 18px; border-bottom:0.5px solid var(--border);
+  }
+  .modal-head .modal-title { font-size:15px; font-weight:600; flex:1; }
+  .modal-close {
+    background:none; border:none; cursor:pointer;
+    font-size:22px; line-height:1; color:var(--gray);
+    padding:2px 6px; border-radius:6px;
+  }
+  .modal-close:hover { background:var(--gray-light); color:#1a1a18; }
+  .modal-body { padding:18px; }
+  .modal-warn {
+    background:var(--warning-bg); color:var(--warning);
+    border:0.5px solid #E8C98A; border-radius:var(--radius-sm);
+    font-size:12.5px; line-height:1.5; padding:10px 12px; margin-bottom:14px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── CARD: CONSULTAR CÓDIGOS DE BARRAS (função do dia a dia) ─────────── -->
+<div class="card">
+  <span class="badge badge-cadastro">Cadastro</span>
+  <div class="card-title">Consultar venda por código de barras</div>
+
+  <label>Códigos de barras (um por linha, ou separados por vírgula)</label>
+  <textarea id="codigos" rows="5" placeholder="7891000100001&#10;7891000100002&#10;7891000100003"></textarea>
+
+  <button class="btn btn-primary" onclick="consultar()">
+    <span id="spin-cons" class="spinner"></span><span id="txt-cons">Consultar</span>
+  </button>
+
+  <div class="result-box error" id="cons-erro">
+    <div class="result-value error" id="cons-msg-erro"></div>
+  </div>
+
+  <div id="cons-resultado" style="display:none">
+    <div class="tbl-wrap"><table class="res" id="tabela"></table></div>
+    <button class="btn btn-secondary" onclick="baixarExcel()" style="margin-top:14px">⬇ Baixar Excel</button>
+  </div>
+</div>
+
+<!-- ── CARD: ESTADO DO BANCO + gatilho discreto da atualização mensal ──── -->
+<div class="card">
+  <div class="card-title">Meses no banco de dados</div>
+  <div class="metrics">
+    <div class="metric"><div class="metric-value" id="m-meses">{{ status.total_meses }}</div><div class="metric-label">meses</div></div>
+    <div class="metric"><div class="metric-value" id="m-reg">{{ status.total_registros }}</div><div class="metric-label">registros</div></div>
+    <div class="metric"><div class="metric-value" id="m-pend">{{ status.pendentes|length }}</div><div class="metric-label">na fila</div></div>
+  </div>
+
+  <ul class="mini-list" id="lista-meses">
+    {% for m in status.meses %}
+    <li><span>{{ m.rotulo }} <span class="q">· {{ m.periodo }}</span></span><span class="pill">{{ m.produtos }} prod.</span></li>
+    {% else %}
+    <li><span class="q">Nenhum relatório processado ainda.</span></li>
+    {% endfor %}
+  </ul>
+
+  <button class="admin-trigger" onclick="abrirModal()">
+    <span class="gear">⚙️</span> Atualizar banco de dados (uso mensal)
+  </button>
+</div>
+
+<!-- ── MODAL: PROCESSAR PDFs (escondido até clicar) ───────────────────── -->
+<div class="modal-overlay" id="modal-proc" onclick="fecharModalSeFundo(event)">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-head">
+      <span class="gear">⚙️</span>
+      <div class="modal-title" id="modal-title">Atualizar banco de dados</div>
+      <button class="modal-close" onclick="fecharModal()" aria-label="Fechar">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-warn">
+        Função administrativa de uso mensal. Envie apenas os PDFs de Curva ABC do
+        sistema. Processar substitui os dados do mês correspondente no banco.
+      </div>
+
+      <div class="upload-area" onclick="document.getElementById('pdfs').click()">
+        <div class="upload-label">Toque para escolher os PDFs ou arraste aqui</div>
+        <input type="file" id="pdfs" accept="application/pdf" multiple>
+      </div>
+
+      <div class="row-btns" style="margin-top:16px">
+        <button class="btn btn-secondary" onclick="enviar()">Enviar para a fila</button>
+        <button class="btn btn-primary" onclick="processar()">
+          <span id="spin-proc" class="spinner"></span><span id="txt-proc">Processar fila</span>
+        </button>
+      </div>
+
+      <div class="result-box" id="proc-box">
+        <div class="result-label">Resultado do processamento</div>
+        <div id="proc-log" style="margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+
+// ── Modal (pop-up) da atualização mensal ─────────────────────────────────
+function abrirModal() { $("modal-proc").classList.add("show"); }
+function fecharModal() { $("modal-proc").classList.remove("show"); }
+function fecharModalSeFundo(e) { if (e.target.id === "modal-proc") fecharModal(); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") fecharModal(); });
+
+// ── Enviar PDFs para a fila ──────────────────────────────────────────────
+async function enviar() {
+  const inp = $("pdfs");
+  if (!inp.files.length) { alert("Escolha ao menos um PDF."); return; }
+  const fd = new FormData();
+  for (const f of inp.files) fd.append("pdfs", f);
+  const res = await fetch("/relatorios/api/upload", { method:"POST", body:fd }).then(r=>r.json());
+  mostrarProc([{ok:res.ok, arquivo:"", msg:res.msg}]);
+  await atualizarStatus();
+}
+
+// ── Processar a fila ─────────────────────────────────────────────────────
+async function processar() {
+  $("spin-proc").style.display = "inline-block";
+  $("txt-proc").textContent = "Processando...";
+  try {
+    const res = await fetch("/relatorios/api/processar", { method:"POST" }).then(r=>r.json());
+    if (res.total === 0) { mostrarProc([{ok:false, arquivo:"", msg:"Nenhum PDF na fila."}]); }
+    else mostrarProc(res.itens);
+    if (res.status) aplicarStatus(res.status);
+  } finally {
+    $("spin-proc").style.display = "none";
+    $("txt-proc").textContent = "Processar fila";
+  }
+}
+
+function mostrarProc(itens) {
+  const log = $("proc-log");
+  log.innerHTML = itens.map(it => {
+    const cls = it.ok ? "log-ok" : "log-err";
+    const ico = it.ok ? "✓" : "✕";
+    const nome = it.arquivo ? `<b>${it.arquivo}</b> — ` : "";
+    return `<div class="log-line ${cls}">${ico} ${nome}${it.msg}</div>`;
+  }).join("");
+  $("proc-box").classList.add("show");
+}
+
+// ── Status do banco ──────────────────────────────────────────────────────
+async function atualizarStatus() {
+  const s = await fetch("/relatorios/api/status").then(r=>r.json());
+  aplicarStatus(s);
+}
+function aplicarStatus(s) {
+  $("m-meses").textContent = s.total_meses;
+  $("m-reg").textContent   = s.total_registros;
+  $("m-pend").textContent  = s.pendentes.length;
+  const ul = $("lista-meses");
+  if (!s.meses.length) {
+    ul.innerHTML = '<li><span class="q">Nenhum relatório processado ainda.</span></li>';
+  } else {
+    ul.innerHTML = s.meses.map(m =>
+      `<li><span>${m.rotulo} <span class="q">· ${m.periodo}</span></span><span class="pill">${m.produtos} prod.</span></li>`
+    ).join("");
+  }
+}
+
+// ── Consulta ─────────────────────────────────────────────────────────────
+async function consultar() {
+  const codigos = $("codigos").value;
+  $("cons-erro").classList.remove("show");
+  $("cons-resultado").style.display = "none";
+  $("spin-cons").style.display = "inline-block";
+  $("txt-cons").textContent = "Consultando...";
+  try {
+    const res = await fetch("/relatorios/api/consultar", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ codigos })
+    }).then(r=>r.json());
+
+    if (!res.ok) {
+      $("cons-msg-erro").textContent = res.msg;
+      $("cons-erro").classList.add("show");
+      return;
+    }
+    renderTabela(res);
+    $("cons-resultado").style.display = "block";
+  } finally {
+    $("spin-cons").style.display = "none";
+    $("txt-cons").textContent = "Consultar";
+  }
+}
+
+function renderTabela(res) {
+  const t = $("tabela");
+  let head = "<tr><th>Cód. Barras</th><th>Código</th><th>Descrição</th>";
+  for (const r of res.rotulos) head += `<th class="num">${r}</th>`;
+  head += '<th class="num tot">Total</th></tr>';
+
+  let body = "";
+  for (const ln of res.linhas) {
+    const cls = ln.encontrado ? "" : "nao";
+    body += `<tr class="${cls}"><td>${ln.codigo_barras}</td><td>${ln.codigo||""}</td>`;
+    body += `<td class="desc">${ln.encontrado ? ln.descricao : "— não encontrado —"}</td>`;
+    for (const m of res.meses) body += `<td class="num">${ln.qtds[m] ?? 0}</td>`;
+    body += `<td class="num tot">${ln.total}</td></tr>`;
+  }
+  t.innerHTML = head + body;
+}
+
+// ── Baixar Excel da consulta ─────────────────────────────────────────────
+async function baixarExcel() {
+  const codigos = $("codigos").value;
+  const res = await fetch("/relatorios/api/consultar/excel", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ codigos })
+  });
+  if (!res.ok) { alert("Erro ao gerar Excel."); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "consulta_vendas.xlsx";
+  document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

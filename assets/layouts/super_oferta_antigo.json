@@ -1,0 +1,65 @@
+{
+  "nome": "Super Oferta — Layout Antigo",
+  "imagem_base": "modelo.jpeg",
+  "contorno_preto": false,
+  "contorno_largura": 6,
+  "girar_imagens": false,
+  "debug_areas": false,
+  "campos": [
+    {
+      "area": [
+        685,
+        20,
+        2020,
+        640
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "id": "produto",
+      "label": "Nome do produto",
+      "maiusculo": true,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        965,
+        770,
+        1700,
+        1100
+      ],
+      "cor": [
+        203,
+        0,
+        0
+      ],
+      "fonte_path": "assets/impact.ttf",
+      "id": "preco",
+      "label": "Preço",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "preco_simples"
+    },
+    {
+      "area": [
+        1750,
+        933,
+        2020,
+        1050
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "id": "unidade",
+      "label": "Unidade",
+      "maiusculo": true,
+      "opcional": true,
+      "tipo": "texto"
+    }
+  ]
+}

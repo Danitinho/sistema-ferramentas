@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Lote e Vencimento{% endblock %}
+{% block header_title %}Lote e vencimento{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Loja{% endblock %}
+{% block content %}
+<div class="card">
+  <span class="badge badge-loja">Loja</span>
+  <div class="card-title">Acompanhar lote e vencimento</div>
+
+  <label>Produto ou código de barras</label>
+  <input type="text" id="produto" placeholder="Nome ou código" inputmode="search">
+
+  <label>Seção / departamento (opcional)</label>
+  <select id="secao">
+    <option value="">Todas as seções</option>
+    <option value="hortifruti">Hortifruti</option>
+    <option value="frios">Frios e laticínios</option>
+    <option value="padaria">Padaria</option>
+    <option value="acougue">Açougue</option>
+    <option value="mercearia">Mercearia</option>
+    <option value="limpeza">Limpeza e higiene</option>
+  </select>
+
+  <label>Filtrar por vencimento</label>
+  <select id="filtro-venc">
+    <option value="todos">Todos</option>
+    <option value="vencidos">Vencidos</option>
+    <option value="7dias">Vencem em 7 dias</option>
+    <option value="30dias">Vencem em 30 dias</option>
+  </select>
+
+  <button class="btn btn-primary" onclick="consultar()">Consultar</button>
+
+  <div class="result-box" id="resultado" style="display:none">
+    <div class="result-label">Resultado da consulta</div>
+    <div id="conteudo" style="font-size:14px; color:#3B6D11; margin-top:8px"></div>
+  </div>
+  <div class="result-box error" id="erro" style="display:none">
+    <div class="result-value error" id="msg-erro"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Como integrar</div>
+  <p style="font-size:13px; color:#5F5E5A; line-height:1.6">
+    Na rota <code>/loja/lote-vencimento/consultar</code> do <code>app.py</code>,
+    chame seu script existente passando os filtros. Retorne os lotes como JSON
+    e liste os resultados nesta página.
+  </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function consultar() {
+  document.getElementById("resultado").style.display = "none";
+  document.getElementById("erro").style.display = "none";
+
+  const res = await postJSON("/loja/lote-vencimento/consultar", {
+    produto:    document.getElementById("produto").value,
+    secao:      document.getElementById("secao").value,
+    filtroVenc: document.getElementById("filtro-venc").value,
+  });
+
+  if (res.erro) {
+    document.getElementById("msg-erro").textContent = res.erro;
+    document.getElementById("erro").style.display = "block";
+  } else {
+    document.getElementById("conteudo").textContent = res.mensagem || "Nenhum resultado.";
+    document.getElementById("resultado").style.display = "block";
+  }
+}
+</script>
+{% endblock %}
