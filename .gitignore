@@ -7,6 +7,7 @@ env/
 
 # Dados sensíveis
 dados/debitos.xlsx
+dados/debitos.db
 scripts/*.xlsx
 
 # Dados de runtime gerados pelo módulo de relatórios

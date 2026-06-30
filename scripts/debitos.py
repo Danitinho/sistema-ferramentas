@@ -1,255 +1,274 @@
 """
 scripts/debitos.py
-Módulo de débitos — vencimentos e rebaixas de preço.
-Armazena os dados em dados/debitos.xlsx (criado automaticamente).
+Módulo de débitos e bonificações por empresa.
+Persiste em dados/debitos.db (SQLite).
 """
 import os
 import uuid
+import sqlite3
 from datetime import datetime
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment
 
-# ── Caminhos ─────────────────────────────────────────────────────────────────
-BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DADOS_DIR   = os.path.join(BASE_DIR, "dados")
-ARQUIVO     = os.path.join(DADOS_DIR, "debitos.xlsx")
-
-# ── Cabeçalhos das abas ───────────────────────────────────────────────────────
-H_EMPRESAS      = ["cnpj", "razao_social"]
-H_DEBITOS       = ["id", "data", "cnpj", "razao_social", "tipo",
-                   "nf_numero", "produto", "quantidade", "valor_unit", "valor_debito", "obs"]
-H_BONIFICACOES  = ["id", "data", "cnpj", "razao_social", "nf_numero",
-                   "produto", "quantidade", "valor_unit", "valor_bonif", "obs"]
+BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DADOS_DIR = os.path.join(BASE_DIR, "dados")
+BANCO     = os.path.join(DADOS_DIR, "debitos.db")
 
 
-# ── Inicialização do arquivo ──────────────────────────────────────────────────
-def _init_arquivo():
-    """Cria o arquivo Excel com as abas necessárias se não existir."""
+def _conn():
     os.makedirs(DADOS_DIR, exist_ok=True)
-    if os.path.exists(ARQUIVO):
-        return
-    wb = Workbook()
-    _criar_aba(wb, "empresas",     H_EMPRESAS)
-    _criar_aba(wb, "debitos",      H_DEBITOS)
-    _criar_aba(wb, "bonificacoes", H_BONIFICACOES)
-    if "Sheet" in wb.sheetnames:
-        del wb["Sheet"]
-    wb.save(ARQUIVO)
+    conn = sqlite3.connect(BANCO)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    _init_schema(conn)
+    return conn
 
 
-def _criar_aba(wb, nome, headers):
-    ws = wb.create_sheet(nome)
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font      = Font(bold=True, color="FFFFFF")
-        cell.fill      = PatternFill("solid", start_color="1F4E79")
-        cell.alignment = Alignment(horizontal="center")
+def _init_schema(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS empresas (
+            cnpj         TEXT PRIMARY KEY,
+            razao_social TEXT NOT NULL,
+            criado_em    TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS debitos (
+            id          TEXT PRIMARY KEY,
+            cnpj        TEXT NOT NULL,
+            data        TEXT NOT NULL,
+            tipo        TEXT NOT NULL,   -- 'vencimento' | 'rebaxa'
+            nf_numero   TEXT,            -- só vencimento
+            produto     TEXT,            -- só rebaxa
+            quantidade  REAL,            -- só rebaxa
+            valor_unit  REAL,            -- só rebaxa
+            valor_total REAL NOT NULL,
+            obs         TEXT,
+            FOREIGN KEY (cnpj) REFERENCES empresas(cnpj) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS bonificacoes (
+            id          TEXT PRIMARY KEY,
+            cnpj        TEXT NOT NULL,
+            data        TEXT NOT NULL,
+            nf_numero   TEXT NOT NULL,
+            valor_total REAL NOT NULL,
+            obs         TEXT,
+            FOREIGN KEY (cnpj) REFERENCES empresas(cnpj) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_deb_cnpj  ON debitos(cnpj);
+        CREATE INDEX IF NOT EXISTS idx_bon_cnpj  ON bonificacoes(cnpj);
+    """)
+    conn.commit()
 
 
-def _wb():
-    _init_arquivo()
-    return load_workbook(ARQUIVO)
+def _uid():
+    return str(uuid.uuid4())[:8]
 
 
-def _salvar(wb):
-    wb.save(ARQUIVO)
+def _agora():
+    return datetime.now().strftime("%d/%m/%Y %H:%M")
 
 
-def _sheet_to_list(ws):
-    """Converte uma aba em lista de dicts usando a primeira linha como chave."""
-    rows = list(ws.values)
-    if not rows:
-        return []
-    headers = [str(h) for h in rows[0]]
-    return [dict(zip(headers, row)) for row in rows[1:] if any(v is not None for v in row)]
+def _parse_valor(v):
+    try:
+        val = round(float(str(v).replace(",", ".")), 2)
+        if val <= 0:
+            raise ValueError
+        return val
+    except (TypeError, ValueError):
+        return None
 
 
 # ── Empresas ──────────────────────────────────────────────────────────────────
+
 def listar_empresas():
-    wb = _wb()
-    return _sheet_to_list(wb["empresas"])
+    conn = _conn()
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT cnpj, razao_social FROM empresas ORDER BY razao_social"
+        ).fetchall()]
+    finally:
+        conn.close()
 
 
 def buscar_empresa(cnpj):
-    for e in listar_empresas():
-        if e["cnpj"] == cnpj:
-            return e
-    return None
+    conn = _conn()
+    try:
+        r = conn.execute(
+            "SELECT cnpj, razao_social FROM empresas WHERE cnpj = ?", (cnpj,)
+        ).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
 
 
 def adicionar_empresa(cnpj, razao_social):
     cnpj = cnpj.strip()
-    if buscar_empresa(cnpj):
+    razao_social = razao_social.strip()
+    if not cnpj or not razao_social:
+        return False, "CNPJ e razão social são obrigatórios."
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT INTO empresas (cnpj, razao_social, criado_em) VALUES (?, ?, ?)",
+            (cnpj, razao_social, _agora()),
+        )
+        conn.commit()
+        return True, "Empresa cadastrada."
+    except sqlite3.IntegrityError:
         return False, "CNPJ já cadastrado."
-    wb = _wb()
-    wb["empresas"].append([cnpj, razao_social.strip()])
-    _salvar(wb)
-    return True, "Empresa cadastrada com sucesso."
+    finally:
+        conn.close()
 
 
 def excluir_empresa(cnpj):
-    wb = _wb()
-    ws = wb["empresas"]
-    for row in ws.iter_rows(min_row=2):
-        if row[0].value == cnpj:
-            ws.delete_rows(row[0].row)
-            _salvar(wb)
-            return True, "Empresa removida."
-    return False, "Empresa não encontrada."
+    conn = _conn()
+    try:
+        r = conn.execute("DELETE FROM empresas WHERE cnpj = ?", (cnpj,))
+        conn.commit()
+        return (True, "Empresa removida.") if r.rowcount else (False, "Empresa não encontrada.")
+    finally:
+        conn.close()
 
 
 # ── Débitos ───────────────────────────────────────────────────────────────────
+
 def listar_debitos(cnpj=None):
-    wb = _wb()
-    dados = _sheet_to_list(wb["debitos"])
-    if cnpj:
-        dados = [d for d in dados if d["cnpj"] == cnpj]
-    return dados
+    conn = _conn()
+    try:
+        sql = "SELECT * FROM debitos"
+        sql += " WHERE cnpj = ?" if cnpj else ""
+        sql += " ORDER BY data DESC"
+        rows = conn.execute(sql, (cnpj,) if cnpj else ()).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs=""):
-    """
-    Vencimento: lançado por NF, com valor total direto (já vem do ERP).
-    """
-    empresa = buscar_empresa(cnpj)
-    if not empresa:
+    if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
-    if not nf_numero.strip():
+    nf = nf_numero.strip()
+    if not nf:
         return False, "Número da NF é obrigatório."
+    valor = _parse_valor(valor_total)
+    if valor is None:
+        return False, "Valor inválido."
+    conn = _conn()
     try:
-        v_total = round(float(str(valor_total).replace(",", ".")), 2)
-    except ValueError:
-        return False, "Valor total inválido."
-
-    wb = _wb()
-    wb["debitos"].append([
-        str(uuid.uuid4())[:8],
-        datetime.now().strftime("%d/%m/%Y %H:%M"),
-        cnpj,
-        empresa["razao_social"],
-        "vencimento",
-        nf_numero.strip(),
-        None,   # produto — não se aplica
-        None,   # quantidade — não se aplica
-        None,   # valor_unit — não se aplica
-        v_total,
-        obs.strip(),
-    ])
-    _salvar(wb)
-    return True, f"Vencimento NF {nf_numero} de R$ {v_total:.2f} registrado."
+        conn.execute(
+            "INSERT INTO debitos (id, cnpj, data, tipo, nf_numero, valor_total, obs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (_uid(), cnpj, _agora(), "vencimento", nf, valor, obs.strip()),
+        )
+        conn.commit()
+        return True, f"Vencimento NF {nf} de R$ {valor:.2f} registrado."
+    finally:
+        conn.close()
 
 
 def adicionar_debito_rebaxa(cnpj, produto, quantidade, valor_unit, obs=""):
-    """
-    Rebaxa: registrada por produto com quantidade e diferença unitária.
-    valor_unit = diferença entre preço original e preço rebaixado (ex: 0,50)
-    """
-    empresa = buscar_empresa(cnpj)
-    if not empresa:
+    if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
+    produto = produto.strip()
+    if not produto:
+        return False, "Nome do produto é obrigatório."
     try:
-        qtd      = float(str(quantidade).replace(",", "."))
-        v_unit   = float(str(valor_unit).replace(",", "."))
-        v_debito = round(qtd * v_unit, 2)
-    except ValueError:
-        return False, "Quantidade ou valor inválido."
-
-    wb = _wb()
-    wb["debitos"].append([
-        str(uuid.uuid4())[:8],
-        datetime.now().strftime("%d/%m/%Y %H:%M"),
-        cnpj,
-        empresa["razao_social"],
-        "rebaxa",
-        None,          # nf_numero — não se aplica
-        produto.strip(),
-        qtd,
-        v_unit,
-        v_debito,
-        obs.strip(),
-    ])
-    _salvar(wb)
-    return True, f"Rebaxa de R$ {v_debito:.2f} registrada."
+        qtd   = float(str(quantidade).replace(",", "."))
+        v_uni = float(str(valor_unit).replace(",", "."))
+        if qtd <= 0 or v_uni <= 0:
+            raise ValueError
+        valor = round(qtd * v_uni, 2)
+    except (TypeError, ValueError):
+        return False, "Quantidade ou valor unitário inválido."
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT INTO debitos (id, cnpj, data, tipo, produto, quantidade, valor_unit, valor_total, obs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_uid(), cnpj, _agora(), "rebaxa", produto, qtd, v_uni, valor, obs.strip()),
+        )
+        conn.commit()
+        return True, f"Rebaxa de R$ {valor:.2f} registrada."
+    finally:
+        conn.close()
 
 
 def excluir_debito(id_debito):
-    wb = _wb()
-    ws = wb["debitos"]
-    for row in ws.iter_rows(min_row=2):
-        if str(row[0].value) == id_debito:
-            ws.delete_rows(row[0].row)
-            _salvar(wb)
-            return True, "Débito removido."
-    return False, "Débito não encontrado."
+    conn = _conn()
+    try:
+        r = conn.execute("DELETE FROM debitos WHERE id = ?", (id_debito,))
+        conn.commit()
+        return (True, "Débito removido.") if r.rowcount else (False, "Débito não encontrado.")
+    finally:
+        conn.close()
 
 
 # ── Bonificações ──────────────────────────────────────────────────────────────
+
 def listar_bonificacoes(cnpj=None):
-    wb = _wb()
-    dados = _sheet_to_list(wb["bonificacoes"])
-    if cnpj:
-        dados = [b for b in dados if b["cnpj"] == cnpj]
-    return dados
+    conn = _conn()
+    try:
+        sql = "SELECT * FROM bonificacoes"
+        sql += " WHERE cnpj = ?" if cnpj else ""
+        sql += " ORDER BY data DESC"
+        rows = conn.execute(sql, (cnpj,) if cnpj else ()).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def adicionar_bonificacao(cnpj, nf_numero, valor_total, obs=""):
-    """
-    Bonificação: registrada por NF com valor total.
-    O valor abate diretamente no saldo devedor da empresa.
-    """
-    empresa = buscar_empresa(cnpj)
-    if not empresa:
+    if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
-    if not nf_numero.strip():
+    nf = nf_numero.strip()
+    if not nf:
         return False, "Número da NF é obrigatório."
+    valor = _parse_valor(valor_total)
+    if valor is None:
+        return False, "Valor inválido."
+    conn = _conn()
     try:
-        v_total = round(float(str(valor_total).replace(",", ".")), 2)
-    except ValueError:
-        return False, "Valor total inválido."
-
-    wb = _wb()
-    wb["bonificacoes"].append([
-        str(uuid.uuid4())[:8],
-        datetime.now().strftime("%d/%m/%Y %H:%M"),
-        cnpj,
-        empresa["razao_social"],
-        nf_numero.strip(),
-        None,    # produto — não se aplica
-        None,    # quantidade — não se aplica
-        None,    # valor_unit — não se aplica
-        v_total,
-        obs.strip(),
-    ])
-    _salvar(wb)
-    return True, f"Bonificação NF {nf_numero} de R$ {v_total:.2f} registrada."
+        conn.execute(
+            "INSERT INTO bonificacoes (id, cnpj, data, nf_numero, valor_total, obs) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (_uid(), cnpj, _agora(), nf, valor, obs.strip()),
+        )
+        conn.commit()
+        return True, f"Bonificação NF {nf} de R$ {valor:.2f} registrada."
+    finally:
+        conn.close()
 
 
 def excluir_bonificacao(id_bonif):
-    wb = _wb()
-    ws = wb["bonificacoes"]
-    for row in ws.iter_rows(min_row=2):
-        if str(row[0].value) == id_bonif:
-            ws.delete_rows(row[0].row)
-            _salvar(wb)
-            return True, "Bonificação removida."
-    return False, "Bonificação não encontrada."
+    conn = _conn()
+    try:
+        r = conn.execute("DELETE FROM bonificacoes WHERE id = ?", (id_bonif,))
+        conn.commit()
+        return (True, "Bonificação removida.") if r.rowcount else (False, "Bonificação não encontrada.")
+    finally:
+        conn.close()
 
 
-# ── Saldo por empresa ─────────────────────────────────────────────────────────
+# ── Saldo ─────────────────────────────────────────────────────────────────────
+
 def calcular_saldo(cnpj):
-    debitos      = listar_debitos(cnpj)
-    bonificacoes = listar_bonificacoes(cnpj)
-    total_deb  = sum(float(d["valor_debito"] or 0) for d in debitos)
-    total_bon  = sum(float(b["valor_bonif"]  or 0) for b in bonificacoes)
-    return {
-        "total_debito":      round(total_deb, 2),
-        "total_bonificacao": round(total_bon, 2),
-        "saldo_devedor":     round(total_deb - total_bon, 2),
-    }
+    conn = _conn()
+    try:
+        total_deb = conn.execute(
+            "SELECT COALESCE(SUM(valor_total), 0) FROM debitos WHERE cnpj = ?", (cnpj,)
+        ).fetchone()[0]
+        total_bon = conn.execute(
+            "SELECT COALESCE(SUM(valor_total), 0) FROM bonificacoes WHERE cnpj = ?", (cnpj,)
+        ).fetchone()[0]
+        saldo = round(total_deb - total_bon, 2)
+        return {
+            "total_debito":      round(total_deb, 2),
+            "total_bonificacao": round(total_bon, 2),
+            "saldo_devedor":     saldo,
+            "quitado":           saldo <= 0,
+        }
+    finally:
+        conn.close()
 
 
 def resumo_empresas():
-    """Retorna todas as empresas com seus respectivos saldos."""
     resultado = []
     for emp in listar_empresas():
         saldo = calcular_saldo(emp["cnpj"])
