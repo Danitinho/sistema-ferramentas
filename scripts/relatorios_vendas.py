@@ -79,7 +79,7 @@ def _init_schema(conn):
             codigo        TEXT,
             codigo_barras TEXT,
             descricao     TEXT,
-            qtd           INTEGER,
+            qtd           REAL,
             valor_total   REAL,
             perc          REAL,
             classe        TEXT,
@@ -90,6 +90,35 @@ def _init_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_vendas_mes    ON vendas(mes);
     """)
     conn.commit()
+    _migrar_qtd_para_real(conn)
+
+
+def _migrar_qtd_para_real(conn):
+    """Migra qtd de INTEGER para REAL caso o banco seja de uma versão anterior."""
+    info = conn.execute("PRAGMA table_info(vendas)").fetchall()
+    col = next((r for r in info if r["name"] == "qtd"), None)
+    if col and col["type"].upper() == "INTEGER":
+        conn.executescript("""
+            ALTER TABLE vendas RENAME TO _vendas_old;
+            CREATE TABLE vendas (
+                mes           TEXT NOT NULL,
+                intervalo     INTEGER,
+                codigo        TEXT,
+                codigo_barras TEXT,
+                descricao     TEXT,
+                qtd           REAL,
+                valor_total   REAL,
+                perc          REAL,
+                classe        TEXT,
+                FOREIGN KEY (mes) REFERENCES relatorios(mes) ON DELETE CASCADE
+            );
+            INSERT INTO vendas SELECT * FROM _vendas_old;
+            DROP TABLE _vendas_old;
+            CREATE INDEX IF NOT EXISTS idx_vendas_barras ON vendas(codigo_barras);
+            CREATE INDEX IF NOT EXISTS idx_vendas_codigo ON vendas(codigo);
+            CREATE INDEX IF NOT EXISTS idx_vendas_mes    ON vendas(mes);
+        """)
+        conn.commit()
 
 
 # ── Utilitários de mês ───────────────────────────────────────────────────────
@@ -380,7 +409,7 @@ def gerar_excel_consulta(resultado: dict, caminho: str):
                 cell.fill = fill
             if c >= 4:  # colunas numéricas
                 cell.alignment = Alignment(horizontal="right")
-                cell.number_format = "#,##0"
+                cell.number_format = "#,##0.###"
 
     larguras = [22, 12, 50] + [12] * len(meses) + [12]
     for i, w in enumerate(larguras, 1):

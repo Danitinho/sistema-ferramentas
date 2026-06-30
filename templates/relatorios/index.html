@@ -4,7 +4,13 @@
 {% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
 
 {% block extra_head %}
+<script src="/assets/chart.min.js"></script>
+<script src="/assets/chartjs-plugin-datalabels.min.js"></script>
 <style>
+  .log-line { font-size:13px; padding:6px 0; border-bottom:0.5px solid var(--border); }
+  .log-line:last-child { border-bottom:none; }
+  .log-ok  { color:var(--success); }
+  .log-err { color:var(--danger); }
   .mini-list { list-style:none; margin-top:10px; }
   .mini-list li {
     display:flex; justify-content:space-between; align-items:center;
@@ -14,22 +20,64 @@
   .mini-list li .q { color:var(--gray); font-size:12px; }
   .pill { font-size:11px; padding:2px 8px; border-radius:12px;
           background:var(--brand-light); color:var(--brand-dark); }
-  .log-line { font-size:13px; padding:6px 0; border-bottom:0.5px solid var(--border); }
-  .log-line:last-child { border-bottom:none; }
-  .log-ok  { color:var(--success); }
-  .log-err { color:var(--danger); }
-  .tbl-wrap { overflow-x:auto; margin-top:14px; -webkit-overflow-scrolling:touch; }
-  table.res { border-collapse:collapse; width:100%; font-size:13px; }
-  table.res th, table.res td { border:0.5px solid var(--border); padding:7px 9px; white-space:nowrap; }
-  table.res th { background:var(--brand); color:#fff; font-weight:600; position:sticky; top:0; }
-  table.res td.num { text-align:right; }
-  table.res td.desc { white-space:normal; min-width:200px; }
-  table.res tr.nao td { background:var(--danger-bg); color:var(--danger); }
-  table.res tr:nth-child(even):not(.nao) td { background:#fafaf7; }
-  table.res td.tot, table.res th.tot { font-weight:700; background:var(--gray-light); }
   .hint { font-size:13px; color:var(--gray); line-height:1.6; }
   .row-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .row-btns .btn { margin-top:0; }
+
+  /* ── Lista de produtos ── */
+  .produto-item {
+    border:0.5px solid var(--border);
+    border-radius:var(--radius);
+    margin-bottom:8px;
+    overflow:hidden;
+    background:#fff;
+  }
+  .produto-header {
+    display:flex; align-items:center; gap:12px;
+    padding:12px 14px;
+    cursor:pointer;
+    user-select:none;
+    transition:background 0.12s;
+  }
+  .produto-header:hover { background:var(--gray-light); }
+  .produto-info { flex:1; min-width:0; }
+  .produto-desc {
+    display:block; font-weight:600; font-size:14px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    color:var(--ink);
+  }
+  .produto-sub {
+    display:block; font-size:12px; color:var(--gray); margin-top:2px;
+  }
+  .produto-total { text-align:right; flex-shrink:0; }
+  .total-num {
+    display:block; font-size:20px; font-weight:700;
+    color:var(--graphite); line-height:1.1;
+  }
+  .total-label { display:block; font-size:11px; color:var(--gray); }
+  .seta {
+    flex-shrink:0; color:var(--gray);
+    transition:transform 0.2s ease;
+  }
+  .seta.aberta { transform:rotate(180deg); }
+
+  /* grafico inline */
+  .produto-grafico {
+    display:none;
+    padding:4px 14px 16px;
+    border-top:0.5px solid var(--border);
+    background:#fafaf9;
+  }
+  .produto-grafico.aberto { display:block; }
+  .canvas-wrap { position:relative; max-height:240px; }
+
+  /* produto não encontrado */
+  .produto-item.nao-enc .produto-header {
+    cursor:default; background:var(--danger-bg);
+  }
+  .produto-item.nao-enc .produto-header:hover { background:var(--danger-bg); }
+  .produto-item.nao-enc .produto-desc { color:var(--danger); font-weight:400; }
+  .produto-item.nao-enc .produto-sub  { color:var(--danger); opacity:.7; }
 
   /* ── Gatilho discreto da função administrativa ── */
   .admin-trigger {
@@ -42,7 +90,7 @@
   .admin-trigger:hover { color:var(--brand); }
   .admin-trigger .gear { font-size:15px; }
 
-  /* ── Modal (pop-up) ── */
+  /* ── Modal ── */
   .modal-overlay {
     position:fixed; inset:0; z-index:200;
     background:rgba(0,0,0,0.45);
@@ -80,7 +128,7 @@
 
 {% block content %}
 
-<!-- ── CARD: CONSULTAR CÓDIGOS DE BARRAS (função do dia a dia) ─────────── -->
+<!-- ── CARD: CONSULTAR CÓDIGOS DE BARRAS ─────────────────────────────────── -->
 <div class="card">
   <span class="badge badge-cadastro">Cadastro</span>
   <div class="card-title">Consultar venda por código de barras</div>
@@ -97,12 +145,17 @@
   </div>
 
   <div id="cons-resultado" style="display:none">
-    <div class="tbl-wrap"><table class="res" id="tabela"></table></div>
-    <button class="btn btn-secondary" onclick="baixarExcel()" style="margin-top:14px">⬇ Baixar Excel</button>
+    <div id="produtos-lista" style="margin-top:14px"></div>
+    <button class="btn btn-secondary" onclick="baixarExcel()" style="margin-top:6px">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="vertical-align:-2px;margin-right:4px">
+        <path d="M7.5 1v9m0 0L4.5 7m3 3 3-3M2 13h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Baixar Excel
+    </button>
   </div>
 </div>
 
-<!-- ── CARD: ESTADO DO BANCO + gatilho discreto da atualização mensal ──── -->
+<!-- ── CARD: ESTADO DO BANCO + gatilho discreto ──────────────────────────── -->
 <div class="card">
   <div class="card-title">Meses no banco de dados</div>
   <div class="metrics">
@@ -124,7 +177,7 @@
   </button>
 </div>
 
-<!-- ── MODAL: PROCESSAR PDFs (escondido até clicar) ───────────────────── -->
+<!-- ── MODAL: PROCESSAR PDFs ─────────────────────────────────────────────── -->
 <div class="modal-overlay" id="modal-proc" onclick="fecharModalSeFundo(event)">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-head">
@@ -163,13 +216,17 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// ── Modal (pop-up) da atualização mensal ─────────────────────────────────
+// estado global da consulta e dos gráficos instanciados
+let _consulta = null;
+const _graficos = {};
+
+// ── Modal ────────────────────────────────────────────────────────────────────
 function abrirModal() { $("modal-proc").classList.add("show"); }
 function fecharModal() { $("modal-proc").classList.remove("show"); }
 function fecharModalSeFundo(e) { if (e.target.id === "modal-proc") fecharModal(); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") fecharModal(); });
 
-// ── Enviar PDFs para a fila ──────────────────────────────────────────────
+// ── Upload de PDFs ───────────────────────────────────────────────────────────
 async function enviar() {
   const inp = $("pdfs");
   if (!inp.files.length) { alert("Escolha ao menos um PDF."); return; }
@@ -180,7 +237,7 @@ async function enviar() {
   await atualizarStatus();
 }
 
-// ── Processar a fila ─────────────────────────────────────────────────────
+// ── Processar fila ───────────────────────────────────────────────────────────
 async function processar() {
   $("spin-proc").style.display = "inline-block";
   $("txt-proc").textContent = "Processando...";
@@ -198,15 +255,15 @@ async function processar() {
 function mostrarProc(itens) {
   const log = $("proc-log");
   log.innerHTML = itens.map(it => {
-    const cls = it.ok ? "log-ok" : "log-err";
-    const ico = it.ok ? "✓" : "✕";
+    const cls  = it.ok ? "log-ok" : "log-err";
+    const ico  = it.ok ? "✓" : "✕";
     const nome = it.arquivo ? `<b>${it.arquivo}</b> — ` : "";
     return `<div class="log-line ${cls}">${ico} ${nome}${it.msg}</div>`;
   }).join("");
   $("proc-box").classList.add("show");
 }
 
-// ── Status do banco ──────────────────────────────────────────────────────
+// ── Status do banco ──────────────────────────────────────────────────────────
 async function atualizarStatus() {
   const s = await fetch("/relatorios/api/status").then(r=>r.json());
   aplicarStatus(s);
@@ -225,17 +282,21 @@ function aplicarStatus(s) {
   }
 }
 
-// ── Consulta ─────────────────────────────────────────────────────────────
+// ── Consulta ─────────────────────────────────────────────────────────────────
 async function consultar() {
-  const codigos = $("codigos").value;
   $("cons-erro").classList.remove("show");
   $("cons-resultado").style.display = "none";
   $("spin-cons").style.display = "inline-block";
   $("txt-cons").textContent = "Consultando...";
+
+  // destrói gráficos anteriores
+  Object.values(_graficos).forEach(c => c.destroy());
+  Object.keys(_graficos).forEach(k => delete _graficos[k]);
+
   try {
     const res = await fetch("/relatorios/api/consultar", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ codigos })
+      body: JSON.stringify({ codigos: $("codigos").value })
     }).then(r=>r.json());
 
     if (!res.ok) {
@@ -243,7 +304,8 @@ async function consultar() {
       $("cons-erro").classList.add("show");
       return;
     }
-    renderTabela(res);
+    _consulta = res;
+    renderProdutos(res);
     $("cons-resultado").style.display = "block";
   } finally {
     $("spin-cons").style.display = "none";
@@ -251,37 +313,151 @@ async function consultar() {
   }
 }
 
-function renderTabela(res) {
-  const t = $("tabela");
-  let head = "<tr><th>Cód. Barras</th><th>Código</th><th>Descrição</th>";
-  for (const r of res.rotulos) head += `<th class="num">${r}</th>`;
-  head += '<th class="num tot">Total</th></tr>';
+// ── Renderiza lista de produtos ───────────────────────────────────────────────
+function renderProdutos(res) {
+  const lista = $("produtos-lista");
+  lista.innerHTML = "";
 
-  let body = "";
-  for (const ln of res.linhas) {
-    const cls = ln.encontrado ? "" : "nao";
-    body += `<tr class="${cls}"><td>${ln.codigo_barras}</td><td>${ln.codigo||""}</td>`;
-    body += `<td class="desc">${ln.encontrado ? ln.descricao : "— não encontrado —"}</td>`;
-    for (const m of res.meses) body += `<td class="num">${ln.qtds[m] ?? 0}</td>`;
-    body += `<td class="num tot">${ln.total}</td></tr>`;
-  }
-  t.innerHTML = head + body;
+  res.linhas.forEach((ln, idx) => {
+    const item = document.createElement("div");
+
+    if (!ln.encontrado) {
+      item.className = "produto-item nao-enc";
+      item.innerHTML = `
+        <div class="produto-header">
+          <div class="produto-info">
+            <span class="produto-desc">Código não encontrado</span>
+            <span class="produto-sub">${esc(ln.codigo_barras)}</span>
+          </div>
+        </div>`;
+      lista.appendChild(item);
+      return;
+    }
+
+    item.className = "produto-item";
+    item.dataset.idx = idx;
+    item.innerHTML = `
+      <div class="produto-header" onclick="toggleGrafico(${idx})">
+        <div class="produto-info">
+          <span class="produto-desc">${esc(ln.descricao)}</span>
+          <span class="produto-sub">${esc(ln.codigo_barras)}${ln.codigo ? " · " + esc(ln.codigo) : ""}</span>
+        </div>
+        <div class="produto-total">
+          <span class="total-num">${ln.total.toLocaleString("pt-BR", {maximumFractionDigits: 3})}</span>
+          <span class="total-label">un. total</span>
+        </div>
+        <svg id="seta-${idx}" class="seta" width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M4.5 7l4.5 4.5L13.5 7" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="produto-grafico" id="grafico-${idx}">
+        <div class="canvas-wrap"><canvas id="canvas-${idx}"></canvas></div>
+      </div>`;
+    lista.appendChild(item);
+  });
 }
 
-// ── Baixar Excel da consulta ─────────────────────────────────────────────
+// ── Expandir / recolher gráfico ───────────────────────────────────────────────
+function toggleGrafico(idx) {
+  const graficoEl = $(`grafico-${idx}`);
+  const setaEl    = $(`seta-${idx}`);
+  const aberto    = graficoEl.classList.contains("aberto");
+
+  if (aberto) {
+    graficoEl.classList.remove("aberto");
+    setaEl.classList.remove("aberta");
+    if (_graficos[idx]) {
+      _graficos[idx].destroy();
+      delete _graficos[idx];
+    }
+  } else {
+    graficoEl.classList.add("aberto");
+    setaEl.classList.add("aberta");
+    criarGrafico(idx);
+  }
+}
+
+// ── Instancia o Chart.js ──────────────────────────────────────────────────────
+Chart.register(ChartDataLabels);
+
+function criarGrafico(idx) {
+  const ln      = _consulta.linhas[idx];
+  const rotulos = _consulta.rotulos;
+  const meses   = _consulta.meses;
+  const qtds    = meses.map(m => ln.qtds[m] ?? 0);
+
+  _graficos[idx] = new Chart($(`canvas-${idx}`), {
+    type: "bar",
+    data: {
+      labels: rotulos,
+      datasets: [{
+        label: "Qtd vendida",
+        data: qtds,
+        backgroundColor: "#E5A23B",
+        borderRadius: 4,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 3,
+      layout: { padding: { top: 20 } },
+      interaction: { mode: "index", axis: "x" },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => " " + ctx.parsed.y.toLocaleString("pt-BR", {maximumFractionDigits: 3}) + " un."
+          }
+        },
+        datalabels: {
+          anchor: "end",
+          align: "end",
+          color: "#26262B",
+          font: { size: 11, weight: "600" },
+          formatter: v => v > 0 ? v.toLocaleString("pt-BR", {maximumFractionDigits: 3}) : "",
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11 } }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 11 },
+            callback: v => v.toLocaleString("pt-BR", {maximumFractionDigits: 3})
+          },
+          grid: { color: "#ececec" }
+        }
+      }
+    }
+  });
+}
+
+// ── Baixar Excel ──────────────────────────────────────────────────────────────
 async function baixarExcel() {
-  const codigos = $("codigos").value;
   const res = await fetch("/relatorios/api/consultar/excel", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ codigos })
+    body: JSON.stringify({ codigos: $("codigos").value })
   });
   if (!res.ok) { alert("Erro ao gerar Excel."); return; }
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
   a.href = url; a.download = "consulta_vendas.xlsx";
   document.body.appendChild(a); a.click();
   a.remove(); URL.revokeObjectURL(url);
+}
+
+// ── Utilitário: escapa HTML ───────────────────────────────────────────────────
+function esc(str) {
+  return String(str ?? "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 </script>
 {% endblock %}

@@ -116,11 +116,12 @@ def consultar_lote():
 
 if __name__ == "__main__":
     ip = get_local_ip()
-    print("\n" + "═" * 52)
-    print("  Sistema de Ferramentas — iniciando...")
-    print("═" * 52)
+    sep = "=" * 52
+    print(f"\n{sep}")
+    print("  Sistema de Ferramentas -- iniciando...")
+    print(sep)
     print(f"  Acesso local:  http://localhost:5000")
     print(f"  Acesso na rede: http://{ip}:5000")
-    print("  (compartilhe o endereço da rede com sua equipe)")
-    print("═" * 52 + "\n")
+    print("  (compartilhe o endereco da rede com sua equipe)")
+    print(f"{sep}\n")
     app.run(host="0.0.0.0", port=5000, debug=False)

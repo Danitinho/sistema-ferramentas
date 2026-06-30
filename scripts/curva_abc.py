@@ -90,9 +90,9 @@ def parse_page(page) -> list[dict]:
         barras = buckets['barras'][0] if buckets['barras'] else ''
         desc   = ' '.join(buckets['desc'])
 
-        # Qtd: apenas tokens puramente numéricos na coluna qtd
-        qtd_tokens = [t for t in buckets['qtd'] if re.match(r'^\d+$', t)]
-        qtd = int(qtd_tokens[0]) if qtd_tokens else 0
+        # Qtd: aceita inteiros e decimais em notação BR (ex: 1,350 para produtos a granel)
+        qtd_tokens = [t for t in buckets['qtd'] if re.match(r'^\d+([.,]\d+)?$', t)]
+        qtd = br_float(qtd_tokens[0]) if qtd_tokens else 0.0
 
         # Valor: extrai padrão monetário dos tokens da coluna valor
         valor_raw = ' '.join(buckets['valor'])
