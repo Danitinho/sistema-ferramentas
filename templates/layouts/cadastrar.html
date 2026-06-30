@@ -7,227 +7,282 @@
 
 {% block extra_head %}
 <style>
-  /* ── Seções ─────────────────────────────────────────────────────────────── */
-  .section-label {
-    font-size: 11px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .07em; color: #888780; margin: 24px 0 8px;
+  /* ── Layout duas colunas ──────────────────────────────────────────────────── */
+  .editor-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 20px;
+    align-items: start;
   }
-  .card-section {
-    background: #fff; border: 0.5px solid rgba(0,0,0,0.1);
-    border-radius: 12px; padding: 16px; margin-bottom: 12px;
-  }
-
-  /* ── Formulário base ────────────────────────────────────────────────────── */
-  .form-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-  .form-row label { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px; }
-  .form-label-txt { font-size: 11px; color: #888780; font-weight: 600; }
-  input[type=text], input[type=number], select {
-    border: 0.5px solid rgba(0,0,0,0.18); border-radius: 8px;
-    padding: 8px 10px; font-size: 13px; width: 100%; box-sizing: border-box;
-    background: #fff; color: #1a1a18;
-  }
-  input[type=text]:focus, select:focus {
-    outline: none; border-color: var(--accent-dark); box-shadow: 0 0 0 3px rgba(26,111,196,.1);
+  @media (max-width: 820px) {
+    .editor-wrap { grid-template-columns: 1fr; }
+    .editor-preview { order: -1; }
   }
 
-  /* ── Upload imagem ──────────────────────────────────────────────────────── */
+  /* ── Seções ──────────────────────────────────────────────────────────────── */
+  .sec-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--gray); margin: 18px 0 6px;
+  }
+  .sec-label:first-child { margin-top: 0; }
+  .sec-card {
+    background: #fff; border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+  }
+
+  /* ── Formulário ──────────────────────────────────────────────────────────── */
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .form-row:last-child { margin-bottom: 0; }
+  .form-row label, .form-row .form-field {
+    display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px;
+  }
+  .flabel { font-size: 11px; font-weight: 600; color: var(--gray); }
+
+  /* ── Upload imagem ───────────────────────────────────────────────────────── */
+  .img-upload-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
   .upload-btn {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
-    border: 0.5px solid rgba(0,0,0,0.18); background: #f1efe8;
-    color: #333; cursor: pointer;
+    padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+    border: 0.5px solid var(--border); background: var(--gray-light);
+    color: var(--ink); cursor: pointer; white-space: nowrap; flex-shrink: 0;
   }
-  .upload-btn:hover { background: #e8e6df; }
-  .img-nome { font-size: 12px; color: #888780; font-family: monospace; margin-top: 6px; }
+  .upload-btn:hover { background: #E0DED9; }
+  .img-nome { font-size: 12px; color: var(--gray); font-family: monospace; word-break: break-all; }
 
-  /* ── Toggles ────────────────────────────────────────────────────────────── */
-  .toggles-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* ── Toggles ─────────────────────────────────────────────────────────────── */
+  .toggles-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
   .toggle-item {
     display: flex; align-items: center; gap: 7px;
-    background: #f9f8f4; border: 0.5px solid rgba(0,0,0,0.1);
-    border-radius: 8px; padding: 8px 12px; cursor: pointer;
-    font-size: 13px; color: #333; user-select: none;
+    background: var(--gray-light); border: 0.5px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 12px; cursor: pointer;
+    font-size: 13px; color: var(--ink); user-select: none;
   }
-  .toggle-item input { cursor: pointer; margin: 0; }
+  .toggle-item input { cursor: pointer; accent-color: var(--graphite); margin: 0; }
 
-  /* ── Card campo ─────────────────────────────────────────────────────────── */
-  .card-campo {
-    background: #f9f8f4; border: 0.5px solid rgba(0,0,0,0.1);
-    border-radius: 10px; padding: 14px; margin-bottom: 10px;
+  /* ── Campo card ──────────────────────────────────────────────────────────── */
+  .campo-card {
+    background: #fff; border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
+    position: relative;
   }
-  .campo-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 12px;
+  .campo-card::before {
+    content: ''; position: absolute; left: 0; top: 14px; bottom: 14px;
+    width: 3px; border-radius: 0 3px 3px 0;
+    background: var(--campo-cor, var(--amber));
   }
-  .campo-titulo { font-size: 13px; font-weight: 600; color: var(--accent-dark); }
+  .campo-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  }
+  .campo-num {
+    font-size: 10px; font-weight: 700; color: var(--gray);
+    background: var(--gray-light); border-radius: 6px; padding: 2px 7px; flex-shrink: 0;
+  }
+  .campo-titulo { font-size: 13px; font-weight: 600; color: var(--ink); flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .btn-rem {
     display: flex; align-items: center; gap: 4px;
-    background: #fee2e2; color: #991b1b; border: none;
-    border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px;
-    font-weight: 500;
+    background: none; border: none; cursor: pointer; color: var(--gray);
+    padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;
+    transition: color .12s, background .12s; flex-shrink: 0;
   }
+  .btn-rem:hover { color: var(--danger); background: var(--danger-bg); }
+  .divider-c { height: 0.5px; background: var(--border); margin: 10px 0; }
 
-  /* ── Seletor de cor ─────────────────────────────────────────────────────── */
-  .cor-wrapper { position: relative; }
+  /* ── Seletor de cor ──────────────────────────────────────────────────────── */
   .cor-display {
     display: flex; align-items: center; gap: 8px;
-    border: 0.5px solid rgba(0,0,0,0.18); border-radius: 8px;
-    padding: 7px 10px; background: #fff; cursor: pointer; font-size: 13px;
+    border: 0.5px solid var(--border); border-radius: var(--radius-sm);
+    padding: 7px 10px; background: #fff; cursor: pointer;
+    position: relative; overflow: hidden;
   }
   .cor-preview {
     width: 18px; height: 18px; border-radius: 4px;
     border: 0.5px solid rgba(0,0,0,0.15); flex-shrink: 0;
   }
-  .cor-texto { flex: 1; color: #555; font-family: monospace; font-size: 12px; }
-  .cor-chevron { color: #aaa; font-size: 10px; }
-  .cor-popover {
-    display: none; position: absolute; top: calc(100% + 6px); left: 0;
-    background: #fff; border: 0.5px solid rgba(0,0,0,0.15);
-    border-radius: 12px; padding: 12px; z-index: 200; width: 230px;
-    box-shadow: 0 4px 20px rgba(0,0,0,.1);
-  }
-  .cor-popover.aberto { display: block; }
-  .paleta-titulo { font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .06em; color: #aaa; margin-bottom: 6px; }
-  .paleta-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-bottom: 10px; }
-  .paleta-cor {
-    width: 22px; height: 22px; border-radius: 5px; cursor: pointer;
-    border: 0.5px solid rgba(0,0,0,0.1); transition: transform .1s;
-  }
-  .paleta-cor:hover { transform: scale(1.2); }
-  .paleta-cor.selecionada { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent-dark); }
-  .cor-rgb-row { display: flex; gap: 4px; align-items: center; }
-  .cor-rgb-row span { font-size: 10px; color: #aaa; font-weight: 600; min-width: 8px; }
-  .cor-rgb-row input {
-    padding: 5px 6px; font-size: 12px; font-family: monospace;
-    border-radius: 6px; text-align: center;
-  }
+  .cor-texto { flex: 1; color: var(--gray); font-family: monospace; font-size: 12px; }
+  .cor-chevron { color: var(--gray); font-size: 10px; }
 
-  /* ── Área / canvas ──────────────────────────────────────────────────────── */
-  .area-coords {
-    font-family: monospace; font-size: 11px; color: #555;
-    background: #eceae3; border-radius: 6px; padding: 5px 8px; margin-bottom: 5px;
-  }
-  .area-label { font-size: 11px; color: #888780; font-weight: 600; margin-bottom: 4px; }
-  .area-btn {
-    width: 100%; padding: 8px; border-radius: 8px; border: 0.5px dashed var(--accent-dark);
-    background: var(--accent-light); color: var(--accent-dark); font-size: 12px; font-weight: 600;
-    cursor: pointer;
-  }
-  .area-btn:hover { background: #cce3f7; }
-
-  /* ── Checkboxes inline ──────────────────────────────────────────────────── */
-  .checks-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  /* ── Checks ──────────────────────────────────────────────────────────────── */
+  .checks-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .check-item {
     display: flex; align-items: center; gap: 5px;
-    background: #fff; border: 0.5px solid rgba(0,0,0,0.12);
-    border-radius: 7px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+    background: var(--gray-light); border: 0.5px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; cursor: pointer;
   }
-  .check-item input { cursor: pointer; margin: 0; }
+  .check-item input { cursor: pointer; accent-color: var(--graphite); margin: 0; }
 
-  /* ── Adicionar campo ────────────────────────────────────────────────────── */
+  /* ── Área ─────────────────────────────────────────────────────────────────── */
+  .area-label { font-size: 11px; font-weight: 600; color: var(--gray); margin-bottom: 4px; }
+  .area-coords {
+    font-family: monospace; font-size: 11px; color: var(--gray);
+    background: var(--gray-light); border-radius: 6px; padding: 4px 8px; margin-bottom: 4px;
+  }
+  .area-btn {
+    width: 100%; padding: 8px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
+    border: 0.5px dashed var(--amber-dark);
+    background: var(--amber-light); color: var(--amber-dark); cursor: pointer;
+  }
+  .area-btn:hover { background: #EDD9A3; }
+
+  /* ── Botões ──────────────────────────────────────────────────────────────── */
   .btn-add-campo {
-    width: 100%; padding: 11px; border-radius: 10px;
-    border: 1.5px dashed rgba(0,0,0,0.18); background: none;
-    color: #888780; font-size: 13px; cursor: pointer; margin-bottom: 20px;
+    width: 100%; padding: 12px; border-radius: var(--radius); margin-bottom: 14px;
+    border: 1.5px dashed var(--border); background: none; font-size: 13px;
+    color: var(--gray); cursor: pointer; transition: border-color .15s, background .15s;
   }
-  .btn-add-campo:hover { background: #f9f8f4; border-color: #aaa; }
-
-  /* ── Botão salvar ───────────────────────────────────────────────────────── */
+  .btn-add-campo:hover { background: var(--gray-light); border-color: #999; }
   .btn-salvar {
-    width: 100%; padding: 13px; border-radius: 10px; border: none;
-    background: var(--brand); color: #fff; font-size: 14px; font-weight: 600;
-    cursor: pointer;
+    width: 100%; padding: 14px; border-radius: var(--radius); border: none;
+    background: var(--graphite); color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background .15s;
   }
-  .btn-salvar:hover { background: var(--brand-dark); }
+  .btn-salvar:hover { background: var(--graphite-2); }
 
-  /* ── Canvas overlay ─────────────────────────────────────────────────────── */
+  /* ── Coluna preview ──────────────────────────────────────────────────────── */
+  .editor-preview { position: sticky; top: 80px; }
+  .preview-card {
+    background: #fff; border: 0.5px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .preview-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 14px; border-bottom: 0.5px solid var(--border);
+    font-size: 13px; font-weight: 600; color: var(--ink);
+  }
+  .preview-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 8px;
+    background: var(--amber-light); color: var(--amber-dark); border-radius: 10px;
+  }
+  .preview-canvas-wrap {
+    background: #1C1C1E; min-height: 180px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #preview-canvas { display: block; width: 100%; height: auto; }
+  .preview-empty {
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px 16px; text-align: center; color: #666; gap: 8px;
+  }
+  .preview-empty p { font-size: 12px; margin: 0; line-height: 1.5; }
+  .preview-legend {
+    padding: 8px 12px; border-top: 0.5px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--ink); max-width: 100%;
+  }
+  .legend-cor {
+    width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+    border: 0.5px solid rgba(0,0,0,0.15);
+  }
+
+  /* ── Canvas overlay (definir área) ──────────────────────────────────────── */
   #canvas-overlay {
     display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,.75); z-index: 1000;
-    flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    background: rgba(0,0,0,.82); z-index: 1000;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   }
   #canvas-overlay.ativo { display: flex; }
-  #canvas-instrucao { color: #fff; font-size: 13px; }
+  #canvas-instrucao { color: #fff; font-size: 13px; opacity: .85; }
   #canvas-wrap {
-    position: relative; max-width: 90vw; max-height: 76vh;
+    position: relative; max-width: 90vw; max-height: 75vh;
     overflow: auto; background: #111; border-radius: 8px;
   }
   #canvas-editor { display: block; cursor: crosshair; }
   #canvas-acoes { display: flex; gap: 10px; }
   #canvas-acoes button {
-    padding: 9px 24px; border-radius: 8px; border: none;
+    padding: 10px 28px; border-radius: 8px; border: none;
     cursor: pointer; font-size: 13px; font-weight: 600;
   }
-  #btn-confirmar-area { background: var(--brand); color: #fff; }
-  #btn-cancelar-area  { background: #fee2e2; color: #991b1b; }
-
-  /* ── Divisor dentro do card ─────────────────────────────────────────────── */
-  .divider-campo { height: 0.5px; background: rgba(0,0,0,0.08); margin: 10px 0; }
+  #btn-confirmar-area { background: var(--graphite); color: #fff; }
+  #btn-cancelar-area  { background: var(--danger-bg); color: var(--danger); }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="editor-wrap">
 
-<!-- ── Nome do layout ─────────────────────────────────────────────────────── -->
-<div class="section-label">Identificação</div>
-<div class="card-section">
-  <div class="form-row">
-    <label>
-      <span class="form-label-txt">Nome do layout</span>
-      <input type="text" id="layout-nome"
-             value="{{ layout.nome if layout else '' }}"
-             placeholder="Ex: Super Oferta V2">
-    </label>
+  <!-- ── Coluna esquerda: formulário ───────────────────────────────────── -->
+  <div class="editor-form">
+
+    <div class="sec-label">Identificação</div>
+    <div class="sec-card">
+      <div class="form-row">
+        <label>
+          <span class="flabel">Nome do layout</span>
+          <input type="text" id="layout-nome"
+                 value="{{ layout.nome if layout else '' }}"
+                 placeholder="Ex: Super Oferta V2">
+        </label>
+      </div>
+      <div class="img-upload-row">
+        <label class="upload-btn" for="input-imagem">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 1v8M3 5l4-4 4 4M1 11.5h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Selecionar imagem
+        </label>
+        <input type="file" id="input-imagem" accept="image/*" style="display:none;">
+        <span class="img-nome" id="imagem-nome">
+          {% if layout %}{{ layout.imagem_base }}{% else %}Nenhuma imagem selecionada{% endif %}
+        </span>
+      </div>
+    </div>
+
+    <div class="sec-label">Opções</div>
+    <div class="sec-card">
+      <div class="toggles-wrap">
+        <label class="toggle-item">
+          <input type="checkbox" id="contorno-preto"
+                 {% if layout and layout.contorno_preto %}checked{% endif %}>
+          Contorno preto
+        </label>
+        <label class="toggle-item">
+          <input type="checkbox" id="debug-areas"
+                 {% if layout and layout.debug_areas %}checked{% endif %}>
+          Modo debug
+        </label>
+      </div>
+    </div>
+
+    <div class="sec-label">Campos</div>
+    <div id="campos-container"></div>
+
+    <button type="button" class="btn-add-campo" onclick="adicionarCampo()">
+      + Adicionar campo
+    </button>
+
+    <button type="button" class="btn-salvar" onclick="salvar()">Salvar layout</button>
+    <div id="msg-salvo" style="margin-top:10px;"></div>
+
   </div>
+
+  <!-- ── Coluna direita: preview ───────────────────────────────────────── -->
+  <div class="editor-preview">
+    <div class="preview-card">
+      <div class="preview-header">
+        <span>Preview ao vivo</span>
+        <span class="preview-badge" id="preview-badge">0 campos</span>
+      </div>
+      <div class="preview-canvas-wrap" id="preview-wrap">
+        <canvas id="preview-canvas" style="display:none;"></canvas>
+        <div class="preview-empty" id="preview-empty" style="display:flex;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#888"
+               stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <path d="M21 15l-5-5L5 21"/>
+          </svg>
+          <p>Selecione uma imagem base<br>para ver o preview</p>
+        </div>
+      </div>
+      <div class="preview-legend" id="preview-legend" style="display:none;"></div>
+    </div>
+  </div>
+
 </div>
 
-<!-- ── Imagem base ────────────────────────────────────────────────────────── -->
-<div class="section-label">Imagem base</div>
-<div class="card-section">
-  <label class="upload-btn" for="input-imagem">
-    📁 Selecionar imagem
-  </label>
-  <input type="file" id="input-imagem" accept="image/*" style="display:none;">
-  <div class="img-nome" id="imagem-nome">
-    {% if layout %}{{ layout.imagem_base }}{% else %}Nenhuma imagem selecionada{% endif %}
-  </div>
-</div>
-
-<!-- ── Opções gerais ──────────────────────────────────────────────────────── -->
-<div class="section-label">Opções</div>
-<div class="card-section">
-  <div class="toggles-grid">
-    <label class="toggle-item">
-      <input type="checkbox" id="contorno-preto"
-             {% if layout and layout.contorno_preto %}checked{% endif %}>
-      Contorno preto
-    </label>
-    <label class="toggle-item">
-      <input type="checkbox" id="debug-areas"
-             {% if layout and layout.debug_areas %}checked{% endif %}>
-      Modo debug
-    </label>
-  </div>
-</div>
-
-<!-- ── Campos ─────────────────────────────────────────────────────────────── -->
-<div class="section-label">Campos</div>
-
-<div id="campos-container"></div>
-
-<button type="button" class="btn-add-campo" onclick="adicionarCampo()">
-  + Adicionar campo
-</button>
-
-<!-- ── Salvar ─────────────────────────────────────────────────────────────── -->
-<button type="button" class="btn-salvar" onclick="salvar()">
-  Salvar layout
-</button>
-
-<div id="msg-salvo" style="margin-top:12px;"></div>
-
-<!-- ── Canvas overlay ────────────────────────────────────────────────────── -->
+<!-- Canvas overlay para definir áreas -->
 <div id="canvas-overlay">
   <div id="canvas-instrucao">Clique e arraste para definir a área do campo</div>
   <div id="canvas-wrap">
@@ -238,45 +293,73 @@
     <button id="btn-cancelar-area"  onclick="cancelarArea()">✕ Cancelar</button>
   </div>
 </div>
-
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-// ── Estado global ─────────────────────────────────────────────────────────────
-let campos      = [];
-let imagemBase  = "{{ layout.imagem_base if layout else '' }}";
-let imagemObj   = null;
-let escala      = 1;
-let campoCbIdx  = null;
-let subCampo    = null;
-let retangulo   = null;
-let desenhando  = false;
+// ── Estado ────────────────────────────────────────────────────────────────────
+let campos     = [];
+let imagemBase = "{{ layout.imagem_base if layout else '' }}";
+let imagemObj  = null;
+let escala     = 1;
+let campoCbIdx = null;
+let subCampo   = null;
+let retangulo  = null;
+let desenhando = false;
 let startX, startY;
 let fontesDisponiveis = [];
 
-const TIPOS = ["texto", "texto_riscado", "preco_simples", "preco_split"];
+const TIPOS      = ["texto", "texto_riscado", "preco_simples", "preco_split"];
+const CORES_PREV = ['#ef4444','#f59e0b','#22c55e','#3b82f6','#a855f7','#ec4899'];
 
-// ── Paleta de cores predefinidas ──────────────────────────────────────────────
-const PALETA = [
-  [0,0,0],[255,255,255],[203,0,0],[220,50,50],[255,100,0],
-  [255,165,0],[255,200,0],[255,230,0],[0,150,0],[0,100,180],
-  [26,111,196],[100,60,180],[180,0,120],[120,80,40],[80,80,80],
-  [150,150,150]
-];
+// Carrega fonte Anton localmente (mesma do servidor) para o canvas de preview
+const _antonFace = new FontFace('PreviewAnton', 'url(/assets/Anton-Regular.ttf)');
+_antonFace.load().then(f => { document.fonts.add(f); atualizarPreview(); }).catch(() => {});
 
+// Ajusta ctx.font para caber texto em (maxW × maxH)
+function ajustarFonte(ctx, texto, maxW, maxH) {
+  let size = 6;
+  while (size < 800) {
+    ctx.font = `bold ${size + 2}px PreviewAnton, sans-serif`;
+    const m  = ctx.measureText(texto);
+    const mh = (m.actualBoundingBoxAscent || size * 0.8) + (m.actualBoundingBoxDescent || size * 0.15);
+    if (m.width > maxW * 0.9 || mh > maxH * 0.85) break;
+    size += 2;
+  }
+  ctx.font = `bold ${Math.max(8, size)}px PreviewAnton, sans-serif`;
+}
+
+// Desenha texto centralizado na caixa (x1,y1)-(x2,y2) com cor [r,g,b]
+function drawTexto(ctx, texto, x1, y1, x2, y2, cor) {
+  const w = x2 - x1, h = y2 - y1;
+  if (w < 4 || h < 4) return;
+  ajustarFonte(ctx, texto, w, h);
+  ctx.fillStyle = `rgb(${cor[0]},${cor[1]},${cor[2]})`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(texto, x1 + w / 2, y1 + h / 2);
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+// Retorna texto de exemplo conforme o tipo do campo
+function exText(c) {
+  switch (c.tipo) {
+    case 'preco_simples': return '12,99';
+    case 'texto_riscado': return 'R$ 9,99';
+    default: return c.label || c.id || 'Texto';
+  }
+}
+
+// ── Utilidades de cor ─────────────────────────────────────────────────────────
 function rgbToHex(r,g,b) {
   return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
 }
-
 function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1,3),16);
-  const g = parseInt(hex.slice(3,5),16);
-  const b = parseInt(hex.slice(5,7),16);
-  return [r,g,b];
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
 }
 
-// ── Inicialização ─────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
   const r = await fetch('/layouts/fontes');
   fontesDisponiveis = await r.json();
@@ -287,17 +370,9 @@ function hexToRgb(hex) {
   }
   renderCampos();
   if (imagemBase) carregarImagemPreview(imagemBase, true);
-
-  // Fechar popovers ao clicar fora
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.cor-wrapper')) {
-      document.querySelectorAll('.cor-popover.aberto')
-              .forEach(p => p.classList.remove('aberto'));
-    }
-  });
 })();
 
-// ── Upload imagem ─────────────────────────────────────────────────────────────
+// ── Upload de imagem ──────────────────────────────────────────────────────────
 document.getElementById('input-imagem').addEventListener('change', async function() {
   const file = this.files[0];
   if (!file) return;
@@ -316,6 +391,7 @@ document.getElementById('input-imagem').addEventListener('change', async functio
 
 function carregarImagemPreview(src, isNome) {
   imagemObj = new Image();
+  imagemObj.onload = atualizarPreview;
   imagemObj.src = isNome ? '/assets/' + src : src;
 }
 
@@ -329,6 +405,7 @@ function renderCampos() {
     atualizarCorDisplay(i, 'cor', c.cor || [0,0,0]);
     if (c.tipo === 'texto_riscado') atualizarCorDisplay(i, 'cor_x', c.cor_x || [180,0,0]);
   });
+  atualizarPreview();
 }
 
 function preencherSelectFonte(i, fonteAtual) {
@@ -343,40 +420,50 @@ function preencherSelectFonte(i, fonteAtual) {
 // ── Construir card de campo ───────────────────────────────────────────────────
 function buildCampoEl(c, i) {
   const div = document.createElement('div');
-  div.className = 'card-campo';
+  div.className = 'campo-card';
   div.id = `campo-${i}`;
+  const corHex = c.cor ? rgbToHex(...c.cor) : CORES_PREV[i % CORES_PREV.length];
+  div.style.setProperty('--campo-cor', corHex);
 
   const isSplit = c.tipo === 'preco_split';
-  const temValorFixo = c.valor_fixo !== undefined && c.valor_fixo !== '';
+  const temFixo = c.valor_fixo !== undefined && c.valor_fixo !== '';
 
   div.innerHTML = `
-    <div class="campo-header">
-      <span class="campo-titulo">Campo ${i + 1}</span>
-      <button class="btn-rem" onclick="removerCampo(${i})">✕ Remover</button>
+    <div class="campo-head">
+      <span class="campo-num">${i + 1}</span>
+      <span class="campo-titulo" id="titulo-${i}">${c.label || c.id || 'Campo ' + (i+1)}</span>
+      <button class="btn-rem" onclick="removerCampo(${i})">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M1 10L10 1M1 1l9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Remover
+      </button>
     </div>
 
     <div class="form-row">
       <label>
-        <span class="form-label-txt">ID (sem espaços)</span>
-        <input type="text" value="${c.id || ''}" oninput="atualizarCampo(${i},'id',this.value)"
+        <span class="flabel">ID</span>
+        <input type="text" value="${c.id || ''}"
+               oninput="atualizarCampo(${i},'id',this.value)"
                placeholder="ex: produto">
       </label>
       <label>
-        <span class="form-label-txt">Label (exibição)</span>
-        <input type="text" value="${c.label || ''}" oninput="atualizarCampo(${i},'label',this.value)"
+        <span class="flabel">Label</span>
+        <input type="text" value="${c.label || ''}"
+               oninput="atualizarCampoLabel(${i}, this.value)"
                placeholder="ex: Nome do produto">
       </label>
     </div>
 
     <div class="form-row">
       <label>
-        <span class="form-label-txt">Tipo</span>
+        <span class="flabel">Tipo</span>
         <select onchange="atualizarTipo(${i}, this.value)">
           ${TIPOS.map(t => `<option value="${t}" ${c.tipo===t?'selected':''}>${t}</option>`).join('')}
         </select>
       </label>
       <label>
-        <span class="form-label-txt">Fonte</span>
+        <span class="flabel">Fonte</span>
         <select id="fonte-sel-${i}" onchange="atualizarCampo(${i},'fonte_path',this.value)">
           <option value="">Padrão (Anton)</option>
         </select>
@@ -384,127 +471,89 @@ function buildCampoEl(c, i) {
     </div>
 
     <div class="form-row">
-      <label>
-        <span class="form-label-txt">Cor do texto</span>
+      <div class="form-field">
+        <span class="flabel">Cor do texto</span>
         ${buildCorSelector(i, 'cor', c.cor || [0,0,0])}
-      </label>
+      </div>
       ${c.tipo === 'texto_riscado' ? `
-      <label>
-        <span class="form-label-txt">Cor do risco</span>
+      <div class="form-field">
+        <span class="flabel">Cor do risco</span>
         ${buildCorSelector(i, 'cor_x', c.cor_x || [180,0,0])}
-      </label>` : ''}
+      </div>` : ''}
     </div>
 
-    <div class="divider-campo"></div>
+    <div class="divider-c"></div>
 
-    <div class="checks-row">
+    <div class="checks-row" style="margin-bottom:10px;">
       <label class="check-item">
-        <input type="checkbox" ${c.maiusculo?'checked':''} onchange="atualizarCampo(${i},'maiusculo',this.checked)">
+        <input type="checkbox" ${c.maiusculo?'checked':''}
+               onchange="atualizarCampo(${i},'maiusculo',this.checked)">
         Maiúsculo
       </label>
       <label class="check-item">
-        <input type="checkbox" ${c.opcional?'checked':''} onchange="atualizarCampo(${i},'opcional',this.checked)">
+        <input type="checkbox" ${c.opcional?'checked':''}
+               onchange="atualizarCampo(${i},'opcional',this.checked)">
         Opcional
       </label>
       <label class="check-item">
-        <input type="checkbox" id="preenchido-chk-${i}" ${temValorFixo?'checked':''}
+        <input type="checkbox" id="preenchido-chk-${i}" ${temFixo?'checked':''}
                onchange="togglePreenchido(${i}, this.checked)">
         Pré-preenchido
       </label>
     </div>
 
-    <div id="preenchido-row-${i}" class="form-row" style="${temValorFixo?'':'display:none;'}">
-      <label>
-        <span class="form-label-txt">Valor fixo</span>
-        <input type="text" value="${c.valor_fixo||''}"
-               oninput="atualizarCampo(${i},'valor_fixo',this.value)"
-               placeholder="ex: Boas compras!">
-      </label>
+    <div id="preenchido-row-${i}" style="${temFixo?'':'display:none;'}margin-bottom:10px;">
+      <div class="flabel" style="margin-bottom:4px;">Valor fixo</div>
+      <input type="text" value="${c.valor_fixo||''}"
+             oninput="atualizarCampo(${i},'valor_fixo',this.value)"
+             placeholder="ex: Boas compras!">
     </div>
 
-    <div class="divider-campo"></div>
+    <div class="divider-c"></div>
 
     ${isSplit ? buildAreasSplit(c, i) : buildAreaSimples(c, i)}
   `;
   return div;
 }
 
-// ── Seletor de cor ────────────────────────────────────────────────────────────
+// ── Seletor de cor (input[type=color] nativo) ─────────────────────────────────
 function buildCorSelector(i, chave, cor) {
-  const hex   = rgbToHex(...cor);
-  const label = cor.join(', ');
-  const pid   = `popover-${i}-${chave}`;
+  const hex = rgbToHex(...cor);
+  const pid = `cor-input-${i}-${chave}`;
   return `
-    <div class="cor-wrapper" id="wrapper-${i}-${chave}">
-      <div class="cor-display" onclick="togglePopover('${pid}')">
-        <div class="cor-preview" id="preview-${i}-${chave}" style="background:${hex};"></div>
-        <span class="cor-texto" id="texto-${i}-${chave}">${label}</span>
-        <span class="cor-chevron">▼</span>
-      </div>
-      <div class="cor-popover" id="${pid}">
-        <div class="paleta-titulo">Paleta rápida</div>
-        <div class="paleta-grid">
-          ${PALETA.map(p => `
-            <div class="paleta-cor" style="background:${rgbToHex(...p)};"
-                 title="${p.join(',')}"
-                 onclick="selecionarCorPaleta(${i},'${chave}',[${p}])"></div>
-          `).join('')}
-        </div>
-        <div class="paleta-titulo">Personalizado (R / G / B)</div>
-        <div class="cor-rgb-row">
-          <span>R</span>
-          <input type="number" id="r-${i}-${chave}" min="0" max="255" value="${cor[0]}"
-                 oninput="atualizarCorRGB(${i},'${chave}')">
-          <span>G</span>
-          <input type="number" id="g-${i}-${chave}" min="0" max="255" value="${cor[1]}"
-                 oninput="atualizarCorRGB(${i},'${chave}')">
-          <span>B</span>
-          <input type="number" id="b-${i}-${chave}" min="0" max="255" value="${cor[2]}"
-                 oninput="atualizarCorRGB(${i},'${chave}')">
-        </div>
-      </div>
+    <div class="cor-display">
+      <div class="cor-preview" id="preview-${i}-${chave}" style="background:${hex};"></div>
+      <span class="cor-texto" id="texto-${i}-${chave}">${hex}</span>
+      <span class="cor-chevron">▼</span>
+      <input type="color" id="${pid}" value="${hex}"
+             style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:none;padding:0;"
+             oninput="selecionarCorHex(${i},'${chave}',this.value)"
+             onchange="selecionarCorHex(${i},'${chave}',this.value)">
     </div>`;
 }
 
-function togglePopover(pid) {
-  const pop = document.getElementById(pid);
-  const jaAberto = pop.classList.contains('aberto');
-  document.querySelectorAll('.cor-popover.aberto').forEach(p => p.classList.remove('aberto'));
-  if (!jaAberto) pop.classList.add('aberto');
-}
-
-function selecionarCorPaleta(i, chave, cor) {
+function selecionarCorHex(i, chave, hex) {
+  const cor = hexToRgb(hex);
   campos[i][chave] = cor;
   atualizarCorDisplay(i, chave, cor);
-  // Atualiza inputs RGB
-  document.getElementById(`r-${i}-${chave}`).value = cor[0];
-  document.getElementById(`g-${i}-${chave}`).value = cor[1];
-  document.getElementById(`b-${i}-${chave}`).value = cor[2];
-  // Marca selecionada
-  const pid = `popover-${i}-${chave}`;
-  document.querySelectorAll(`#${pid} .paleta-cor`).forEach(el => {
-    el.classList.toggle('selecionada', el.title === cor.join(','));
-  });
-}
-
-function atualizarCorRGB(i, chave) {
-  const r = parseInt(document.getElementById(`r-${i}-${chave}`).value) || 0;
-  const g = parseInt(document.getElementById(`g-${i}-${chave}`).value) || 0;
-  const b = parseInt(document.getElementById(`b-${i}-${chave}`).value) || 0;
-  const cor = [r, g, b];
-  campos[i][chave] = cor;
-  atualizarCorDisplay(i, chave, cor);
+  if (chave === 'cor') {
+    const card = document.getElementById(`campo-${i}`);
+    if (card) card.style.setProperty('--campo-cor', hex);
+  }
+  atualizarPreview();
 }
 
 function atualizarCorDisplay(i, chave, cor) {
-  const hex = rgbToHex(...cor);
+  const hex  = rgbToHex(...cor);
   const prev = document.getElementById(`preview-${i}-${chave}`);
   const txt  = document.getElementById(`texto-${i}-${chave}`);
+  const inp  = document.getElementById(`cor-input-${i}-${chave}`);
   if (prev) prev.style.background = hex;
-  if (txt)  txt.textContent = cor.join(', ');
+  if (txt)  txt.textContent = hex;
+  if (inp)  inp.value = hex;
 }
 
-// ── Áreas ─────────────────────────────────────────────────────────────────────
+// ── Construtores de área ──────────────────────────────────────────────────────
 function buildAreaSimples(c, i) {
   const a = c.area || [0,0,0,0];
   return `
@@ -519,19 +568,19 @@ function buildAreasSplit(c, i) {
   const ai = c.area_inteiro  || [0,0,0,0];
   const ac = c.area_centavos || [0,0,0,0];
   return `
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <div style="flex:1; min-width:140px;">
-        <div class="area-label">Área — Parte inteira</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:130px;">
+        <div class="area-label">Parte inteira</div>
         <div class="area-coords" id="coords-${i}-area_inteiro">(${ai[0]}, ${ai[1]}, ${ai[2]}, ${ai[3]})</div>
         <button class="area-btn" onclick="abrirCanvas(${i},'area_inteiro')">🎯 Definir</button>
       </div>
-      <div style="flex:1; min-width:140px;">
-        <div class="area-label">Área — Centavos</div>
+      <div style="flex:1;min-width:130px;">
+        <div class="area-label">Centavos</div>
         <div class="area-coords" id="coords-${i}-area_centavos">(${ac[0]}, ${ac[1]}, ${ac[2]}, ${ac[3]})</div>
         <button class="area-btn" onclick="abrirCanvas(${i},'area_centavos')">🎯 Definir</button>
       </div>
     </div>
-    <label class="check-item" style="margin-top:8px; display:inline-flex;">
+    <label class="check-item" style="margin-top:8px;display:inline-flex;">
       <input type="checkbox" id="cent-ajust-${i}"
              ${c.centavos_ajustado!==false?'checked':''}
              onchange="atualizarCampo(${i},'centavos_ajustado',this.checked)">
@@ -539,8 +588,107 @@ function buildAreasSplit(c, i) {
     </label>`;
 }
 
+// ── Preview ao vivo ───────────────────────────────────────────────────────────
+function atualizarPreview() {
+  const canvas = document.getElementById('preview-canvas');
+  const wrap   = document.getElementById('preview-wrap');
+  const empty  = document.getElementById('preview-empty');
+  const legend = document.getElementById('preview-legend');
+  const badge  = document.getElementById('preview-badge');
+
+  if (badge) badge.textContent = campos.length + ' campo' + (campos.length !== 1 ? 's' : '');
+
+  if (!imagemObj || !imagemObj.naturalWidth) {
+    canvas.style.display = 'none';
+    empty.style.display  = 'flex';
+    legend.style.display = 'none';
+    return;
+  }
+
+  const maxW = wrap.clientWidth || 320;
+  const esc  = maxW / imagemObj.naturalWidth;
+  canvas.width  = maxW;
+  canvas.height = Math.round(imagemObj.naturalHeight * esc);
+  canvas.style.display = 'block';
+  empty.style.display  = 'none';
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(imagemObj, 0, 0, canvas.width, canvas.height);
+
+  let temAlgumaArea = false;
+
+  campos.forEach((c, i) => {
+    const stroke = CORES_PREV[i % CORES_PREV.length];
+    const cor    = c.cor || [0, 0, 0];
+
+    function renderArea(rect, texto, corTexto) {
+      if (!rect || rect.every(v => v === 0)) return;
+      const [x1,y1,x2,y2] = rect.map(v => Math.round(v * esc));
+      const w = x2 - x1, h = y2 - y1;
+      if (w < 2 || h < 2) return;
+      temAlgumaArea = true;
+      // Fundo semi-transparente + borda
+      ctx.fillStyle   = stroke + '20';
+      ctx.fillRect(x1, y1, w, h);
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth   = 2;
+      ctx.strokeRect(x1, y1, w, h);
+      // Texto de exemplo centralizado na área
+      drawTexto(ctx, texto, x1, y1, x2, y2, corTexto);
+    }
+
+    if (c.tipo === 'preco_split') {
+      renderArea(c.area_inteiro,  '12',  cor);
+      renderArea(c.area_centavos, ',99', cor);
+    } else if (c.area && !c.area.every(v => v === 0)) {
+      const [x1,y1,x2,y2] = c.area.map(v => Math.round(v * esc));
+      const w = x2 - x1, h = y2 - y1;
+      if (w >= 2 && h >= 2) {
+        temAlgumaArea = true;
+        ctx.fillStyle   = stroke + '20';
+        ctx.fillRect(x1, y1, w, h);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth   = 2;
+        ctx.strokeRect(x1, y1, w, h);
+        drawTexto(ctx, exText(c), x1, y1, x2, y2, cor);
+        if (c.tipo === 'texto_riscado') {
+          const corX = c.cor_x || [180, 0, 0];
+          ctx.strokeStyle = `rgb(${corX[0]},${corX[1]},${corX[2]})`;
+          ctx.lineWidth   = Math.max(2, Math.round(w * 0.045));
+          ctx.lineCap     = 'round';
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke();
+          ctx.lineCap = 'butt';
+        }
+      }
+    }
+  });
+
+  if (temAlgumaArea && campos.length > 0) {
+    legend.style.display = 'flex';
+    legend.innerHTML = campos.map((c, i) => `
+      <div class="legend-item">
+        <span class="legend-cor" style="background:${CORES_PREV[i % CORES_PREV.length]}"></span>
+        <span>${c.label || c.id || 'Campo ' + (i+1)}</span>
+      </div>`).join('');
+  } else {
+    legend.style.display = 'none';
+  }
+}
+
 // ── Atualização de estado ─────────────────────────────────────────────────────
-function atualizarCampo(i, chave, valor) { campos[i][chave] = valor; }
+function atualizarCampo(i, chave, valor) {
+  campos[i][chave] = valor;
+  atualizarPreview();
+}
+
+function atualizarCampoLabel(i, valor) {
+  campos[i].label = valor;
+  const el = document.getElementById(`titulo-${i}`);
+  if (el) el.textContent = valor || campos[i].id || `Campo ${i+1}`;
+  atualizarPreview();
+}
 
 function togglePreenchido(i, ativo) {
   document.getElementById(`preenchido-row-${i}`).style.display = ativo ? '' : 'none';
@@ -565,21 +713,23 @@ function atualizarTipo(i, tipo) {
 
 function adicionarCampo() {
   campos.push({
-    id: `campo_${campos.length + 1}`,
-    label: `Campo ${campos.length + 1}`,
+    id: `campo_${campos.length + 1}`, label: `Campo ${campos.length + 1}`,
     tipo: 'texto', area: [0,0,0,0],
     cor: [0,0,0], maiusculo: false, opcional: false, fonte_path: ''
   });
   renderCampos();
+  // Rola até o novo campo
+  const ultimo = document.getElementById(`campo-${campos.length - 1}`);
+  if (ultimo) ultimo.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function removerCampo(i) {
-  if (!confirm(`Remover o campo "${campos[i].label}"?`)) return;
+  if (!confirm(`Remover o campo "${campos[i].label || campos[i].id}"?`)) return;
   campos.splice(i, 1);
   renderCampos();
 }
 
-// ── Canvas ────────────────────────────────────────────────────────────────────
+// ── Canvas de definição de área ───────────────────────────────────────────────
 function abrirCanvas(idx, sub) {
   if (!imagemObj || !imagemObj.complete || !imagemObj.naturalWidth) {
     alert('Selecione uma imagem base primeiro.');
@@ -600,13 +750,13 @@ function abrirCanvas(idx, sub) {
 
   canvas.onmousedown = (e) => {
     desenhando = true;
-    const r = canvas.getBoundingClientRect();
-    startX = e.clientX - r.left; startY = e.clientY - r.top;
+    const rect = canvas.getBoundingClientRect();
+    startX = e.clientX - rect.left; startY = e.clientY - rect.top;
   };
   canvas.onmousemove = (e) => {
     if (!desenhando) return;
-    const r = canvas.getBoundingClientRect();
-    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
     ctx.drawImage(imagemObj, 0, 0, canvas.width, canvas.height);
     desenharAreasExistentes(ctx);
     ctx.strokeStyle = '#00e0ff'; ctx.lineWidth = 2;
@@ -614,8 +764,8 @@ function abrirCanvas(idx, sub) {
   };
   canvas.onmouseup = (e) => {
     if (!desenhando) return; desenhando = false;
-    const r = canvas.getBoundingClientRect();
-    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
     retangulo = [
       Math.round(Math.min(startX,cx)/escala), Math.round(Math.min(startY,cy)/escala),
       Math.round(Math.max(startX,cx)/escala), Math.round(Math.max(startY,cy)/escala)
@@ -629,8 +779,10 @@ function desenharAreasExistentes(ctx) {
     ctx.strokeStyle = cores[i % cores.length]; ctx.lineWidth = 2;
     if (c.tipo === 'preco_split') {
       desenharRect(ctx, c.area_inteiro  || [0,0,0,0], `${c.label} (int.)`);
-      desenharRect(ctx, c.area_centavos || [0,0,0,0], `${c.label} (cents.)`);
-    } else if (c.area) desenharRect(ctx, c.area, c.label);
+      desenharRect(ctx, c.area_centavos || [0,0,0,0], `${c.label} (cen.)`);
+    } else if (c.area) {
+      desenharRect(ctx, c.area, c.label);
+    }
   });
 }
 
@@ -638,7 +790,8 @@ function desenharRect(ctx, area, label) {
   if (!area || area.every(v => v === 0)) return;
   const [x1,y1,x2,y2] = area.map(v => v * escala);
   ctx.strokeRect(x1, y1, x2-x1, y2-y1);
-  ctx.fillStyle = ctx.strokeStyle; ctx.font = '11px sans-serif';
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.font = '11px sans-serif';
   ctx.fillText(label, x1+3, y1+13);
 }
 
@@ -648,6 +801,7 @@ function confirmarArea() {
   const el = document.getElementById(`coords-${campoCbIdx}-${subCampo}`);
   if (el) el.textContent = `(${retangulo.join(', ')})`;
   cancelarArea();
+  atualizarPreview();
 }
 
 function cancelarArea() {
@@ -659,9 +813,9 @@ function cancelarArea() {
 // ── Salvar ────────────────────────────────────────────────────────────────────
 async function salvar() {
   const nome = document.getElementById('layout-nome').value.trim();
-  if (!nome)           { alert('Informe o nome do layout.'); return; }
-  if (!imagemBase)     { alert('Selecione a imagem base.'); return; }
-  if (!campos.length)  { alert('Adicione pelo menos um campo.'); return; }
+  if (!nome)          { alert('Informe o nome do layout.'); return; }
+  if (!imagemBase)    { alert('Selecione a imagem base.'); return; }
+  if (!campos.length) { alert('Adicione pelo menos um campo.'); return; }
 
   const dados = {
     nome, imagem_base: imagemBase,

@@ -300,14 +300,6 @@ def ver_json(layout_id):
 
 # ── Preview da placa com valores de exemplo ───────────────────────────────────
 
-# Valores de exemplo por tipo de campo
-_EXEMPLOS = {
-    "texto":         "Exemplo de produto",
-    "texto_riscado": "9,99",
-    "preco_simples": "12,99",
-    "preco_split":   "12,99",
-}
-
 @layouts_bp.route("/<layout_id>/preview")
 def preview(layout_id):
     import io
@@ -326,17 +318,17 @@ def preview(layout_id):
     except Exception:
         return ("Imagem base não encontrada", 404)
 
-    # Monta valores de exemplo a partir dos campos do layout
+    # Monta valores de exemplo: preco_split → "12,99" (separar_preco divide em "12"/",99")
+    # texto_riscado → "9,99" (renderizar_campo adiciona "R$ " automaticamente)
     valores = {}
     for campo in layout.get("campos", []):
-        tipo = campo.get("tipo", "texto")
+        tipo  = campo.get("tipo", "texto")
         label = campo.get("label", campo["id"])
-        if tipo == "preco_split":
+        if tipo in ("preco_split", "preco_simples"):
             valores[campo["id"]] = "12,99"
-        elif tipo in ("preco_simples", "texto_riscado"):
+        elif tipo == "texto_riscado":
             valores[campo["id"]] = "9,99"
         else:
-            # Usa o label como texto de exemplo
             valores[campo["id"]] = label
 
     # Gera a imagem em memória
@@ -346,8 +338,10 @@ def preview(layout_id):
 
     try:
         gl.criar_imagem_com_layout(layout, valores, img_base, tmp_path)
-        # Reduz para thumbnail
-        img = Image.open(tmp_path)
+        # Lê para memória e fecha o handle imediatamente (evita PermissionError no Windows)
+        with Image.open(tmp_path) as raw:
+            raw.load()
+            img = raw.copy()
         # Se a imagem for landscape, rotaciona 90° para caber no preview A4
         if img.width > img.height:
             img = img.rotate(90, expand=True)
@@ -356,8 +350,10 @@ def preview(layout_id):
         img.save(buf, format="JPEG", quality=80)
         buf.seek(0)
     finally:
-        if os.path.exists(tmp_path):
+        try:
             os.remove(tmp_path)
+        except OSError:
+            pass
 
     from flask import send_file
     return send_file(buf, mimetype="image/jpeg")
