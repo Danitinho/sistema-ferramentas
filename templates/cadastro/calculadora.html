@@ -3,97 +3,146 @@
 {% block header_title %}Calculadora de preço{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
 
+{% block extra_head %}
+<style>
+  .origem-toggle {
+    display:grid; grid-template-columns:1fr 1fr;
+    border:1.5px solid var(--graphite);
+    border-radius:var(--radius); overflow:hidden;
+    margin-bottom:18px;
+  }
+  .origem-btn {
+    background:#fff; border:none; padding:13px 10px;
+    cursor:pointer; font-size:14px; font-weight:500;
+    color:var(--graphite);
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    transition:background 0.15s, color 0.15s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .origem-btn + .origem-btn { border-left:1.5px solid var(--graphite); }
+  .origem-btn.ativo { background:var(--graphite); color:#fff; }
+  .taxa-chip {
+    font-size:11px; font-weight:700;
+    padding:1px 8px; border-radius:10px;
+    background:rgba(229,162,59,0.18); color:var(--amber-dark);
+  }
+  .origem-btn.ativo .taxa-chip { background:rgba(255,255,255,0.18); color:#fff; }
+
+  .preco-destaque {
+    font-size:38px; font-weight:700; color:var(--graphite);
+    letter-spacing:-0.5px; line-height:1.1; margin:6px 0 16px;
+  }
+  .detalhe {
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:13px; padding:6px 0;
+    border-bottom:0.5px solid var(--border);
+  }
+  .detalhe:last-child { border-bottom:none; }
+  .detalhe .rot { color:var(--gray); }
+  .detalhe .val { font-weight:500; }
+  .detalhe.sep { border-top:1.5px solid var(--border); margin-top:4px; padding-top:10px; }
+  .detalhe.sep .val { font-size:14px; font-weight:700; color:var(--graphite); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="card">
   <span class="badge badge-cadastro">Cadastro</span>
   <div class="card-title">Calcular preço de venda</div>
 
-  <label>Custo do produto (R$)</label>
+  <label>Origem do produto</label>
+  <div class="origem-toggle">
+    <button class="origem-btn ativo" id="btn-dentro" onclick="selecionarOrigem('dentro')">
+      Dentro do estado
+      <span class="taxa-chip">+ 5%</span>
+    </button>
+    <button class="origem-btn" id="btn-fora" onclick="selecionarOrigem('fora')">
+      Fora do estado
+      <span class="taxa-chip">+ 19%</span>
+    </button>
+  </div>
+
+  <label>Preço de custo (R$)</label>
   <input type="number" id="custo" placeholder="0,00" step="0.01" min="0" inputmode="decimal">
 
-  <label>Margem de lucro desejada (%)</label>
-  <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" max="99" inputmode="decimal">
+  <label>Margem (%)</label>
+  <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" inputmode="decimal">
 
-  <label>Impostos / encargos (%)</label>
-  <input type="number" id="imposto" placeholder="ex: 12 (deixe 0 se não souber)" step="0.1" min="0" inputmode="decimal" value="0">
-
-  <button class="btn btn-primary" id="btn-calcular" onclick="calcular()">
-    <span class="spinner" id="spinner"></span>
-    <span id="btn-label">Calcular preço de venda</span>
-  </button>
-
-  <div class="result-box" id="resultado">
-    <div class="result-label">Preço de venda sugerido</div>
-    <div class="result-value" id="preco-final"></div>
-    <div class="metrics">
-      <div class="metric">
-        <div class="metric-value" id="m-lucro"></div>
-        <div class="metric-label">Lucro bruto</div>
-      </div>
-      <div class="metric">
-        <div class="metric-value" id="m-markup"></div>
-        <div class="metric-label">Markup</div>
-      </div>
-      <div class="metric">
-        <div class="metric-value" id="m-margem"></div>
-        <div class="metric-label">Margem real</div>
-      </div>
-    </div>
-  </div>
+  <button class="btn btn-primary" onclick="calcular()">Calcular</button>
 
   <div class="result-box error" id="erro">
     <div class="result-value error" id="msg-erro"></div>
   </div>
-</div>
 
-<div class="card">
-  <div class="card-title">Como funciona o cálculo?</div>
-  <p style="font-size:14px; color:#5F5E5A; line-height:1.6">
-    A fórmula usada é: <strong>Preço = Custo ÷ (1 − Margem − Imposto)</strong>.<br><br>
-    Exemplo: custo R$10, margem 30%, imposto 12% →<br>
-    Preço = 10 ÷ (1 − 0,30 − 0,12) = <strong>R$ 17,24</strong>
-  </p>
+  <div class="result-box" id="resultado">
+    <div class="result-label">Preço de venda sugerido</div>
+    <div class="preco-destaque" id="preco-final"></div>
+    <div id="detalhes"></div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-async function calcular() {
-  const custo   = parseFloat(document.getElementById("custo").value);
-  const margem  = parseFloat(document.getElementById("margem").value);
-  const imposto = parseFloat(document.getElementById("imposto").value) || 0;
+const $ = id => document.getElementById(id);
+let _origem = "dentro";
 
-  document.getElementById("resultado").classList.remove("show");
-  document.getElementById("erro").classList.remove("show");
+function selecionarOrigem(origem) {
+  _origem = origem;
+  $("btn-dentro").classList.toggle("ativo", origem === "dentro");
+  $("btn-fora").classList.toggle("ativo",   origem === "fora");
+  if ($("resultado").classList.contains("show")) calcular();
+}
 
-  if (isNaN(custo) || isNaN(margem)) {
-    document.getElementById("msg-erro").textContent = "Preencha custo e margem.";
-    document.getElementById("erro").classList.add("show");
+function calcular() {
+  const custo  = parseFloat($("custo").value);
+  const margem = parseFloat($("margem").value);
+
+  $("resultado").classList.remove("show");
+  $("erro").classList.remove("show");
+
+  if (isNaN(custo) || custo <= 0) {
+    $("msg-erro").textContent = "Informe um preço de custo válido.";
+    $("erro").classList.add("show");
+    return;
+  }
+  if (isNaN(margem) || margem < 0) {
+    $("msg-erro").textContent = "Informe uma margem válida.";
+    $("erro").classList.add("show");
     return;
   }
 
-  const btn = document.getElementById("btn-calcular");
-  btn.disabled = true;
-  document.getElementById("spinner").style.display = "block";
-  document.getElementById("btn-label").textContent = "Calculando...";
+  const taxa            = _origem === "fora" ? 0.19 : 0.05;
+  const custoComImposto = custo * (1 + taxa);
+  const preco           = custoComImposto * (1 + margem / 100);
+  const valorImposto    = custoComImposto - custo;
+  const valorMargem     = preco - custoComImposto;
+  const taxaPct         = _origem === "fora" ? "19" : "5";
 
-  const res = await postJSON("/cadastro/calculadora/calcular", { custo, margem, imposto });
-
-  btn.disabled = false;
-  document.getElementById("spinner").style.display = "none";
-  document.getElementById("btn-label").textContent = "Calcular preço de venda";
-
-  if (res.erro) {
-    document.getElementById("msg-erro").textContent = res.erro;
-    document.getElementById("erro").classList.add("show");
-    return;
-  }
-
-  document.getElementById("preco-final").textContent = brl(res.preco);
-  document.getElementById("m-lucro").textContent = brl(res.lucro);
-  document.getElementById("m-markup").textContent = res.markup.toFixed(1) + "%";
-  document.getElementById("m-margem").textContent = margem.toFixed(1) + "%";
-  document.getElementById("resultado").classList.add("show");
+  $("preco-final").textContent = brl(preco);
+  $("detalhes").innerHTML = `
+    <div class="detalhe">
+      <span class="rot">Preço de custo</span>
+      <span class="val">${brl(custo)}</span>
+    </div>
+    <div class="detalhe">
+      <span class="rot">Imposto (${taxaPct}%)</span>
+      <span class="val">+ ${brl(valorImposto)}</span>
+    </div>
+    <div class="detalhe">
+      <span class="rot">Custo com imposto</span>
+      <span class="val">${brl(custoComImposto)}</span>
+    </div>
+    <div class="detalhe">
+      <span class="rot">Margem (${margem.toLocaleString("pt-BR")}%)</span>
+      <span class="val">+ ${brl(valorMargem)}</span>
+    </div>
+    <div class="detalhe sep">
+      <span class="rot">Preço de venda</span>
+      <span class="val">${brl(preco)}</span>
+    </div>
+  `;
+  $("resultado").classList.add("show");
 }
 
 document.querySelectorAll("input").forEach(i =>

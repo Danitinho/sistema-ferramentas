@@ -61,31 +61,22 @@ def calculadora():
 def calcular_preco():
     data = request.get_json()
     try:
-        custo   = float(data["custo"])
-        margem  = float(data["margem"]) / 100
-        imposto = float(data.get("imposto", 0)) / 100
+        custo  = float(data["custo"])
+        margem = float(data["margem"]) / 100
+        taxa   = 0.19 if data.get("origem") == "fora" else 0.05
 
-        if (margem + imposto) >= 1:
-            return jsonify({"erro": "Margem + imposto não pode ser >= 100%"}), 400
+        custo_com_imposto = custo * (1 + taxa)
+        preco             = custo_com_imposto * (1 + margem)
 
-        preco = custo / (1 - margem - imposto)
-        lucro = preco - custo
         return jsonify({
-            "preco":  round(preco, 2),
-            "lucro":  round(lucro, 2),
-            "markup": round((lucro / custo) * 100, 2),
+            "preco":              round(preco, 2),
+            "custo_com_imposto":  round(custo_com_imposto, 2),
+            "valor_imposto":      round(custo_com_imposto - custo, 2),
+            "valor_margem":       round(preco - custo_com_imposto, 2),
         })
     except (KeyError, ValueError) as e:
         return jsonify({"erro": str(e)}), 400
 
-
-@app.route("/cadastro/placas-hortifruti")
-def placas_hortifruti():
-    return render_template("cadastro/placas_hortifruti.html")
-
-@app.route("/cadastro/placas-hortifruti/gerar", methods=["POST"])
-def gerar_placas_hortifruti():
-    return jsonify({"status": "em breve", "mensagem": "Integre aqui seu script de hortifruti."})
 
 
 @app.route("/cadastro/registro-perda")
