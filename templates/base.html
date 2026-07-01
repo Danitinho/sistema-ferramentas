@@ -220,10 +220,11 @@
 
 <header>
   <div class="header-inner">
-    <div style="flex:1;">
+    <div style="flex:1; min-width:0;">
       <div class="header-title">{% block header_title %}Sistema de Ferramentas{% endblock %}</div>
       {% block breadcrumb %}<a href="/">Menu principal</a>{% endblock %}
     </div>
+    {% block header_actions %}{% endblock %}
   </div>
 </header>
 

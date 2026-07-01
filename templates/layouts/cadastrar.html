@@ -5,13 +5,31 @@
   <a href="/">Menu</a> › <a href="/layouts">Layouts</a> › {{ 'Editar' if layout_id else 'Cadastrar' }}
 {% endblock %}
 
+{% block header_actions %}
+<button type="button" class="btn-header-salvar" onclick="salvar()">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"></path><path d="M17 21v-8H7v8M7 3v5h8"></path>
+  </svg>
+  Salvar
+</button>
+{% endblock %}
+
 {% block extra_head %}
 <style>
+  /* ── Botão salvar no header ──────────────────────────────────────────────── */
+  .btn-header-salvar {
+    display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
+    background: var(--amber); color: #1A1A1A; border: none; border-radius: 9px;
+    padding: 9px 16px; font-size: 13px; font-weight: 650; cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-header-salvar:hover { background: #D8922B; }
+
   /* ── Layout duas colunas ──────────────────────────────────────────────────── */
   .editor-wrap {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 20px;
+    grid-template-columns: minmax(0, 1fr) 344px;
+    gap: 22px;
     align-items: start;
   }
   @media (max-width: 820px) {
@@ -22,71 +40,114 @@
   /* ── Seções ──────────────────────────────────────────────────────────────── */
   .sec-label {
     font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .08em; color: var(--gray); margin: 18px 0 6px;
+    letter-spacing: .09em; color: var(--gray); margin: 0 0 8px;
   }
-  .sec-label:first-child { margin-top: 0; }
   .sec-card {
     background: #fff; border: 0.5px solid var(--border);
-    border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+    border-radius: var(--radius); padding: 18px; margin-bottom: 20px;
   }
 
   /* ── Formulário ──────────────────────────────────────────────────────────── */
-  .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 11px; }
   .form-row:last-child { margin-bottom: 0; }
   .form-row label, .form-row .form-field {
-    display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px;
+    display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 120px;
   }
   .flabel { font-size: 11px; font-weight: 600; color: var(--gray); }
+  .form-row input[type=text], .form-row select {
+    padding: 9px 11px; font-size: 13px;
+  }
 
   /* ── Upload imagem ───────────────────────────────────────────────────────── */
-  .img-upload-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .img-upload-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  .img-thumb {
+    width: 52px; height: 66px; border-radius: 8px; border: 0.5px solid rgba(0,0,0,.14);
+    overflow: hidden; flex-shrink: 0; background: var(--gray-light);
+    display: flex; align-items: center; justify-content: center; color: #ABA79E;
+  }
+  .img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .upload-btn {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+    padding: 7px 12px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
     border: 0.5px solid var(--border); background: var(--gray-light);
     color: var(--ink); cursor: pointer; white-space: nowrap; flex-shrink: 0;
   }
   .upload-btn:hover { background: #E0DED9; }
-  .img-nome { font-size: 12px; color: var(--gray); font-family: monospace; word-break: break-all; }
+  .img-nome { font-size: 12px; color: var(--gray); font-family: monospace; word-break: break-all; margin-bottom: 7px; }
 
   /* ── Toggles ─────────────────────────────────────────────────────────────── */
   .toggles-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
   .toggle-item {
-    display: flex; align-items: center; gap: 7px;
+    display: flex; align-items: center; gap: 8px;
     background: var(--gray-light); border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm); padding: 8px 12px; cursor: pointer;
+    border-radius: var(--radius-sm); padding: 8px 13px; cursor: pointer;
     font-size: 13px; color: var(--ink); user-select: none;
   }
   .toggle-item input { cursor: pointer; accent-color: var(--graphite); margin: 0; }
 
+  /* ── Cabeçalho da seção Campos ───────────────────────────────────────────── */
+  .campos-header-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin: 0 0 10px;
+  }
+  .campos-header-row .sec-label { margin: 0; }
+  .campos-actions { display: flex; align-items: center; gap: 12px; }
+  .link-btn {
+    background: none; border: none; color: var(--amber-dark);
+    font: 600 11px system-ui; cursor: pointer; padding: 0;
+  }
+  .link-btn:hover { text-decoration: underline; }
+  .campos-actions .sep { color: rgba(0,0,0,.18); }
+
   /* ── Campo card ──────────────────────────────────────────────────────────── */
   .campo-card {
-    background: #fff; border: 0.5px solid var(--border);
-    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
-    position: relative;
+    display: flex; background: #fff; border: 0.5px solid var(--border);
+    border-radius: 13px; margin-bottom: 10px; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    outline: 2px solid transparent; outline-offset: -2px;
+    transition: outline-color .15s;
   }
-  .campo-card::before {
-    content: ''; position: absolute; left: 0; top: 14px; bottom: 14px;
-    width: 3px; border-radius: 0 3px 3px 0;
-    background: var(--campo-cor, var(--amber));
-  }
+  .campo-card.campo-active { outline-color: rgba(229,162,59,0.6); }
+  .campo-bar { width: 5px; flex-shrink: 0; background: var(--campo-cor, var(--amber)); }
+  .campo-body-wrap { flex: 1; min-width: 0; }
+
   .campo-head {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 9px; padding: 11px 13px; cursor: pointer;
   }
   .campo-num {
-    font-size: 10px; font-weight: 700; color: var(--gray);
-    background: var(--gray-light); border-radius: 6px; padding: 2px 7px; flex-shrink: 0;
+    font: 700 11px ui-monospace, monospace; color: var(--gray);
+    background: var(--gray-light); border-radius: 6px; padding: 3px 7px; flex-shrink: 0;
   }
-  .campo-titulo { font-size: 13px; font-weight: 600; color: var(--ink); flex: 1; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .campo-titulo {
+    font: 600 14px system-ui; color: var(--ink); flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .campo-badge {
+    font: 600 10px system-ui; border-radius: 20px; padding: 3px 9px;
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .campo-badge-tipo { background: var(--gray-light); color: var(--gray); }
+  .campo-chevron {
+    color: #9A968F; font-size: 10px; flex-shrink: 0; transition: transform .18s;
+  }
+
+  .campo-body { padding: 2px 14px 15px; }
+  .campo-body-actions { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 10px; }
+  .btn-icon {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 26px; border: 0.5px solid var(--border);
+    background: var(--gray-light); border-radius: 7px; cursor: pointer; color: var(--gray);
+  }
+  .btn-icon:hover { background: #E5E2DB; }
+  .btn-icon:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-icon:disabled:hover { background: var(--gray-light); }
   .btn-rem {
-    display: flex; align-items: center; gap: 4px;
-    background: none; border: none; cursor: pointer; color: var(--gray);
-    padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;
-    transition: color .12s, background .12s; flex-shrink: 0;
+    display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px;
+    border: 0.5px solid var(--border); background: var(--gray-light); border-radius: 7px;
+    cursor: pointer; color: var(--gray); font: 600 11px system-ui;
   }
-  .btn-rem:hover { color: var(--danger); background: var(--danger-bg); }
-  .divider-c { height: 0.5px; background: var(--border); margin: 10px 0; }
+  .btn-rem:hover { background: var(--danger-bg); color: var(--danger); border-color: #F0B7B7; }
+  .divider-c { height: 0.5px; background: var(--border); margin: 0 0 12px; }
 
   /* ── Seletor de cor ──────────────────────────────────────────────────────── */
   .cor-display {
@@ -100,58 +161,81 @@
     border: 0.5px solid rgba(0,0,0,0.15); flex-shrink: 0;
   }
   .cor-texto { flex: 1; color: var(--gray); font-family: monospace; font-size: 12px; }
-  .cor-chevron { color: var(--gray); font-size: 10px; }
+  .cor-chevron { color: var(--gray); font-size: 9px; }
 
   /* ── Checks ──────────────────────────────────────────────────────────────── */
-  .checks-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .checks-row { display: flex; flex-wrap: wrap; gap: 7px; }
   .check-item {
-    display: flex; align-items: center; gap: 5px;
+    display: flex; align-items: center; gap: 6px;
     background: var(--gray-light); border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; cursor: pointer;
+    border-radius: 8px; padding: 6px 11px; font-size: 12px; cursor: pointer; user-select: none;
   }
   .check-item input { cursor: pointer; accent-color: var(--graphite); margin: 0; }
 
   /* ── Área ─────────────────────────────────────────────────────────────────── */
-  .area-label { font-size: 11px; font-weight: 600; color: var(--gray); margin-bottom: 4px; }
-  .area-coords {
-    font-family: monospace; font-size: 11px; color: var(--gray);
-    background: var(--gray-light); border-radius: 6px; padding: 4px 8px; margin-bottom: 4px;
-  }
+  .area-box { background: #FAF8F4; border: 0.5px solid rgba(0,0,0,.07); border-radius: 10px; padding: 11px 12px; }
+  .area-box-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .area-box-label { font: 600 11px system-ui; color: var(--gray); }
+  .area-box-coords { font: 11px ui-monospace, monospace; color: var(--amber-dark); }
   .area-btn {
-    width: 100%; padding: 8px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
-    border: 0.5px dashed var(--amber-dark);
-    background: var(--amber-light); color: var(--amber-dark); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
+    padding: 9px; border-radius: 8px; font: 600 12px system-ui;
+    border: 1px dashed #C79A54; background: var(--amber-light); color: var(--amber-dark); cursor: pointer;
   }
-  .area-btn:hover { background: #EDD9A3; }
+  .area-btn:hover { background: #F3E3C0; }
+  .area-split-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .area-split-col { flex: 1; min-width: 130px; }
 
   /* ── Botões ──────────────────────────────────────────────────────────────── */
   .btn-add-campo {
-    width: 100%; padding: 12px; border-radius: var(--radius); margin-bottom: 14px;
-    border: 1.5px dashed var(--border); background: none; font-size: 13px;
+    width: 100%; padding: 13px; border-radius: 12px; margin: 4px 0 18px;
+    border: 1.5px dashed var(--border); background: none; font: 600 13px system-ui;
     color: var(--gray); cursor: pointer; transition: border-color .15s, background .15s;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
   }
-  .btn-add-campo:hover { background: var(--gray-light); border-color: #999; }
+  .btn-add-campo:hover { background: var(--gray-light); border-color: #999; color: var(--ink); }
   .btn-salvar {
-    width: 100%; padding: 14px; border-radius: var(--radius); border: none;
-    background: var(--graphite); color: #fff; font-size: 15px; font-weight: 600;
+    width: 100%; padding: 15px; border-radius: 12px; border: none;
+    background: var(--graphite); color: #fff; font: 650 15px system-ui;
     cursor: pointer; transition: background .15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
   }
   .btn-salvar:hover { background: var(--graphite-2); }
 
+  /* ── Verificação ─────────────────────────────────────────────────────────── */
+  .avisos-card {
+    background: #fff; border: 0.5px solid var(--border); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 14px;
+  }
+  .avisos-title {
+    font: 700 10px system-ui; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--gray); margin-bottom: 8px;
+  }
+  .aviso-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font: 400 12.5px system-ui; }
+  .aviso-icon {
+    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+  }
+
   /* ── Coluna preview ──────────────────────────────────────────────────────── */
-  .editor-preview { position: sticky; top: 80px; }
+  .editor-preview { position: sticky; top: 84px; }
   .preview-card {
     background: #fff; border: 0.5px solid var(--border);
-    border-radius: var(--radius); overflow: hidden;
+    border-radius: var(--radius); overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.05);
   }
   .preview-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 11px 14px; border-bottom: 0.5px solid var(--border);
+    padding: 12px 14px; border-bottom: 0.5px solid var(--border);
     font-size: 13px; font-weight: 600; color: var(--ink);
   }
+  .preview-header-left { display: flex; align-items: center; gap: 7px; }
+  .preview-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+    box-shadow: 0 0 0 3px var(--success-bg);
+  }
   .preview-badge {
-    font-size: 10px; font-weight: 700; padding: 2px 8px;
-    background: var(--amber-light); color: var(--amber-dark); border-radius: 10px;
+    font-size: 10px; font-weight: 700; padding: 3px 9px;
+    background: var(--amber-light); color: var(--amber-dark); border-radius: 20px;
   }
   .preview-canvas-wrap {
     background: #1C1C1E; min-height: 180px;
@@ -163,39 +247,72 @@
     padding: 32px 16px; text-align: center; color: #666; gap: 8px;
   }
   .preview-empty p { font-size: 12px; margin: 0; line-height: 1.5; }
-  .preview-legend {
-    padding: 8px 12px; border-top: 0.5px solid var(--border);
-    display: flex; flex-wrap: wrap; gap: 8px;
+  .preview-toggle-row {
+    display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+    border-bottom: 0.5px solid var(--border);
   }
+  .preview-toggle-row label {
+    display: flex; align-items: center; gap: 6px; font: 400 12px system-ui;
+    color: var(--gray); cursor: pointer; user-select: none; margin: 0;
+  }
+  .preview-toggle-row input { accent-color: var(--amber); margin: 0; cursor: pointer; }
+  .preview-legend { padding: 9px 12px; display: flex; flex-wrap: wrap; gap: 9px; }
   .legend-item {
     display: flex; align-items: center; gap: 5px;
-    font-size: 11px; color: var(--ink); max-width: 100%;
+    font-size: 11px; color: var(--ink); max-width: 100%; cursor: default;
   }
   .legend-cor {
     width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
     border: 0.5px solid rgba(0,0,0,0.15);
   }
+  .preview-hint { font: 400 11.5px/1.5 system-ui; color: #9A968F; margin: 12px 4px 0; }
 
   /* ── Canvas overlay (definir área) ──────────────────────────────────────── */
   #canvas-overlay {
     display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,.82); z-index: 1000;
-    flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: rgba(0,0,0,.84); z-index: 1000;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px;
   }
   #canvas-overlay.ativo { display: flex; }
-  #canvas-instrucao { color: #fff; font-size: 13px; opacity: .85; }
+  #canvas-titulo-row { display: flex; align-items: center; gap: 14px; color: #fff; }
+  #canvas-titulo { font: 600 14px system-ui; }
+  #canvas-dims {
+    font: 12px ui-monospace, monospace; color: var(--amber);
+    background: rgba(229,162,59,.14); border-radius: 6px; padding: 3px 10px;
+  }
+  #canvas-instrucao { font: 400 12px system-ui; color: rgba(255,255,255,.62); }
   #canvas-wrap {
-    position: relative; max-width: 90vw; max-height: 75vh;
-    overflow: auto; background: #111; border-radius: 8px;
+    position: relative; max-width: 90vw; max-height: 66vh;
+    overflow: auto; background: #111; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
   }
   #canvas-editor { display: block; cursor: crosshair; }
   #canvas-acoes { display: flex; gap: 10px; }
   #canvas-acoes button {
-    padding: 10px 28px; border-radius: 8px; border: none;
-    cursor: pointer; font-size: 13px; font-weight: 600;
+    padding: 11px 28px; border-radius: 9px; border: none;
+    cursor: pointer; font: 650 13px system-ui;
   }
-  #btn-confirmar-area { background: var(--graphite); color: #fff; }
-  #btn-cancelar-area  { background: var(--danger-bg); color: var(--danger); }
+  #btn-confirmar-area { background: var(--amber); color: #1A1A1A; }
+  #btn-confirmar-area:hover { background: #D8922B; }
+  #btn-cancelar-area  { background: rgba(255,255,255,.12); color: #fff; }
+  #btn-cancelar-area:hover { background: rgba(255,255,255,.2); }
+
+  /* ── Toast ───────────────────────────────────────────────────────────────── */
+  #toast {
+    display: none; position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    z-index: 2000; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 11px;
+    font: 600 13.5px system-ui; box-shadow: 0 12px 34px rgba(0,0,0,.24);
+    border: 0.5px solid transparent;
+  }
+  #toast.show { display: flex; animation: toastUp .28s ease; }
+  #toast.ok  { background: var(--success-bg); color: var(--success); border-color: #C0DD97; }
+  #toast.erro { background: var(--danger-bg); color: var(--danger); border-color: #F0B7B7; }
+  #toast-icon {
+    width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 800;
+  }
+  #toast.ok #toast-icon { background: var(--success); color: var(--success-bg); }
+  #toast.erro #toast-icon { background: var(--danger); color: var(--danger-bg); }
+  @keyframes toastUp { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
 </style>
 {% endblock %}
 
@@ -212,48 +329,73 @@
           <span class="flabel">Nome do layout</span>
           <input type="text" id="layout-nome"
                  value="{{ layout.nome if layout else '' }}"
+                 oninput="atualizarValidacao()"
                  placeholder="Ex: Super Oferta V2">
         </label>
       </div>
+
       <div class="img-upload-row">
-        <label class="upload-btn" for="input-imagem">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1v8M3 5l4-4 4 4M1 11.5h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <div class="img-thumb" id="img-thumb">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path>
           </svg>
-          Selecionar imagem
-        </label>
-        <input type="file" id="input-imagem" accept="image/*" style="display:none;">
-        <span class="img-nome" id="imagem-nome">
-          {% if layout %}{{ layout.imagem_base }}{% else %}Nenhuma imagem selecionada{% endif %}
-        </span>
+        </div>
+        <div style="flex:1; min-width:0;">
+          <div class="img-nome" id="imagem-nome">
+            {% if layout %}{{ layout.imagem_base }}{% else %}Nenhuma imagem selecionada{% endif %}
+          </div>
+          <label class="upload-btn" for="input-imagem">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1v8M3 5l4-4 4 4M1 11.5h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Trocar imagem
+          </label>
+          <input type="file" id="input-imagem" accept="image/*" style="display:none;">
+        </div>
       </div>
     </div>
 
-    <div class="sec-label">Opções</div>
-    <div class="sec-card">
-      <div class="toggles-wrap">
-        <label class="toggle-item">
-          <input type="checkbox" id="contorno-preto"
-                 {% if layout and layout.contorno_preto %}checked{% endif %}>
-          Contorno preto
-        </label>
-        <label class="toggle-item">
-          <input type="checkbox" id="debug-areas"
-                 {% if layout and layout.debug_areas %}checked{% endif %}>
-          Modo debug
-        </label>
+    <div class="sec-label">Opções de render</div>
+    <div class="sec-card" style="display:flex; flex-wrap:wrap; gap:8px;">
+      <label class="toggle-item">
+        <input type="checkbox" id="contorno-preto"
+               {% if layout and layout.contorno_preto %}checked{% endif %}>
+        Contorno preto
+      </label>
+      <label class="toggle-item">
+        <input type="checkbox" id="debug-areas"
+               {% if layout and layout.debug_areas %}checked{% endif %}>
+        Modo debug
+      </label>
+    </div>
+
+    <div class="campos-header-row">
+      <div class="sec-label" id="campos-titulo">Campos · 0</div>
+      <div class="campos-actions">
+        <button type="button" class="link-btn" onclick="expandirTodos()">Expandir tudo</button>
+        <span class="sep">·</span>
+        <button type="button" class="link-btn" onclick="recolherTodos()">Recolher tudo</button>
       </div>
     </div>
 
-    <div class="sec-label">Campos</div>
     <div id="campos-container"></div>
 
     <button type="button" class="btn-add-campo" onclick="adicionarCampo()">
-      + Adicionar campo
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      Adicionar campo
     </button>
 
-    <button type="button" class="btn-salvar" onclick="salvar()">Salvar layout</button>
-    <div id="msg-salvo" style="margin-top:10px;"></div>
+    <div id="avisos-card" class="avisos-card" style="display:none;">
+      <div class="avisos-title">Verificação</div>
+      <div id="avisos-lista"></div>
+    </div>
+
+    <button type="button" class="btn-salvar" onclick="salvar()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"></path><path d="M17 21v-8H7v8M7 3v5h8"></path>
+      </svg>
+      Salvar layout
+    </button>
 
   </div>
 
@@ -261,7 +403,7 @@
   <div class="editor-preview">
     <div class="preview-card">
       <div class="preview-header">
-        <span>Preview ao vivo</span>
+        <span class="preview-header-left"><span class="preview-dot"></span>Preview ao vivo</span>
         <span class="preview-badge" id="preview-badge">0 campos</span>
       </div>
       <div class="preview-canvas-wrap" id="preview-wrap">
@@ -276,22 +418,39 @@
           <p>Selecione uma imagem base<br>para ver o preview</p>
         </div>
       </div>
-      <div class="preview-legend" id="preview-legend" style="display:none;"></div>
+      <div class="preview-toggle-row">
+        <label>
+          <input type="checkbox" id="mostrar-areas" checked onchange="atualizarPreview()">
+          Mostrar áreas
+        </label>
+      </div>
+      <div class="preview-legend" id="preview-legend"></div>
     </div>
+    <p class="preview-hint">Passe o mouse sobre um campo ou legenda para destacá-lo no preview.</p>
   </div>
 
 </div>
 
 <!-- Canvas overlay para definir áreas -->
 <div id="canvas-overlay">
-  <div id="canvas-instrucao">Clique e arraste para definir a área do campo</div>
+  <div id="canvas-titulo-row">
+    <div id="canvas-titulo"></div>
+    <div id="canvas-dims">—</div>
+  </div>
+  <div id="canvas-instrucao">Clique e arraste sobre a imagem para desenhar a área</div>
   <div id="canvas-wrap">
     <canvas id="canvas-editor"></canvas>
   </div>
   <div id="canvas-acoes">
-    <button id="btn-confirmar-area" onclick="confirmarArea()">✔ Confirmar</button>
-    <button id="btn-cancelar-area"  onclick="cancelarArea()">✕ Cancelar</button>
+    <button id="btn-confirmar-area" onclick="confirmarArea()">Confirmar área</button>
+    <button id="btn-cancelar-area"  onclick="cancelarArea()">Cancelar</button>
   </div>
+</div>
+
+<!-- Toast -->
+<div id="toast">
+  <span id="toast-icon"></span>
+  <span id="toast-msg"></span>
 </div>
 {% endblock %}
 
@@ -299,6 +458,8 @@
 <script>
 // ── Estado ────────────────────────────────────────────────────────────────────
 let campos     = [];
+let nextUid    = 1;
+let activeUid  = null;
 let imagemBase = "{{ layout.imagem_base if layout else '' }}";
 let imagemObj  = null;
 let escala     = 1;
@@ -309,8 +470,18 @@ let desenhando = false;
 let startX, startY;
 let fontesDisponiveis = [];
 
-const TIPOS      = ["texto", "texto_riscado", "preco_simples", "preco_split"];
+const TIPOS = [
+  { value: 'texto',         label: 'Texto' },
+  { value: 'texto_riscado', label: 'Texto riscado' },
+  { value: 'preco_simples', label: 'Preço' },
+  { value: 'preco_split',   label: 'Preço split' },
+];
 const CORES_PREV = ['#ef4444','#f59e0b','#22c55e','#3b82f6','#a855f7','#ec4899'];
+
+function tipoNome(t) {
+  const f = TIPOS.find(x => x.value === t);
+  return f ? f.label : t;
+}
 
 // Carrega fonte Anton localmente (mesma do servidor) para o canvas de preview
 const _antonFace = new FontFace('PreviewAnton', 'url(/assets/Anton-Regular.ttf)');
@@ -347,17 +518,28 @@ function exText(c) {
   switch (c.tipo) {
     case 'preco_simples': return '12,99';
     case 'texto_riscado': return 'R$ 9,99';
-    default: return c.label || c.id || 'Texto';
+    default:
+      if (c.valor_fixo) return c.valor_fixo;
+      return c.label || c.id || 'Texto';
   }
 }
 
 // ── Utilidades de cor ─────────────────────────────────────────────────────────
 function rgbToHex(r,g,b) {
-  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+  return '#' + [r,g,b].map(v => Math.max(0,Math.min(255,v|0)).toString(16).padStart(2,'0')).join('');
 }
 function hexToRgb(hex) {
   return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
 }
+
+// ── Área: utilidades de validação/formatação ────────────────────────────────
+function areaOk(a) { return !!a && a.length === 4 && !a.every(v => v === 0); }
+function temArea(c) {
+  return c.tipo === 'preco_split'
+    ? (areaOk(c.area_inteiro) && areaOk(c.area_centavos))
+    : areaOk(c.area);
+}
+function coordStr(a) { return areaOk(a) ? '(' + a.map(v => Math.round(v)).join(', ') + ')' : '—'; }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
@@ -366,7 +548,9 @@ function hexToRgb(hex) {
 
   const layoutData = {{ layout | tojson if layout else 'null' }};
   if (layoutData && layoutData.campos) {
-    campos = layoutData.campos.map(c => Object.assign({}, c));
+    campos = layoutData.campos.map((c, i) => Object.assign({}, c, {
+      uid: nextUid++, expandido: i === 0
+    }));
   }
   renderCampos();
   if (imagemBase) carregarImagemPreview(imagemBase, true);
@@ -385,13 +569,17 @@ document.getElementById('input-imagem').addEventListener('change', async functio
     document.getElementById('imagem-nome').textContent = d.nome;
     carregarImagemPreview('/assets/' + d.nome, false);
   } else {
-    alert('Erro ao enviar imagem: ' + d.msg);
+    mostrarToast('erro', 'Erro ao enviar imagem: ' + d.msg);
   }
 });
 
 function carregarImagemPreview(src, isNome) {
   imagemObj = new Image();
-  imagemObj.onload = atualizarPreview;
+  imagemObj.onload = () => {
+    atualizarPreview();
+    const thumb = document.getElementById('img-thumb');
+    thumb.innerHTML = `<img src="${imagemObj.src}" alt="">`;
+  };
   imagemObj.src = isNome ? '/assets/' + src : src;
 }
 
@@ -401,15 +589,17 @@ function renderCampos() {
   cont.innerHTML = '';
   campos.forEach((c, i) => cont.appendChild(buildCampoEl(c, i)));
   campos.forEach((c, i) => {
-    preencherSelectFonte(i, c.fonte_path || '');
-    atualizarCorDisplay(i, 'cor', c.cor || [0,0,0]);
-    if (c.tipo === 'texto_riscado') atualizarCorDisplay(i, 'cor_x', c.cor_x || [180,0,0]);
+    if (c.expandido) {
+      preencherSelectFonte(c.uid, c.fonte_path || '');
+      atualizarCorDisplay(c.uid, 'cor', c.cor || [0,0,0]);
+      if (c.tipo === 'texto_riscado') atualizarCorDisplay(c.uid, 'cor_x', c.cor_x || [180,0,0]);
+    }
   });
   atualizarPreview();
 }
 
-function preencherSelectFonte(i, fonteAtual) {
-  const sel = document.getElementById(`fonte-sel-${i}`);
+function preencherSelectFonte(uid, fonteAtual) {
+  const sel = document.getElementById(`fonte-sel-${uid}`);
   if (!sel) return;
   sel.innerHTML = '<option value="">Padrão (Anton)</option>' +
     fontesDisponiveis.map(f =>
@@ -419,173 +609,241 @@ function preencherSelectFonte(i, fonteAtual) {
 
 // ── Construir card de campo ───────────────────────────────────────────────────
 function buildCampoEl(c, i) {
-  const div = document.createElement('div');
-  div.className = 'campo-card';
-  div.id = `campo-${i}`;
+  const uid = c.uid;
+  const wrap = document.createElement('div');
+  wrap.className = 'campo-card' + (uid === activeUid ? ' campo-active' : '');
+  wrap.id = `campo-${uid}`;
+
   const corHex = c.cor ? rgbToHex(...c.cor) : CORES_PREV[i % CORES_PREV.length];
-  div.style.setProperty('--campo-cor', corHex);
-
   const isSplit = c.tipo === 'preco_split';
+  const isRiscado = c.tipo === 'texto_riscado';
   const temFixo = c.valor_fixo !== undefined && c.valor_fixo !== '';
+  const ok = temArea(c);
+  const statusBg = ok ? 'var(--success-bg)' : 'var(--warning-bg)';
+  const statusFg = ok ? 'var(--success)' : 'var(--warning)';
+  const statusLabel = ok ? '● área' : '○ sem área';
 
-  div.innerHTML = `
-    <div class="campo-head">
-      <span class="campo-num">${i + 1}</span>
-      <span class="campo-titulo" id="titulo-${i}">${c.label || c.id || 'Campo ' + (i+1)}</span>
-      <button class="btn-rem" onclick="removerCampo(${i})">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M1 10L10 1M1 1l9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-        Remover
-      </button>
-    </div>
-
-    <div class="form-row">
-      <label>
-        <span class="flabel">ID</span>
-        <input type="text" value="${c.id || ''}"
-               oninput="atualizarCampo(${i},'id',this.value)"
-               placeholder="ex: produto">
-      </label>
-      <label>
-        <span class="flabel">Label</span>
-        <input type="text" value="${c.label || ''}"
-               oninput="atualizarCampoLabel(${i}, this.value)"
-               placeholder="ex: Nome do produto">
-      </label>
-    </div>
-
-    <div class="form-row">
-      <label>
-        <span class="flabel">Tipo</span>
-        <select onchange="atualizarTipo(${i}, this.value)">
-          ${TIPOS.map(t => `<option value="${t}" ${c.tipo===t?'selected':''}>${t}</option>`).join('')}
-        </select>
-      </label>
-      <label>
-        <span class="flabel">Fonte</span>
-        <select id="fonte-sel-${i}" onchange="atualizarCampo(${i},'fonte_path',this.value)">
-          <option value="">Padrão (Anton)</option>
-        </select>
-      </label>
-    </div>
-
-    <div class="form-row">
-      <div class="form-field">
-        <span class="flabel">Cor do texto</span>
-        ${buildCorSelector(i, 'cor', c.cor || [0,0,0])}
+  wrap.innerHTML = `
+    <div class="campo-bar" style="background:${corHex};"></div>
+    <div class="campo-body-wrap">
+      <div class="campo-head" onclick="toggleExpand(${uid})" onmouseenter="setActiveCampo(${uid})">
+        <span class="campo-num">${i + 1}</span>
+        <span class="campo-titulo">${c.label || c.id || 'Campo ' + (i + 1)}</span>
+        <span class="campo-badge campo-badge-tipo">${tipoNome(c.tipo)}</span>
+        <span class="campo-badge" style="background:${statusBg};color:${statusFg};">${statusLabel}</span>
+        <span class="campo-chevron" style="transform:${c.expandido ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
       </div>
-      ${c.tipo === 'texto_riscado' ? `
-      <div class="form-field">
-        <span class="flabel">Cor do risco</span>
-        ${buildCorSelector(i, 'cor_x', c.cor_x || [180,0,0])}
-      </div>` : ''}
+      ${c.expandido ? buildCampoBody(c, i, uid, isSplit, isRiscado, temFixo) : ''}
     </div>
-
-    <div class="divider-c"></div>
-
-    <div class="checks-row" style="margin-bottom:10px;">
-      <label class="check-item">
-        <input type="checkbox" ${c.maiusculo?'checked':''}
-               onchange="atualizarCampo(${i},'maiusculo',this.checked)">
-        Maiúsculo
-      </label>
-      <label class="check-item">
-        <input type="checkbox" ${c.opcional?'checked':''}
-               onchange="atualizarCampo(${i},'opcional',this.checked)">
-        Opcional
-      </label>
-      <label class="check-item">
-        <input type="checkbox" id="preenchido-chk-${i}" ${temFixo?'checked':''}
-               onchange="togglePreenchido(${i}, this.checked)">
-        Pré-preenchido
-      </label>
-    </div>
-
-    <div id="preenchido-row-${i}" style="${temFixo?'':'display:none;'}margin-bottom:10px;">
-      <div class="flabel" style="margin-bottom:4px;">Valor fixo</div>
-      <input type="text" value="${c.valor_fixo||''}"
-             oninput="atualizarCampo(${i},'valor_fixo',this.value)"
-             placeholder="ex: Boas compras!">
-    </div>
-
-    <div class="divider-c"></div>
-
-    ${isSplit ? buildAreasSplit(c, i) : buildAreaSimples(c, i)}
   `;
-  return div;
+  return wrap;
+}
+
+function buildCampoBody(c, i, uid, isSplit, isRiscado, temFixo) {
+  return `
+    <div class="campo-body">
+      <div class="campo-body-actions">
+        <button class="btn-icon" title="Mover para cima" ${i === 0 ? 'disabled' : ''}
+                onclick="event.stopPropagation(); moverCampo(${uid}, -1)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"></path></svg>
+        </button>
+        <button class="btn-icon" title="Mover para baixo" ${i === campos.length - 1 ? 'disabled' : ''}
+                onclick="event.stopPropagation(); moverCampo(${uid}, 1)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+        <button class="btn-rem" onclick="event.stopPropagation(); removerCampo(${uid})">
+          <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M1 10L10 1M1 1l9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Remover
+        </button>
+      </div>
+
+      <div class="form-row">
+        <label>
+          <span class="flabel">ID</span>
+          <input type="text" value="${c.id || ''}"
+                 oninput="atualizarCampo(${uid},'id',this.value)"
+                 placeholder="ex: produto">
+        </label>
+        <label>
+          <span class="flabel">Label</span>
+          <input type="text" value="${c.label || ''}"
+                 oninput="atualizarCampoLabel(${uid}, this.value)"
+                 placeholder="ex: Nome do produto">
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label>
+          <span class="flabel">Tipo</span>
+          <select onchange="atualizarTipo(${uid}, this.value)">
+            ${TIPOS.map(t => `<option value="${t.value}" ${c.tipo === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
+          </select>
+        </label>
+        <label>
+          <span class="flabel">Fonte</span>
+          <select id="fonte-sel-${uid}" onchange="atualizarCampo(${uid},'fonte_path',this.value)">
+            <option value="">Padrão (Anton)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="form-row">
+        <div class="form-field">
+          <span class="flabel">Cor do texto</span>
+          ${buildCorSelector(uid, 'cor', c.cor || [0,0,0])}
+        </div>
+        ${isRiscado ? `
+        <div class="form-field">
+          <span class="flabel">Cor do risco</span>
+          ${buildCorSelector(uid, 'cor_x', c.cor_x || [180,0,0])}
+        </div>` : ''}
+      </div>
+
+      <div class="divider-c"></div>
+
+      <div class="checks-row" style="margin-bottom:12px;">
+        <label class="check-item">
+          <input type="checkbox" ${c.maiusculo ? 'checked' : ''}
+                 onchange="atualizarCampo(${uid},'maiusculo',this.checked)">
+          Maiúsculo
+        </label>
+        <label class="check-item">
+          <input type="checkbox" ${c.opcional ? 'checked' : ''}
+                 onchange="atualizarCampo(${uid},'opcional',this.checked)">
+          Opcional
+        </label>
+        <label class="check-item">
+          <input type="checkbox" ${temFixo ? 'checked' : ''}
+                 onchange="togglePreenchido(${uid}, this.checked)">
+          Pré-preenchido
+        </label>
+      </div>
+
+      ${temFixo ? `
+      <div style="margin-bottom:12px;">
+        <span class="flabel" style="display:block; margin-bottom:5px;">Valor fixo</span>
+        <input type="text" value="${c.valor_fixo || ''}"
+               oninput="atualizarCampo(${uid},'valor_fixo',this.value)"
+               placeholder="ex: R$ · UN · Boas compras!">
+      </div>` : ''}
+
+      <div class="divider-c"></div>
+
+      ${isSplit ? buildAreasSplit(c, uid) : buildAreaSimples(c, uid)}
+    </div>
+  `;
 }
 
 // ── Seletor de cor (input[type=color] nativo) ─────────────────────────────────
-function buildCorSelector(i, chave, cor) {
+function buildCorSelector(uid, chave, cor) {
   const hex = rgbToHex(...cor);
-  const pid = `cor-input-${i}-${chave}`;
   return `
     <div class="cor-display">
-      <div class="cor-preview" id="preview-${i}-${chave}" style="background:${hex};"></div>
-      <span class="cor-texto" id="texto-${i}-${chave}">${hex}</span>
+      <div class="cor-preview" id="preview-${uid}-${chave}" style="background:${hex};"></div>
+      <span class="cor-texto" id="texto-${uid}-${chave}">${hex}</span>
       <span class="cor-chevron">▼</span>
-      <input type="color" id="${pid}" value="${hex}"
+      <input type="color" id="cor-input-${uid}-${chave}" value="${hex}"
              style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:none;padding:0;"
-             oninput="selecionarCorHex(${i},'${chave}',this.value)"
-             onchange="selecionarCorHex(${i},'${chave}',this.value)">
+             oninput="selecionarCorHex(${uid},'${chave}',this.value)"
+             onchange="selecionarCorHex(${uid},'${chave}',this.value)">
     </div>`;
 }
 
-function selecionarCorHex(i, chave, hex) {
-  const cor = hexToRgb(hex);
-  campos[i][chave] = cor;
-  atualizarCorDisplay(i, chave, cor);
+function selecionarCorHex(uid, chave, hex) {
+  const c = campos.find(x => x.uid === uid);
+  if (!c) return;
+  c[chave] = hexToRgb(hex);
+  atualizarCorDisplay(uid, chave, c[chave]);
   if (chave === 'cor') {
-    const card = document.getElementById(`campo-${i}`);
-    if (card) card.style.setProperty('--campo-cor', hex);
+    const card = document.getElementById(`campo-${uid}`);
+    if (card) card.querySelector('.campo-bar').style.background = hex;
   }
   atualizarPreview();
 }
 
-function atualizarCorDisplay(i, chave, cor) {
+function atualizarCorDisplay(uid, chave, cor) {
   const hex  = rgbToHex(...cor);
-  const prev = document.getElementById(`preview-${i}-${chave}`);
-  const txt  = document.getElementById(`texto-${i}-${chave}`);
-  const inp  = document.getElementById(`cor-input-${i}-${chave}`);
+  const prev = document.getElementById(`preview-${uid}-${chave}`);
+  const txt  = document.getElementById(`texto-${uid}-${chave}`);
+  const inp  = document.getElementById(`cor-input-${uid}-${chave}`);
   if (prev) prev.style.background = hex;
   if (txt)  txt.textContent = hex;
   if (inp)  inp.value = hex;
 }
 
 // ── Construtores de área ──────────────────────────────────────────────────────
-function buildAreaSimples(c, i) {
-  const a = c.area || [0,0,0,0];
+function buildAreaSimples(c, uid) {
   return `
-    <div>
-      <div class="area-label">Área do campo</div>
-      <div class="area-coords" id="coords-${i}-area">(${a[0]}, ${a[1]}, ${a[2]}, ${a[3]})</div>
-      <button class="area-btn" onclick="abrirCanvas(${i},'area')">🎯 Definir área na imagem</button>
+    <div class="area-box">
+      <div class="area-box-row">
+        <span class="area-box-label">Área do campo</span>
+        <span class="area-box-coords" id="coords-${uid}-area">${coordStr(c.area)}</span>
+      </div>
+      <button class="area-btn" onclick="abrirCanvas(${uid},'area')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"></circle><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke-linecap="round"/></svg>
+        Definir na imagem
+      </button>
     </div>`;
 }
 
-function buildAreasSplit(c, i) {
-  const ai = c.area_inteiro  || [0,0,0,0];
-  const ac = c.area_centavos || [0,0,0,0];
+function buildAreasSplit(c, uid) {
   return `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:130px;">
-        <div class="area-label">Parte inteira</div>
-        <div class="area-coords" id="coords-${i}-area_inteiro">(${ai[0]}, ${ai[1]}, ${ai[2]}, ${ai[3]})</div>
-        <button class="area-btn" onclick="abrirCanvas(${i},'area_inteiro')">🎯 Definir</button>
+    <div class="area-box">
+      <div class="area-split-row">
+        <div class="area-split-col">
+          <div class="area-box-row">
+            <span class="area-box-label">Parte inteira</span>
+            <span class="area-box-coords" id="coords-${uid}-area_inteiro">${coordStr(c.area_inteiro)}</span>
+          </div>
+          <button class="area-btn" onclick="abrirCanvas(${uid},'area_inteiro')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"></circle><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke-linecap="round"/></svg>
+            Definir
+          </button>
+        </div>
+        <div class="area-split-col">
+          <div class="area-box-row">
+            <span class="area-box-label">Centavos</span>
+            <span class="area-box-coords" id="coords-${uid}-area_centavos">${coordStr(c.area_centavos)}</span>
+          </div>
+          <button class="area-btn" onclick="abrirCanvas(${uid},'area_centavos')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"></circle><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke-linecap="round"/></svg>
+            Definir
+          </button>
+        </div>
       </div>
-      <div style="flex:1;min-width:130px;">
-        <div class="area-label">Centavos</div>
-        <div class="area-coords" id="coords-${i}-area_centavos">(${ac[0]}, ${ac[1]}, ${ac[2]}, ${ac[3]})</div>
-        <button class="area-btn" onclick="abrirCanvas(${i},'area_centavos')">🎯 Definir</button>
-      </div>
-    </div>
-    <label class="check-item" style="margin-top:8px;display:inline-flex;">
-      <input type="checkbox" id="cent-ajust-${i}"
-             ${c.centavos_ajustado!==false?'checked':''}
-             onchange="atualizarCampo(${i},'centavos_ajustado',this.checked)">
-      Centavos seguem borda do inteiro
-    </label>`;
+      <label class="check-item" style="margin-top:10px; display:inline-flex; background:#fff;">
+        <input type="checkbox" ${c.centavos_ajustado !== false ? 'checked' : ''}
+               onchange="atualizarCampo(${uid},'centavos_ajustado',this.checked)">
+        Centavos seguem borda do inteiro
+      </label>
+    </div>`;
+}
+
+// ── Expandir / recolher / mover / ativo ───────────────────────────────────────
+function toggleExpand(uid) {
+  const c = campos.find(x => x.uid === uid);
+  if (c) c.expandido = !c.expandido;
+  renderCampos();
+}
+function expandirTodos()  { campos.forEach(c => c.expandido = true);  renderCampos(); }
+function recolherTodos()  { campos.forEach(c => c.expandido = false); renderCampos(); }
+
+function setActiveCampo(uid) {
+  if (activeUid === uid) return;
+  const prevEl = document.getElementById(`campo-${activeUid}`);
+  if (prevEl) prevEl.classList.remove('campo-active');
+  activeUid = uid;
+  const curEl = document.getElementById(`campo-${uid}`);
+  if (curEl) curEl.classList.add('campo-active');
+  atualizarPreview();
+}
+
+function moverCampo(uid, dir) {
+  const i = campos.findIndex(c => c.uid === uid);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= campos.length) return;
+  [campos[i], campos[j]] = [campos[j], campos[i]];
+  renderCampos();
 }
 
 // ── Preview ao vivo ───────────────────────────────────────────────────────────
@@ -595,13 +853,23 @@ function atualizarPreview() {
   const empty  = document.getElementById('preview-empty');
   const legend = document.getElementById('preview-legend');
   const badge  = document.getElementById('preview-badge');
+  const titulo = document.getElementById('campos-titulo');
+  const mostrarAreas = document.getElementById('mostrar-areas').checked;
 
-  if (badge) badge.textContent = campos.length + ' campo' + (campos.length !== 1 ? 's' : '');
+  if (badge)  badge.textContent  = campos.length + ' campo' + (campos.length !== 1 ? 's' : '');
+  if (titulo) titulo.textContent = 'Campos · ' + campos.length;
+
+  legend.innerHTML = campos.map((c, i) => `
+    <div class="legend-item" onmouseenter="setActiveCampo(${c.uid})">
+      <span class="legend-cor" style="background:${CORES_PREV[i % CORES_PREV.length]}"></span>
+      <span>${c.label || c.id || 'Campo ' + (i + 1)}</span>
+    </div>`).join('');
+
+  atualizarValidacao();
 
   if (!imagemObj || !imagemObj.naturalWidth) {
     canvas.style.display = 'none';
     empty.style.display  = 'flex';
-    legend.style.display = 'none';
     return;
   }
 
@@ -616,131 +884,165 @@ function atualizarPreview() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(imagemObj, 0, 0, canvas.width, canvas.height);
 
-  let temAlgumaArea = false;
+  if (!mostrarAreas) return;
 
   campos.forEach((c, i) => {
     const stroke = CORES_PREV[i % CORES_PREV.length];
     const cor    = c.cor || [0, 0, 0];
+    const ativo  = c.uid === activeUid;
 
     function renderArea(rect, texto, corTexto) {
-      if (!rect || rect.every(v => v === 0)) return;
+      if (!areaOk(rect)) return;
       const [x1,y1,x2,y2] = rect.map(v => Math.round(v * esc));
       const w = x2 - x1, h = y2 - y1;
       if (w < 2 || h < 2) return;
-      temAlgumaArea = true;
-      // Fundo semi-transparente + borda
-      ctx.fillStyle   = stroke + '20';
+      ctx.fillStyle   = stroke + (ativo ? '33' : '1f');
       ctx.fillRect(x1, y1, w, h);
       ctx.strokeStyle = stroke;
-      ctx.lineWidth   = 2;
+      ctx.lineWidth   = ativo ? 3 : 2;
       ctx.strokeRect(x1, y1, w, h);
-      // Texto de exemplo centralizado na área
       drawTexto(ctx, texto, x1, y1, x2, y2, corTexto);
+      return [x1, y1, x2, y2];
     }
 
     if (c.tipo === 'preco_split') {
       renderArea(c.area_inteiro,  '12',  cor);
       renderArea(c.area_centavos, ',99', cor);
-    } else if (c.area && !c.area.every(v => v === 0)) {
-      const [x1,y1,x2,y2] = c.area.map(v => Math.round(v * esc));
-      const w = x2 - x1, h = y2 - y1;
-      if (w >= 2 && h >= 2) {
-        temAlgumaArea = true;
-        ctx.fillStyle   = stroke + '20';
-        ctx.fillRect(x1, y1, w, h);
-        ctx.strokeStyle = stroke;
-        ctx.lineWidth   = 2;
-        ctx.strokeRect(x1, y1, w, h);
-        drawTexto(ctx, exText(c), x1, y1, x2, y2, cor);
-        if (c.tipo === 'texto_riscado') {
-          const corX = c.cor_x || [180, 0, 0];
-          ctx.strokeStyle = `rgb(${corX[0]},${corX[1]},${corX[2]})`;
-          ctx.lineWidth   = Math.max(2, Math.round(w * 0.045));
-          ctx.lineCap     = 'round';
-          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke();
-          ctx.lineCap = 'butt';
-        }
+    } else {
+      const p = renderArea(c.area, exText(c), cor);
+      if (p && c.tipo === 'texto_riscado') {
+        const [x1,y1,x2,y2] = p;
+        const corX = c.cor_x || [180, 0, 0];
+        ctx.strokeStyle = `rgb(${corX[0]},${corX[1]},${corX[2]})`;
+        ctx.lineWidth   = Math.max(2, Math.round((x2 - x1) * 0.045));
+        ctx.lineCap     = 'round';
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke();
+        ctx.lineCap = 'butt';
       }
     }
   });
+}
 
-  if (temAlgumaArea && campos.length > 0) {
-    legend.style.display = 'flex';
-    legend.innerHTML = campos.map((c, i) => `
-      <div class="legend-item">
-        <span class="legend-cor" style="background:${CORES_PREV[i % CORES_PREV.length]}"></span>
-        <span>${c.label || c.id || 'Campo ' + (i+1)}</span>
-      </div>`).join('');
-  } else {
-    legend.style.display = 'none';
-  }
+// ── Validação (painel "Verificação") ──────────────────────────────────────────
+function validar() {
+  const av = [];
+  const nome = document.getElementById('layout-nome').value.trim();
+  if (!nome) av.push({ tipo: 'erro', msg: 'Informe o nome do layout' });
+
+  const ids = campos.map(c => (c.id || '').trim());
+  campos.forEach((c, i) => { if (!ids[i]) av.push({ tipo: 'erro', msg: 'Campo ' + (i + 1) + ': ID vazio' }); });
+
+  const dup = [...new Set(ids.filter((id, idx) => id && ids.indexOf(id) !== idx))];
+  dup.forEach(id => av.push({ tipo: 'erro', msg: 'ID duplicado: "' + id + '"' }));
+
+  if (!campos.length) av.push({ tipo: 'erro', msg: 'Adicione pelo menos um campo' });
+
+  campos.forEach(c => {
+    if (!temArea(c)) av.push({ tipo: 'aviso', msg: (c.label || c.id || 'Campo') + ': sem área definida' });
+  });
+
+  return av;
+}
+
+function atualizarValidacao() {
+  const av = validar();
+  const card  = document.getElementById('avisos-card');
+  const lista = document.getElementById('avisos-lista');
+  if (!av.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  lista.innerHTML = av.map(a => {
+    const erro = a.tipo === 'erro';
+    const cor = erro ? 'var(--danger)' : 'var(--warning)';
+    const bg  = erro ? 'var(--danger-bg)' : 'var(--warning-bg)';
+    const icon = erro ? '!' : '?';
+    return `<div class="aviso-item" style="color:${cor};">
+      <span class="aviso-icon" style="background:${bg};color:${cor};">${icon}</span>${a.msg}
+    </div>`;
+  }).join('');
 }
 
 // ── Atualização de estado ─────────────────────────────────────────────────────
-function atualizarCampo(i, chave, valor) {
-  campos[i][chave] = valor;
+function atualizarCampo(uid, chave, valor) {
+  const c = campos.find(x => x.uid === uid);
+  if (c) c[chave] = valor;
   atualizarPreview();
 }
 
-function atualizarCampoLabel(i, valor) {
-  campos[i].label = valor;
-  const el = document.getElementById(`titulo-${i}`);
-  if (el) el.textContent = valor || campos[i].id || `Campo ${i+1}`;
+function atualizarCampoLabel(uid, valor) {
+  const c = campos.find(x => x.uid === uid);
+  if (!c) return;
+  c.label = valor;
+  const el = document.querySelector(`#campo-${uid} .campo-titulo`);
+  if (el) el.textContent = valor || c.id || 'Campo';
   atualizarPreview();
 }
 
-function togglePreenchido(i, ativo) {
-  document.getElementById(`preenchido-row-${i}`).style.display = ativo ? '' : 'none';
-  if (!ativo) campos[i].valor_fixo = '';
+function togglePreenchido(uid, ativo) {
+  const c = campos.find(x => x.uid === uid);
+  if (!c) return;
+  if (!ativo) c.valor_fixo = '';
+  else if (c.valor_fixo === undefined) c.valor_fixo = '';
+  renderCampos();
 }
 
-function atualizarTipo(i, tipo) {
-  campos[i].tipo = tipo;
+function atualizarTipo(uid, tipo) {
+  const c = campos.find(x => x.uid === uid);
+  if (!c) return;
+  c.tipo = tipo;
   if (tipo === 'preco_split') {
-    campos[i].area_inteiro  = campos[i].area_inteiro  || [0,0,0,0];
-    campos[i].area_centavos = campos[i].area_centavos || [0,0,0,0];
-    campos[i].centavos_ajustado = campos[i].centavos_ajustado !== false;
-    delete campos[i].area;
+    c.area_inteiro  = c.area_inteiro  || [0,0,0,0];
+    c.area_centavos = c.area_centavos || [0,0,0,0];
+    c.centavos_ajustado = c.centavos_ajustado !== false;
+    delete c.area;
   } else {
-    campos[i].area = campos[i].area || [0,0,0,0];
-    delete campos[i].area_inteiro;
-    delete campos[i].area_centavos;
+    c.area = c.area || [0,0,0,0];
+    delete c.area_inteiro;
+    delete c.area_centavos;
   }
-  if (tipo === 'texto_riscado') campos[i].cor_x = campos[i].cor_x || [180,0,0];
+  if (tipo === 'texto_riscado') c.cor_x = c.cor_x || [180,0,0];
   renderCampos();
 }
 
 function adicionarCampo() {
+  const n = campos.length + 1;
   campos.push({
-    id: `campo_${campos.length + 1}`, label: `Campo ${campos.length + 1}`,
+    uid: nextUid++, expandido: true,
+    id: `campo_${n}`, label: `Campo ${n}`,
     tipo: 'texto', area: [0,0,0,0],
     cor: [0,0,0], maiusculo: false, opcional: false, fonte_path: ''
   });
   renderCampos();
-  // Rola até o novo campo
-  const ultimo = document.getElementById(`campo-${campos.length - 1}`);
+  const ultimo = document.getElementById(`campo-${campos[campos.length - 1].uid}`);
   if (ultimo) ultimo.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function removerCampo(i) {
-  if (!confirm(`Remover o campo "${campos[i].label || campos[i].id}"?`)) return;
-  campos.splice(i, 1);
+function removerCampo(uid) {
+  const c = campos.find(x => x.uid === uid);
+  if (!confirm(`Remover o campo "${(c && (c.label || c.id)) || ''}"?`)) return;
+  campos = campos.filter(x => x.uid !== uid);
+  if (activeUid === uid) activeUid = null;
   renderCampos();
 }
 
 // ── Canvas de definição de área ───────────────────────────────────────────────
-function abrirCanvas(idx, sub) {
+function abrirCanvas(uid, sub) {
   if (!imagemObj || !imagemObj.complete || !imagemObj.naturalWidth) {
-    alert('Selecione uma imagem base primeiro.');
+    mostrarToast('erro', 'Selecione uma imagem base primeiro');
     return;
   }
-  campoCbIdx = idx; subCampo = sub; retangulo = null;
+  const c = campos.find(x => x.uid === uid);
+  const nomes = { area: 'Área do campo', area_inteiro: 'Parte inteira', area_centavos: 'Centavos' };
+  campoCbIdx = uid; subCampo = sub; retangulo = null;
+
+  document.getElementById('canvas-titulo').textContent =
+    (c ? (c.label || c.id) : '') + ' · ' + (nomes[sub] || sub);
+  document.getElementById('canvas-dims').textContent = '—';
 
   const canvas = document.getElementById('canvas-editor');
   const ctx    = canvas.getContext('2d');
-  const maxW   = window.innerWidth  * 0.88;
-  const maxH   = window.innerHeight * 0.72;
+  const maxW   = window.innerWidth  * 0.86;
+  const maxH   = window.innerHeight * 0.62;
   escala = Math.min(maxW / imagemObj.naturalWidth, maxH / imagemObj.naturalHeight, 1);
   canvas.width  = Math.round(imagemObj.naturalWidth  * escala);
   canvas.height = Math.round(imagemObj.naturalHeight * escala);
@@ -759,8 +1061,13 @@ function abrirCanvas(idx, sub) {
     const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
     ctx.drawImage(imagemObj, 0, 0, canvas.width, canvas.height);
     desenharAreasExistentes(ctx);
-    ctx.strokeStyle = '#00e0ff'; ctx.lineWidth = 2;
+    ctx.strokeStyle = '#00e0ff'; ctx.lineWidth = 2.5;
+    ctx.fillStyle = 'rgba(0,224,255,0.12)';
+    ctx.fillRect(startX, startY, cx - startX, cy - startY);
     ctx.strokeRect(startX, startY, cx - startX, cy - startY);
+    const w = Math.round(Math.abs(cx - startX) / escala);
+    const h = Math.round(Math.abs(cy - startY) / escala);
+    document.getElementById('canvas-dims').textContent = `${w} × ${h} px`;
   };
   canvas.onmouseup = (e) => {
     if (!desenhando) return; desenhando = false;
@@ -774,20 +1081,21 @@ function abrirCanvas(idx, sub) {
 }
 
 function desenharAreasExistentes(ctx) {
-  const cores = ['#ff4444','#ffcc00','#44cc44','#ff88cc','#6699ff'];
   campos.forEach((c, i) => {
-    ctx.strokeStyle = cores[i % cores.length]; ctx.lineWidth = 2;
+    ctx.strokeStyle = CORES_PREV[i % CORES_PREV.length]; ctx.lineWidth = 2;
+    ctx.globalAlpha = c.uid === campoCbIdx ? 0.35 : 0.85;
     if (c.tipo === 'preco_split') {
-      desenharRect(ctx, c.area_inteiro  || [0,0,0,0], `${c.label} (int.)`);
-      desenharRect(ctx, c.area_centavos || [0,0,0,0], `${c.label} (cen.)`);
+      desenharRect(ctx, c.area_inteiro  || [0,0,0,0], `${c.label || ''} int.`);
+      desenharRect(ctx, c.area_centavos || [0,0,0,0], `${c.label || ''} cent.`);
     } else if (c.area) {
-      desenharRect(ctx, c.area, c.label);
+      desenharRect(ctx, c.area, c.label || '');
     }
+    ctx.globalAlpha = 1;
   });
 }
 
 function desenharRect(ctx, area, label) {
-  if (!area || area.every(v => v === 0)) return;
+  if (!areaOk(area)) return;
   const [x1,y1,x2,y2] = area.map(v => v * escala);
   ctx.strokeRect(x1, y1, x2-x1, y2-y1);
   ctx.fillStyle = ctx.strokeStyle;
@@ -796,12 +1104,13 @@ function desenharRect(ctx, area, label) {
 }
 
 function confirmarArea() {
-  if (!retangulo) { alert('Desenhe uma área primeiro.'); return; }
-  campos[campoCbIdx][subCampo] = retangulo;
+  if (!retangulo) { mostrarToast('erro', 'Desenhe uma área primeiro'); return; }
+  const c = campos.find(x => x.uid === campoCbIdx);
+  if (c) c[subCampo] = retangulo;
   const el = document.getElementById(`coords-${campoCbIdx}-${subCampo}`);
   if (el) el.textContent = `(${retangulo.join(', ')})`;
   cancelarArea();
-  atualizarPreview();
+  renderCampos();
 }
 
 function cancelarArea() {
@@ -810,30 +1119,53 @@ function cancelarArea() {
   canvas.onmousedown = canvas.onmousemove = canvas.onmouseup = null;
 }
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function mostrarToast(tipo, msg) {
+  if (toastTimer) clearTimeout(toastTimer);
+  const toast = document.getElementById('toast');
+  toast.className = tipo === 'ok' ? 'ok show' : 'erro show';
+  document.getElementById('toast-icon').textContent = tipo === 'ok' ? '✓' : '!';
+  document.getElementById('toast-msg').textContent = msg;
+  toastTimer = setTimeout(() => { toast.className = tipo === 'ok' ? 'ok' : 'erro'; }, 2800);
+}
+
 // ── Salvar ────────────────────────────────────────────────────────────────────
 async function salvar() {
   const nome = document.getElementById('layout-nome').value.trim();
-  if (!nome)          { alert('Informe o nome do layout.'); return; }
-  if (!imagemBase)    { alert('Selecione a imagem base.'); return; }
-  if (!campos.length) { alert('Adicione pelo menos um campo.'); return; }
+  const av = validar();
+  if (av.some(a => a.tipo === 'erro')) {
+    atualizarValidacao();
+    mostrarToast('erro', 'Corrija os itens destacados antes de salvar');
+    return;
+  }
+  if (!imagemBase) { mostrarToast('erro', 'Selecione a imagem base'); return; }
 
   const dados = {
     nome, imagem_base: imagemBase,
     contorno_preto:   document.getElementById('contorno-preto').checked,
     contorno_largura: 6,
     debug_areas:      document.getElementById('debug-areas').checked,
-    campos
+    campos: campos.map(({ uid, expandido, ...resto }) => resto)
   };
 
   const url = '{{ "/layouts/" + layout_id + "/editar" if layout_id else "/layouts/cadastrar" }}';
-  const r   = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(dados)
-  });
-  const d = await r.json();
-  if (d.ok) window.location.href = d.redirect || '/layouts';
-  else alert('Erro ao salvar: ' + d.msg);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dados)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      mostrarToast('ok', 'Layout salvo com sucesso');
+      setTimeout(() => { window.location.href = d.redirect || '/layouts'; }, 700);
+    } else {
+      mostrarToast('erro', 'Erro ao salvar: ' + d.msg);
+    }
+  } catch (e) {
+    mostrarToast('erro', 'Erro ao salvar: ' + e.message);
+  }
 }
 </script>
 {% endblock %}
