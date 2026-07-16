@@ -15,11 +15,19 @@ templates e mensagens são em português; mantenha esse padrão.
 
 Ferramentas atuais, agrupadas por setor:
 - **Cadastro:** calculadora de preço, placas de oferta, placas hortifruti,
-  relatórios de venda, registro de perda.
+  relatórios de venda, **produtos vencidos** (registro interno de perdas).
 - **Loja:** lote e vencimento.
-- **Financeiro:** débitos e bonificações.
+- **Financeiro:** débitos, pagamentos e alocações (acompanhamento de quitação
+  NF-a-NF).
+- **Sistema:** login/usuários e backup/restauração.
 
 Algumas ainda são *placeholders* (ver seção 10).
+
+> **Acesso protegido por login.** Há uma guarda global (`before_request`) que
+> exige sessão para tudo, menos `/login`, `/setup` e estáticos. No primeiro
+> acesso (banco de usuários vazio) o sistema leva para `/setup` para criar o
+> administrador. A guarda é *fail-open*: se o módulo de auth não carregar, o
+> sistema segue no ar sem login (aviso no log) — disponibilidade acima de tudo.
 
 ---
 
@@ -31,9 +39,10 @@ Algumas ainda são *placeholders* (ver seção 10).
     5000** (`python app.py`). Mostra o IP local no terminal.
   - `server.py` — produção. Usa **waitress** na **porta 80**
     (`python server.py`). É este que roda como serviço Windows via NSSM.
-- **Persistência:** sem banco central único. Cada módulo guarda do seu jeito
-  (ver seção 6). O módulo de relatórios usa **SQLite**; os demais usam Excel ou
-  JSON.
+- **Persistência:** sem banco central único, mas o padrão hoje é **SQLite** por
+  módulo (ver seção 6). Débitos, relatórios, usuários e vencidos usam SQLite;
+  layouts de placa usam JSON. Todos os bancos SQLite ganham backup automático
+  (ver seção 13).
 
 Rodar em desenvolvimento:
 ```bash
@@ -121,15 +130,25 @@ módulo novo.**
 3. **View** (`templates/<modulo>/*.html`): estende `base.html` e preenche os
    blocos. JS de página no bloco `extra_scripts`.
 
-Blueprints registrados em `app.py`:
+Blueprints registrados em `app.py` via **registro tolerante** (`registrar_modulos`):
+cada módulo é importado isoladamente num try/except. Se um módulo tiver erro de
+import/sintaxe, ele é **pulado com um aviso** (`MODULOS_COM_FALHA`) e os demais
+continuam funcionando — mexer num módulo não derruba o sistema inteiro. A lista
+de módulos fica em `MODULOS`:
 ```python
-app.register_blueprint(debitos_bp)     # /debitos
-app.register_blueprint(layouts_bp)     # /layouts
-app.register_blueprint(relatorios_bp)  # /relatorios
+MODULOS = [
+    ("scripts.auth_routes",       "auth_bp"),       # /login, /setup, /sistema/usuarios
+    ("scripts.debitos_routes",    "debitos_bp"),     # /debitos
+    ("scripts.layouts_routes",    "layouts_bp"),     # /layouts
+    ("scripts.relatorios_routes", "relatorios_bp"),  # /relatorios
+    ("scripts.vencidos_routes",   "vencidos_bp"),     # /vencidos
+    ("scripts.backup_routes",     "backup_bp"),       # /sistema/backup
+]
 ```
-As rotas de `cadastro/*` e `loja/*` ainda estão **diretas no `app.py`** (não
-foram extraídas para blueprints). Ao evoluí-las, considere movê-las para
-blueprints próprios seguindo o padrão acima.
+Ao adicionar um módulo novo, some uma entrada aqui — **não** volte a importar o
+blueprint no topo do arquivo. As rotas de `cadastro/*` (calculadora) e `loja/*`
+ainda estão diretas no `app.py`; ao evoluí-las, considere movê-las para
+blueprints próprios.
 
 ---
 
@@ -151,9 +170,23 @@ listar (`/`), cadastrar, editar/excluir layout, gerar (`/<id>/gerar`),
 PDF (`/pdf/<arquivo>`), imprimir, preview. O template `cadastro/placas_ofertas.html`
 existe mas a geração efetiva passa pelo blueprint `/layouts`.
 
-### Débitos e bonificações — Blueprint `/debitos` (`debitos_routes.py` + `debitos.py`)
-Controle por empresa (CNPJ) de débitos de vencimento, rebaixas e bonificações.
-Persistido em `dados/debitos.xlsx`. API JSON em `/debitos/api/...`.
+### Débitos, pagamentos e alocações — Blueprint `/debitos` (`debitos_routes.py` + `debitos.py`)
+Controle por empresa (CNPJ) com **acompanhamento de quitação NF-a-NF**.
+Persistido em `dados/debitos.db` (SQLite). Modelo:
+- `debitos` — o que a empresa deve (vencimento por NF ou rebaxa). Acumula
+  `valor_pago`; o status (aberto/parcial/quitado) é derivado.
+- `pagamentos` — créditos a nosso favor (NF de bonificação etc.). Acumulam
+  `valor_alocado`; o resto é crédito disponível.
+- `alocacoes` — ligação N:N: "R$ X do pagamento P quitou o débito D". Excluir um
+  débito ou pagamento **reverte automaticamente** suas alocações (soft-delete).
+
+Regras: NF duplicada na mesma empresa é barrada; `alocar` valida que o valor não
+excede nem o disponível do pagamento nem o saldo do débito; `alocar_automatico`
+distribui o crédito nos débitos em aberto do mais antigo ao mais novo (FIFO).
+
+API JSON em `/debitos/api/...`: `debito/vencimento`, `debito/rebaxa`,
+`pagamento`, `alocar`, `alocar/auto`, `desalocar` (+ DELETEs). O endpoint
+`/api/bonificacao` continua existindo como **alias legado** de `/api/pagamento`.
 > **Atenção:** a rota é `POST /debitos/api/debito/rebaxa` (grafia "rebaxa", sem
 > "i"). É um typo que o frontend já consome — **não "corrija" sem atualizar o
 > JS correspondente**, senão quebra.
@@ -168,11 +201,27 @@ Não há um banco único. Cada módulo persiste de um jeito:
 
 | Módulo            | Onde                          | Formato |
 |-------------------|-------------------------------|---------|
-| Débitos           | `dados/debitos.xlsx`          | Excel (openpyxl) |
+| Débitos/pagamentos/alocações | `dados/debitos.db` | SQLite |
+| Produtos vencidos | `dados/vencidos.db`           | SQLite |
+| Usuários + SECRET_KEY | `dados/sistema.db` + `dados/secret.key` | SQLite + arquivo |
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
 | Relatórios venda  | `dados/relatorios/vendas.db`  | SQLite |
+| Backups           | `backups/<banco>/*.db`        | cópias SQLite datadas |
 | Uploads temporários | `uploads/`                  | arquivos soltos |
 | Saídas geradas    | `outputs/`                    | PDF/imagens |
+
+> O antigo `dados/debitos.xlsx` é legado e não é mais usado. A tabela
+> `bonificacoes` foi migrada (não destrutivamente) para `pagamentos`; a
+> migração roda sozinha ao abrir o banco e é idempotente.
+
+**Convenções de confiabilidade (siga em módulos que gravam dado que importa):**
+- Datas em **ISO** (`AAAA-MM-DD HH:MM:SS`) para ordenação correta; formate para
+  exibição com um `data_fmt`.
+- **Soft-delete** (`excluido_em`/`excluido_por`), nunca `DELETE` físico; filtre
+  `WHERE excluido_em IS NULL` nas consultas.
+- **Auditoria**: registre criar/excluir na tabela `auditoria` com o `usuario`
+  (vindo de `session.get("usuario")` na camada de rotas).
+- `PRAGMA busy_timeout = 5000` na conexão (evita erro imediato sob concorrência).
 
 Ao criar um módulo novo, prefira **SQLite** quando houver consulta/cruzamento de
 dados (é o caminho adotado no módulo mais recente). Excel/JSON só quando o
@@ -291,10 +340,11 @@ Helpers globais já disponíveis em `base.html`: `postJSON(url, data)`,
 ## 10. Pendências e dívidas conhecidas
 
 - **Placeholders** (retornam `{"status": "em breve"}`): `placas-hortifruti/gerar`,
-  `registro-perda/salvar`, `lote-vencimento/consultar`. As telas existem; falta
-  a lógica.
-- `cadastro/*` e `loja/*` ainda são rotas diretas no `app.py` — candidatas a
-  virar blueprints.
+  `lote-vencimento/consultar`. As telas existem; falta a lógica. (O antigo
+  placeholder `registro-perda` foi substituído pelo módulo real `/vencidos`; a
+  rota antiga ainda existe no `app.py` mas o menu já aponta para `/vencidos`.)
+- `cadastro/*` (calculadora) e `loja/*` ainda são rotas diretas no `app.py` —
+  candidatas a virar blueprints.
 - Typo proposital/legado: rota `/debitos/api/debito/rebaxa` (ver seção 5).
 - Há arquivos de mídia do WhatsApp (`.ogg`, `.mp4`) espalhados na raiz, em
   `scripts/` e `templates/layouts/` — são lixo de desenvolvimento e podem ser
@@ -348,11 +398,46 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
 1. `scripts/<modulo>.py` — lógica + persistência (SQLite de preferência), sem Flask.
 2. `scripts/<modulo>_routes.py` — `Blueprint("<modulo>", __name__, url_prefix="/<modulo>")`
    com a página e as APIs.
-3. Registrar em `app.py`: importar `<modulo>_bp` e `app.register_blueprint(<modulo>_bp)`.
+3. Registrar em `app.py`: adicionar `("scripts.<modulo>_routes", "<modulo>_bp")`
+   à lista `MODULOS` (registro tolerante — **não** importe o blueprint no topo).
 4. `templates/<modulo>/index.html` — estender `base.html`, usar os componentes
    prontos e as CSS variables da paleta.
 5. Adicionar o card no `templates/index.html` (no setor certo), com ícone SVG de
    linha e `data-nome` para a busca.
 6. Se houver dependência nova, somar ao `requirements.txt`.
-7. Testar de verdade antes de entregar: subir o app (`python app.py`) e exercer
+7. Seguir as **convenções de confiabilidade** da seção 6 (ISO, soft-delete,
+   auditoria, `busy_timeout`) se o módulo gravar dado que importa. Para gravar o
+   autor, leia `session.get("usuario")` na camada de rotas e passe adiante.
+8. Testar de verdade antes de entregar: subir o app (`python app.py`) e exercer
    as rotas; para a lógica, um teste rápido importando o módulo direto.
+
+---
+
+## 13. Login, backup e módulos de sistema
+
+### Autenticação (`scripts/auth.py` + `auth_routes.py`)
+- Usuários em `dados/sistema.db`; senhas com **PBKDF2-HMAC-SHA256** (stdlib, sem
+  dependência externa). A `SECRET_KEY` do Flask fica em `dados/secret.key`
+  (gerada uma vez; sessões sobrevivem a reinícios).
+- A guarda global é instalada por `instalar_guarda(app)` no `app.py`. Endpoints
+  públicos: `auth.login`, `auth.logout`, `auth.setup`, `static`. APIs deslogadas
+  recebem `401 JSON`; páginas são redirecionadas para `/login`.
+- Primeiro acesso: banco de usuários vazio → `/setup` cria o admin.
+- Cada mutação de dado sensível grava o autor na auditoria via
+  `session.get("usuario")` (ver `debitos_routes._usuario` / `vencidos_routes._usuario`).
+
+### Backup (`scripts/backup.py` + `backup_routes.py`)
+- Copia **todos os `.db` de `dados/`** com a **API de backup online do SQLite**
+  (consistente com o banco em uso) para `backups/<banco>/<banco>_AAAA-MM-DD_HHMM.db`.
+  Retenção padrão: 30 cópias por banco (`BACKUP_RETENCAO`).
+- Um **agendador em thread daemon** (`iniciar_agendador`, chamado no `app.py`)
+  faz backup ao subir e a cada `BACKUP_INTERVALO_HORAS` (padrão 24h).
+- Destino configurável por `BACKUP_DIR` — **aponte para a pasta do Google Drive
+  desktop** para que as cópias saiam do PC automaticamente.
+- Restauração (`/sistema/backup`) salva o estado atual em `_pre_restauracao/`
+  antes de sobrescrever, então também é reversível.
+
+### Produtos vencidos (`scripts/vencidos.py` + `vencidos_routes.py`)
+- Registro interno de perdas em `dados/vencidos.db`. Motivos em `vencidos.MOTIVOS`.
+  Filtro por período/motivo, resumo com total de valor perdido. Segue as
+  convenções de confiabilidade (ISO, soft-delete, auditoria).

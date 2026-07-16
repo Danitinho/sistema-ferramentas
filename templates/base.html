@@ -225,6 +225,12 @@
       {% block breadcrumb %}<a href="/">Menu principal</a>{% endblock %}
     </div>
     {% block header_actions %}{% endblock %}
+    {% if session and session.usuario %}
+    <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
+      <a href="/sistema/usuarios" title="Usuários e sistema" style="font-size:13px;">{{ session.nome or session.usuario }}</a>
+      <a href="/logout" title="Sair" style="font-size:13px;">Sair</a>
+    </div>
+    {% endif %}
   </div>
 </header>
 

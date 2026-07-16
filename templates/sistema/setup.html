@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Primeiro acesso — Sistema de Ferramentas{% endblock %}
+{% block header_title %}Sistema de Ferramentas{% endblock %}
+{% block breadcrumb %}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:420px;margin:6vh auto 0">
+  <div class="card-title">Primeiro acesso</div>
+  <p style="font-size:13px;color:var(--gray);margin-bottom:6px">
+    Nenhum usuário cadastrado ainda. Crie o administrador do sistema.
+  </p>
+  <form method="post" action="/setup">
+    <label>Nome (opcional)</label>
+    <input type="text" name="nome" autocomplete="name">
+    <label>Usuário</label>
+    <input type="text" name="usuario" autocomplete="username" autofocus required>
+    <label>Senha <span style="font-weight:400;color:var(--gray)">(mín. 4 caracteres)</span></label>
+    <input type="password" name="senha" autocomplete="new-password" required>
+    {% if erro %}
+    <div class="result-box error show" style="margin-top:12px">{{ erro }}</div>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Criar e entrar</button>
+  </form>
+</div>
+{% endblock %}

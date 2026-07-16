@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Backup do sistema{% endblock %}
+{% block header_title %}Backup e restauração{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Sistema · Backup{% endblock %}
+
+{% block extra_head %}
+<style>
+  .kv { display:grid; grid-template-columns:1fr auto; gap:6px 12px; font-size:13px; }
+  .kv .lbl { color:var(--gray); }
+  .kv .val { font-weight:600; text-align:right; }
+  .banco-bloco { border-bottom:0.5px solid var(--border); padding:12px 0; }
+  .banco-bloco:last-child { border-bottom:none; }
+  .banco-nome { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .banco-nome .tag { font-size:10px; padding:2px 8px; border-radius:10px; font-weight:700; }
+  .tag.vivo { background:var(--success-bg); color:var(--success); }
+  .tag.orfao { background:var(--warning-bg); color:var(--warning); }
+  .copia-sel { display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .copia-sel select { flex:1; }
+  .copia-sel .btn { margin-top:0; width:auto; padding:9px 14px; }
+  .muted { font-size:12px; color:var(--gray); margin-top:3px; }
+  .hint { font-size:12px; color:var(--gray); background:var(--gray-light);
+          border-radius:var(--radius-sm); padding:10px 12px; margin-top:12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Situação do backup</div>
+  <div class="kv">
+    <span class="lbl">Pasta de destino</span>
+    <span class="val" style="word-break:break-all">{{ status.destino }}</span>
+    <span class="lbl">Última cópia</span>
+    <span class="val">{{ status.ultima_copia or "— nenhuma ainda —" }}</span>
+    <span class="lbl">Cópias guardadas</span>
+    <span class="val">{{ status.total_copias }} ({{ status.total_bancos }} bancos)</span>
+    <span class="lbl">Frequência automática</span>
+    <span class="val">a cada {{ status.intervalo_horas }} h · retém {{ status.retencao }}</span>
+  </div>
+  <button class="btn btn-primary" id="btn-agora" onclick="fazerAgora()">Fazer backup agora</button>
+  <div class="result-box" id="msg-agora" style="margin-top:12px"></div>
+  <div class="hint">
+    Esta pasta deve estar dentro do Google Drive (ou sincronizada por ele) para
+    que as cópias saiam do PC automaticamente.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Restaurar um banco</div>
+  {% if status.grupos %}
+  {% for g in status.grupos %}
+  <div class="banco-bloco">
+    <div class="banco-nome">
+      {{ g.banco }}
+      {% if g.existe_ao_vivo %}<span class="tag vivo">ativo</span>
+      {% else %}<span class="tag orfao">só backup</span>{% endif %}
+    </div>
+    {% if g.copias %}
+    <div class="copia-sel">
+      <select id="sel-{{ loop.index }}">
+        {% for c in g.copias %}
+        <option value="{{ c.arquivo }}">{{ c.quando }} · {{ (c.tamanho / 1024) | round(1) }} KB</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-secondary"
+              onclick="restaurar('{{ g.banco | e }}', 'sel-{{ loop.index }}')">Restaurar</button>
+    </div>
+    <div class="muted">{{ g.copias | length }} cópia(s) disponível(is).</div>
+    {% else %}
+    <div class="muted">Nenhuma cópia ainda.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="muted">Nenhum banco encontrado.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+
+async function fazerAgora() {
+  const btn = $("btn-agora"), msg = $("msg-agora");
+  btn.disabled = true; btn.textContent = "Copiando…";
+  msg.classList.remove("show", "error");
+  const r = await postJSON("/sistema/backup/api/agora", {});
+  btn.disabled = false; btn.textContent = "Fazer backup agora";
+  if (r.ok) {
+    const res = r.resultado;
+    msg.textContent = `${res.copiados}/${res.total} bancos copiados em ${res.quando}.`
+      + (res.falhas ? ` ${res.falhas} falha(s).` : "");
+    msg.classList.add("show");
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    msg.textContent = r.msg || "Falha ao fazer backup.";
+    msg.classList.add("show", "error");
+  }
+}
+
+async function restaurar(banco, selId) {
+  const arquivo = $(selId).value;
+  if (!confirm(`Restaurar "${banco}" a partir da cópia selecionada?\n\n`
+      + "O estado atual será salvo antes, mas os dados atuais serão substituídos.")) return;
+  const r = await postJSON("/sistema/backup/api/restaurar", { banco, arquivo });
+  alert(r.msg || (r.ok ? "Restaurado." : "Falha."));
+  if (r.ok) location.reload();
+}
+</script>
+{% endblock %}

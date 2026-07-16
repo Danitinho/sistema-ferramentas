@@ -6,18 +6,64 @@ Acesse em:  http://localhost:5000  (mesmo PC)
 """
 import os
 import socket
+import importlib
 
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from scripts.debitos_routes import debitos_bp
-from scripts.layouts_routes import layouts_bp
-from scripts.relatorios_routes import relatorios_bp
 
 app = Flask(__name__)
-app.register_blueprint(debitos_bp)
-app.register_blueprint(layouts_bp)
-app.register_blueprint(relatorios_bp)
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["OUTPUT_FOLDER"] = "outputs"
+
+
+# ── Registro tolerante de módulos ─────────────────────────────────────────────
+# Cada módulo (blueprint) é carregado isoladamente. Se um deles tiver erro de
+# import/sintaxe, ele é PULADO com um aviso — os demais continuam funcionando.
+# Assim, mexer num módulo não derruba o sistema inteiro.
+MODULOS = [
+    ("scripts.auth_routes",       "auth_bp"),
+    ("scripts.debitos_routes",    "debitos_bp"),
+    ("scripts.layouts_routes",    "layouts_bp"),
+    ("scripts.relatorios_routes", "relatorios_bp"),
+    ("scripts.vencidos_routes",   "vencidos_bp"),
+    ("scripts.backup_routes",     "backup_bp"),
+]
+
+MODULOS_COM_FALHA = []
+
+
+def registrar_modulos(flask_app):
+    for caminho, attr in MODULOS:
+        try:
+            mod = importlib.import_module(caminho)
+            flask_app.register_blueprint(getattr(mod, attr))
+        except Exception as e:  # noqa: BLE001 — isolar a falha do módulo
+            MODULOS_COM_FALHA.append((caminho, str(e)))
+            flask_app.logger.error("Módulo '%s' não carregou: %s", caminho, e)
+            print(f"[app] AVISO: módulo '{caminho}' não carregou e foi ignorado: {e}")
+
+
+registrar_modulos(app)
+
+# ── Autenticação ──────────────────────────────────────────────────────────────
+# Secret key persistente (sessões sobrevivem a reinícios) + guarda global de
+# login. Fail-open: se o módulo de auth falhar em carregar, o sistema segue no
+# ar SEM login (um aviso é logado) — melhor que ficar inacessível.
+try:
+    from datetime import timedelta
+    from scripts import auth
+    from scripts.auth_routes import instalar_guarda
+    app.secret_key = auth.obter_ou_criar_secret()
+    app.permanent_session_lifetime = timedelta(days=7)
+    instalar_guarda(app)
+except Exception as e:  # noqa: BLE001
+    print(f"[app] AVISO: login NÃO foi ativado (sistema seguirá sem login): {e}")
+
+# Sobe o agendador de backup em thread daemon (tolerante a falha).
+try:
+    from scripts import backup
+    backup.iniciar_agendador()
+except Exception as e:  # noqa: BLE001
+    print(f"[app] AVISO: agendador de backup não iniciou: {e}")
 
 @app.template_filter("brl")
 def brl_filter(value):

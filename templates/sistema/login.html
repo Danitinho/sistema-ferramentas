@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Entrar — Sistema de Ferramentas{% endblock %}
+{% block header_title %}Sistema de Ferramentas{% endblock %}
+{% block breadcrumb %}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:400px;margin:6vh auto 0">
+  <div class="card-title">Entrar</div>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ proximo }}">
+    <label>Usuário</label>
+    <input type="text" name="usuario" autocomplete="username" autofocus required>
+    <label>Senha</label>
+    <input type="password" name="senha" autocomplete="current-password" required>
+    {% if erro %}
+    <div class="result-box error show" style="margin-top:12px">{{ erro }}</div>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Entrar</button>
+  </form>
+</div>
+{% endblock %}

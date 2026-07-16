@@ -8,7 +8,13 @@ env/
 # Dados sensíveis
 dados/debitos.xlsx
 dados/debitos.db
+dados/vencidos.db
+dados/sistema.db
+dados/secret.key
 scripts/*.xlsx
+
+# Backups gerados automaticamente (sincronizados p/ nuvem, não versionar)
+backups/
 
 # Dados de runtime gerados pelo módulo de relatórios
 dados/relatorios/entrada/

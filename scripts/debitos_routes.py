@@ -2,10 +2,15 @@
 scripts/debitos_routes.py
 Blueprint Flask do módulo de débitos e bonificações.
 """
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, session
 from scripts import debitos as db
 
 debitos_bp = Blueprint("debitos", __name__, url_prefix="/debitos")
+
+
+def _usuario():
+    """Autor da ação para a auditoria (None enquanto não houver login)."""
+    return session.get("usuario")
 
 
 # ── Páginas ───────────────────────────────────────────────────────────────────
@@ -25,7 +30,7 @@ def empresa(cnpj):
         emp=emp,
         saldo=db.calcular_saldo(cnpj),
         debitos=db.listar_debitos(cnpj),
-        bonificacoes=db.listar_bonificacoes(cnpj),
+        pagamentos=db.listar_pagamentos(cnpj),
     )
 
 
@@ -34,13 +39,13 @@ def empresa(cnpj):
 @debitos_bp.route("/api/empresa", methods=["POST"])
 def api_add_empresa():
     d = request.get_json()
-    ok, msg = db.adicionar_empresa(d.get("cnpj", ""), d.get("razao_social", ""))
+    ok, msg = db.adicionar_empresa(d.get("cnpj", ""), d.get("razao_social", ""), usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
 
 
 @debitos_bp.route("/api/empresa/<cnpj>", methods=["DELETE"])
 def api_del_empresa(cnpj):
-    ok, msg = db.excluir_empresa(cnpj)
+    ok, msg = db.excluir_empresa(cnpj, usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
 
 
@@ -51,7 +56,7 @@ def api_add_vencimento():
     d = request.get_json()
     ok, msg = db.adicionar_debito_vencimento(
         cnpj=d.get("cnpj", ""), nf_numero=d.get("nf_numero", ""),
-        valor_total=d.get("valor_total", 0), obs=d.get("obs", ""),
+        valor_total=d.get("valor_total", 0), obs=d.get("obs", ""), usuario=_usuario(),
     )
     return jsonify({"ok": ok, "msg": msg})
 
@@ -62,30 +67,56 @@ def api_add_rebaxa():
     ok, msg = db.adicionar_debito_rebaxa(
         cnpj=d.get("cnpj", ""), produto=d.get("produto", ""),
         quantidade=d.get("quantidade", 0), valor_unit=d.get("valor_unit", 0),
-        obs=d.get("obs", ""),
+        obs=d.get("obs", ""), usuario=_usuario(),
     )
     return jsonify({"ok": ok, "msg": msg})
 
 
 @debitos_bp.route("/api/debito/<id_debito>", methods=["DELETE"])
 def api_del_debito(id_debito):
-    ok, msg = db.excluir_debito(id_debito)
+    ok, msg = db.excluir_debito(id_debito, usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
 
 
-# ── API — Bonificações ────────────────────────────────────────────────────────
+# ── API — Pagamentos (créditos: bonificações etc.) ───────────────────────────
 
-@debitos_bp.route("/api/bonificacao", methods=["POST"])
-def api_add_bonificacao():
+@debitos_bp.route("/api/pagamento", methods=["POST"])
+@debitos_bp.route("/api/bonificacao", methods=["POST"])  # alias legado
+def api_add_pagamento():
     d = request.get_json()
-    ok, msg = db.adicionar_bonificacao(
+    ok, msg = db.adicionar_pagamento(
         cnpj=d.get("cnpj", ""), nf_numero=d.get("nf_numero", ""),
-        valor_total=d.get("valor_total", 0), obs=d.get("obs", ""),
+        valor_total=d.get("valor_total", 0), obs=d.get("obs", ""), usuario=_usuario(),
     )
     return jsonify({"ok": ok, "msg": msg})
 
 
-@debitos_bp.route("/api/bonificacao/<id_bonif>", methods=["DELETE"])
-def api_del_bonificacao(id_bonif):
-    ok, msg = db.excluir_bonificacao(id_bonif)
+@debitos_bp.route("/api/pagamento/<id_pag>", methods=["DELETE"])
+@debitos_bp.route("/api/bonificacao/<id_pag>", methods=["DELETE"])  # alias legado
+def api_del_pagamento(id_pag):
+    ok, msg = db.excluir_pagamento(id_pag, usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+# ── API — Alocações (quitação de débito por pagamento) ───────────────────────
+
+@debitos_bp.route("/api/alocar", methods=["POST"])
+def api_alocar():
+    d = request.get_json() or {}
+    ok, msg = db.alocar(d.get("pagamento_id", ""), d.get("debito_id", ""),
+                        d.get("valor", 0), usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@debitos_bp.route("/api/alocar/auto", methods=["POST"])
+def api_alocar_auto():
+    d = request.get_json() or {}
+    ok, msg = db.alocar_automatico(d.get("pagamento_id", ""), usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@debitos_bp.route("/api/desalocar", methods=["POST"])
+def api_desalocar():
+    d = request.get_json() or {}
+    ok, msg = db.desalocar(d.get("alocacao_id", ""), usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
