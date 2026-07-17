@@ -1,0 +1,109 @@
+{
+  "nome": "OFERTA COM ATACADO",
+  "imagem_base": "layout_3fdce932.png",
+  "contorno_preto": true,
+  "contorno_largura": 6,
+  "debug_areas": false,
+  "campos": [
+    {
+      "area": [
+        11,
+        265,
+        1044,
+        580
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "fonte_path": "",
+      "id": "NOME_PRODUTO",
+      "label": "NOME DO PRODUTO",
+      "maiusculo": true,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        66,
+        743,
+        381,
+        953
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "cor_x": [
+        180,
+        0,
+        0
+      ],
+      "fonte_path": "assets/impact.ttf",
+      "id": "PREÇO ANTERIOR",
+      "label": "PREÇO ANTERIOR",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "texto_riscado"
+    },
+    {
+      "area": [
+        409,
+        737,
+        985,
+        1018
+      ],
+      "cor": [
+        255,
+        0,
+        0
+      ],
+      "fonte_path": "assets/impact.ttf",
+      "id": "PREÇO ATUAL",
+      "label": "PREÇO ATUAL",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "preco_simples"
+    },
+    {
+      "area": [
+        177,
+        1233,
+        264,
+        1317
+      ],
+      "cor": [
+        254,
+        207,
+        3
+      ],
+      "fonte_path": "",
+      "id": "QUANTIDADE ATACADO",
+      "label": "12",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        507,
+        1153,
+        973,
+        1360
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "fonte_path": "assets/impact.ttf",
+      "id": "PREÇO ATACADO",
+      "label": "PREÇO ATACADO",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "preco_simples"
+    }
+  ]
+}
