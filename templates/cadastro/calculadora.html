@@ -5,43 +5,22 @@
 
 {% block extra_head %}
 <style>
-  .origem-toggle {
-    display:grid; grid-template-columns:1fr 1fr;
-    border:1.5px solid var(--graphite);
-    border-radius:var(--radius); overflow:hidden;
-    margin-bottom:18px;
-  }
-  .origem-btn {
-    background:#fff; border:none; padding:13px 10px;
-    cursor:pointer; font-size:14px; font-weight:500;
-    color:var(--graphite);
-    display:flex; flex-direction:column; align-items:center; gap:4px;
-    transition:background 0.15s, color 0.15s;
-    -webkit-tap-highlight-color:transparent;
-  }
-  .origem-btn + .origem-btn { border-left:1.5px solid var(--graphite); }
-  .origem-btn.ativo { background:var(--graphite); color:#fff; }
-  .taxa-chip {
-    font-size:11px; font-weight:700;
-    padding:1px 8px; border-radius:10px;
-    background:rgba(229,162,59,0.18); color:var(--amber-dark);
-  }
-  .origem-btn.ativo .taxa-chip { background:rgba(255,255,255,0.18); color:#fff; }
+  .origem-toggle { margin-bottom: 4px; }
+  .origem-toggle button { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .taxa-chip { font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
+    background: var(--warning-bg); color: var(--warning); font-family: var(--mono); }
+  .origem-toggle button.ativo .taxa-chip { background: rgba(0,0,0,.18); color: var(--amber-ink); }
 
-  .preco-destaque {
-    font-size:38px; font-weight:700; color:var(--graphite);
-    letter-spacing:-0.5px; line-height:1.1; margin:6px 0 16px;
-  }
-  .detalhe {
-    display:flex; justify-content:space-between; align-items:center;
-    font-size:13px; padding:6px 0;
-    border-bottom:0.5px solid var(--border);
-  }
-  .detalhe:last-child { border-bottom:none; }
-  .detalhe .rot { color:var(--gray); }
-  .detalhe .val { font-weight:500; }
-  .detalhe.sep { border-top:1.5px solid var(--border); margin-top:4px; padding-top:10px; }
-  .detalhe.sep .val { font-size:14px; font-weight:700; color:var(--graphite); }
+  .preco-destaque { font-size: 38px; font-weight: 750; color: var(--success);
+    letter-spacing: -.5px; line-height: 1.1; margin: 6px 0 16px;
+    font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .detalhe { display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .detalhe:last-child { border-bottom: none; }
+  .detalhe .rot { color: var(--muted); }
+  .detalhe .val { font-weight: 550; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .detalhe.sep { border-top: 1.5px solid var(--line-2); margin-top: 4px; padding-top: 10px; }
+  .detalhe.sep .val { font-size: 14px; font-weight: 700; color: var(--success); }
 </style>
 {% endblock %}
 
@@ -51,22 +30,24 @@
   <div class="card-title">Calcular preço de venda</div>
 
   <label>Origem do produto</label>
-  <div class="origem-toggle">
-    <button class="origem-btn ativo" id="btn-dentro" onclick="selecionarOrigem('dentro')">
+  <div class="seg origem-toggle">
+    <button class="ativo" id="btn-dentro" onclick="selecionarOrigem('dentro')">
       Dentro do estado
-      <span class="taxa-chip">+ 5%</span>
+      <span class="taxa-chip">+5%</span>
     </button>
-    <button class="origem-btn" id="btn-fora" onclick="selecionarOrigem('fora')">
+    <button id="btn-fora" onclick="selecionarOrigem('fora')">
       Fora do estado
-      <span class="taxa-chip">+ 19%</span>
+      <span class="taxa-chip">+19%</span>
     </button>
   </div>
 
-  <label>Preço de custo (R$)</label>
-  <input type="number" id="custo" placeholder="0,00" step="0.01" min="0" inputmode="decimal">
+  <label>Preço de custo <em>*</em></label>
+  <div class="ingrp"><span class="pre">R$</span>
+    <input type="number" id="custo" placeholder="0,00" step="0.01" min="0" inputmode="decimal"></div>
 
-  <label>Margem (%)</label>
-  <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" inputmode="decimal">
+  <label>Margem <em>*</em></label>
+  <div class="ingrp"><span class="pre">%</span>
+    <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" inputmode="decimal"></div>
 
   <button class="btn btn-primary" onclick="calcular()">Calcular</button>
 

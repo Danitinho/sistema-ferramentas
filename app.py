@@ -8,7 +8,7 @@ import os
 import socket
 import importlib
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, redirect
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
@@ -132,13 +132,10 @@ def calcular_preco():
 
 
 
+# Rota legada: o registro de perdas virou o módulo /vencidos.
 @app.route("/cadastro/registro-perda")
 def registro_perda():
-    return render_template("cadastro/registro_perda.html")
-
-@app.route("/cadastro/registro-perda/salvar", methods=["POST"])
-def salvar_perda():
-    return jsonify({"status": "em breve", "mensagem": "Integre aqui seu script de registro."})
+    return redirect("/vencidos")
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -3,66 +3,56 @@
 {% block header_title %}Produtos vencidos{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
 
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-reg')">+ Registrar produto</button>
+{% endblock %}
+
 {% block extra_head %}
 <style>
-  .filtros { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
-  .filtros .campo { flex:1; min-width:130px; }
-  .filtros label { margin-top:0; }
-  .filtros .btn { margin-top:0; width:auto; }
-  .reg { display:flex; align-items:flex-start; gap:10px; padding:11px 0; border-bottom:0.5px solid var(--border); }
-  .reg:last-child { border-bottom:none; }
-  .reg-info { flex:1; min-width:0; }
-  .reg-titulo { font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .reg-sub { font-size:12px; color:var(--gray); margin-top:2px; }
-  .reg-valor { font-size:14px; font-weight:700; white-space:nowrap; flex-shrink:0; }
-  .mtv { font-size:10px; padding:2px 8px; border-radius:10px; font-weight:700; text-transform:capitalize; }
-  .mtv-vencido { background:var(--danger-bg); color:var(--danger); }
-  .mtv-avaria  { background:var(--warning-bg); color:var(--warning); }
-  .mtv-quebra  { background:#EDE9FE; color:#5B21B6; }
-  .mtv-consumo { background:var(--success-bg); color:var(--success); }
-  .mtv-outro   { background:var(--gray-light); color:var(--gray); }
-  .btn-lixo { background:none;border:none;cursor:pointer;flex-shrink:0;color:var(--gray);padding:4px;border-radius:6px;display:flex; }
-  .btn-lixo:hover { color:var(--danger); background:var(--danger-bg); }
-  .empty-state { text-align:center; padding:24px 0; color:var(--gray); font-size:14px; }
-  .modal-overlay { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.45);
-    display:none; align-items:flex-start; justify-content:center; padding:24px 14px; overflow-y:auto; }
-  .modal-overlay.show { display:flex; }
-  .modal { background:#fff; border-radius:var(--radius); width:100%; max-width:500px; margin:auto 0;
-    box-shadow:0 12px 40px rgba(0,0,0,0.25); overflow:hidden; }
-  .modal-head { display:flex; align-items:center; padding:16px 18px; border-bottom:0.5px solid var(--border); }
-  .modal-title { font-size:15px; font-weight:600; flex:1; }
-  .modal-close { background:none;border:none;cursor:pointer;font-size:22px;color:var(--gray); }
-  .modal-body { padding:18px; }
-  .modal-footer { display:flex; gap:8px; justify-content:flex-end; padding:14px 18px; border-top:0.5px solid var(--border); }
-  .modal-footer .btn { margin-top:0; }
-  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .two-col label { margin-top:0; }
+  .grid-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 16px; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .filtros .campo { flex: 1; min-width: 130px; }
+  .filtros .campo label { margin-top: 0; }
+  .filtros .btn { margin-top: 0; width: auto; }
+  .reg { display: flex; align-items: flex-start; gap: 11px; padding: 13px 18px;
+    border-bottom: 1px solid var(--line); transition: background .12s; }
+  .reg:hover { background: var(--surface-2); }
+  .reg:last-child { border-bottom: none; }
+  .reg-info { flex: 1; min-width: 0; }
+  .reg-titulo { font-size: 13.5px; font-weight: 650; display: flex; align-items: center;
+    gap: 8px; flex-wrap: wrap; }
+  .reg-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .reg-valor { font-size: 14px; font-weight: 700; white-space: nowrap;
+    flex-shrink: 0; color: var(--danger); }
+  .mtv { font-size: 9.5px; padding: 2px 8px; border-radius: 7px; font-weight: 750;
+    text-transform: uppercase; letter-spacing: .05em; }
+  .mtv-vencido { background: var(--danger-bg);  color: var(--danger); }
+  .mtv-avaria  { background: var(--warning-bg); color: var(--warning); }
+  .mtv-quebra  { background: var(--surface-3);  color: var(--ink-2); }
+  .mtv-consumo { background: var(--success-bg); color: var(--success); }
+  .mtv-outro   { background: var(--surface-3);  color: var(--muted); }
 </style>
 {% endblock %}
 
 {% block content %}
 
 <!-- Resumo -->
-<div class="card">
-  <span class="badge badge-cadastro">Cadastro</span>
-  <div class="card-title">Resumo do período</div>
-  <div class="metrics">
-    <div class="metric">
-      <div class="metric-value">{{ resumo.total_registros }}</div>
-      <div class="metric-label">registros</div>
-    </div>
-    <div class="metric">
-      <div class="metric-value">{{ '%g'|format(resumo.total_quantidade) }}</div>
-      <div class="metric-label">itens (qtd)</div>
-    </div>
-    <div class="metric">
-      <div class="metric-value" style="color:var(--danger)">{{ resumo.total_valor | brl }}</div>
-      <div class="metric-label">valor perdido</div>
-    </div>
+<div class="grid-stats">
+  <div class="stat-card">
+    <div class="stat-v num">{{ resumo.total_registros }}</div>
+    <div class="stat-l">Registros</div>
+  </div>
+  <div class="stat-card s-amber">
+    <div class="stat-v num">{{ '%g' | format(resumo.total_quantidade) }}</div>
+    <div class="stat-l">Itens (qtd)</div>
+  </div>
+  <div class="stat-card s-danger">
+    <div class="stat-v num" style="color:var(--danger)">{{ resumo.total_valor | brl }}</div>
+    <div class="stat-l">Valor perdido</div>
   </div>
 </div>
 
-<!-- Filtros + novo -->
+<!-- Filtros -->
 <div class="card">
   <form class="filtros" method="get" action="/vencidos">
     <div class="campo"><label>De</label>
@@ -79,14 +69,14 @@
     </div>
     <button class="btn btn-secondary" type="submit">Filtrar</button>
   </form>
-  <div style="display:flex; justify-content:flex-end; margin-top:14px;">
-    <button class="btn btn-primary" style="margin:0;width:auto" onclick="abrir('modal-reg')">+ Registrar produto</button>
-  </div>
 </div>
 
 <!-- Lista -->
-<div class="card">
-  <div class="card-title">Lançamentos</div>
+<div class="card card-flush">
+  <div class="card-head">
+    <span class="ttl">Lançamentos</span>
+    <span class="hint">{{ registros | length }} no período</span>
+  </div>
   {% if registros %}
   {% for r in registros %}
   <div class="reg">
@@ -95,13 +85,13 @@
         {{ r.produto }}
         <span class="mtv mtv-{{ r.motivo.split(' ')[0] }}">{{ r.motivo }}</span>
       </div>
-      <div class="reg-sub">
-        {{ r.data_fmt }} · {{ '%g'|format(r.quantidade) }} un
+      <div class="reg-sub num">
+        {{ r.data_fmt }} · {{ '%g' | format(r.quantidade) }} un
         {% if r.codigo_barras %} · cód {{ r.codigo_barras }}{% endif %}
         {% if r.obs %} · {{ r.obs }}{% endif %}
       </div>
     </div>
-    {% if r.valor_total %}<div class="reg-valor" style="color:var(--danger)">{{ r.valor_total | brl }}</div>{% endif %}
+    {% if r.valor_total %}<div class="reg-valor num">{{ r.valor_total | brl }}</div>{% endif %}
     <button class="btn-lixo" onclick="excluir('{{ r.id }}')" title="Excluir">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
@@ -113,34 +103,38 @@
 </div>
 
 <!-- Modal registrar -->
-<div class="modal-overlay" id="modal-reg" onclick="fundo(event,'modal-reg')">
-  <div class="modal">
+<div class="modal-overlay" id="modal-reg" onclick="fecharSeFundo(event,'modal-reg')">
+  <div class="modal" role="dialog" aria-modal="true">
     <div class="modal-head"><div class="modal-title">Registrar produto vencido / perda</div>
-      <button class="modal-close" onclick="fechar('modal-reg')">&times;</button></div>
+      <button class="modal-close" onclick="fecharModal('modal-reg')">&times;</button></div>
     <div class="modal-body">
-      <label>Produto</label><input type="text" id="f-produto" placeholder="Ex: Iogurte morango 170g">
-      <div class="two-col">
-        <div><label>Quantidade</label>
+      <label>Produto <em>*</em></label>
+      <input type="text" id="f-produto" placeholder="Ex.: Iogurte morango 170g">
+      <div class="two-col" style="margin-top:14px">
+        <div><label>Quantidade <em>*</em></label>
           <input type="number" id="f-qtd" placeholder="0" min="0" step="0.001" inputmode="decimal"></div>
-        <div><label>Motivo</label>
+        <div><label>Motivo <em>*</em></label>
           <select id="f-motivo">
             {% for m in motivos %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
           </select></div>
       </div>
-      <div class="two-col">
-        <div><label>Código de barras <span style="font-weight:400;color:var(--gray)">(opcional)</span></label>
-          <input type="text" id="f-barras" inputmode="numeric"></div>
-        <div><label>Custo unitário (R$) <span style="font-weight:400;color:var(--gray)">(opcional)</span></label>
-          <input type="number" id="f-vunit" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
+      <div class="two-col" style="margin-top:14px">
+        <div><label>Código de barras</label>
+          <input type="text" id="f-barras" class="num" inputmode="numeric"></div>
+        <div><label>Custo unitário</label>
+          <div class="ingrp"><span class="pre">R$</span>
+            <input type="number" id="f-vunit" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div></div>
       </div>
       <label>Data da ocorrência</label>
       <input type="date" id="f-data" value="{{ hoje }}">
-      <label>Observação <span style="font-weight:400;color:var(--gray)">(opcional)</span></label>
-      <input type="text" id="f-obs" placeholder="Lote, setor...">
-      <div class="result-box error" id="msg-reg" style="margin-top:10px"></div>
+      <label>Observação</label>
+      <input type="text" id="f-obs" placeholder="Lote, setor…">
+      <div class="result-box error" id="msg-reg" style="margin-top:12px">
+        <div class="result-value error" id="msg-reg-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="fechar('modal-reg')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="fecharModal('modal-reg')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvar()">Registrar</button>
     </div>
   </div>
@@ -150,31 +144,27 @@
 {% block extra_scripts %}
 <script>
 const $ = id => document.getElementById(id);
-function abrir(id){ $(id).classList.add("show"); }
-function fechar(id){ $(id).classList.remove("show"); }
-function fundo(e,id){ if(e.target.id===id) fechar(id); }
-document.addEventListener("keydown", e => {
-  if(e.key==="Escape") document.querySelectorAll(".modal-overlay.show").forEach(m=>m.classList.remove("show"));
-});
 // pré-preenche a data de hoje se o template não injetou
-if(!$("f-data").value) $("f-data").value = new Date().toISOString().slice(0,10);
+if (!$("f-data").value) $("f-data").value = new Date().toISOString().slice(0, 10);
 
-async function salvar(){
-  const msg=$("msg-reg"); msg.classList.remove("show");
+async function salvar() {
+  const msg = $("msg-reg"); msg.classList.remove("show");
   const body = {
-    produto:$("f-produto").value.trim(), quantidade:$("f-qtd").value,
-    motivo:$("f-motivo").value, codigo_barras:$("f-barras").value.trim(),
-    valor_unit:$("f-vunit").value, data:$("f-data").value, obs:$("f-obs").value.trim(),
+    produto: $("f-produto").value.trim(), quantidade: $("f-qtd").value,
+    motivo: $("f-motivo").value, codigo_barras: $("f-barras").value.trim(),
+    valor_unit: $("f-vunit").value, data: $("f-data").value, obs: $("f-obs").value.trim(),
   };
-  if(!body.produto || !parseFloat(body.quantidade)){
-    msg.textContent="Informe produto e quantidade."; msg.classList.add("show"); return;
+  if (!body.produto || !parseFloat(body.quantidade)) {
+    $("msg-reg-txt").textContent = "Informe produto e quantidade.";
+    msg.classList.add("show"); return;
   }
-  const r=await postJSON("/vencidos/api/registrar", body);
-  if(r.ok) location.reload(); else { msg.textContent=r.msg; msg.classList.add("show"); }
+  const r = await postJSON("/vencidos/api/registrar", body);
+  if (r.ok) location.reload();
+  else { $("msg-reg-txt").textContent = r.msg; msg.classList.add("show"); }
 }
-async function excluir(id){
-  if(!confirm("Excluir este registro?")) return;
-  await fetch("/vencidos/api/"+id, {method:"DELETE"});
+async function excluir(id) {
+  if (!confirm("Excluir este registro?")) return;
+  await fetch("/vencidos/api/" + id, { method: "DELETE" });
   location.reload();
 }
 </script>

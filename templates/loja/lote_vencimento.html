@@ -33,7 +33,7 @@
 
   <div class="result-box" id="resultado" style="display:none">
     <div class="result-label">Resultado da consulta</div>
-    <div id="conteudo" style="font-size:14px; color:#3B6D11; margin-top:8px"></div>
+    <div id="conteudo" style="font-size:14px; color:var(--success); margin-top:8px"></div>
   </div>
   <div class="result-box error" id="erro" style="display:none">
     <div class="result-value error" id="msg-erro"></div>
@@ -41,12 +41,10 @@
 </div>
 
 <div class="card">
-  <div class="card-title">Como integrar</div>
-  <p style="font-size:13px; color:#5F5E5A; line-height:1.6">
-    Na rota <code>/loja/lote-vencimento/consultar</code> do <code>app.py</code>,
-    chame seu script existente passando os filtros. Retorne os lotes como JSON
-    e liste os resultados nesta página.
-  </p>
+  <div class="alertx">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--warning);flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+    <span>Ferramenta em construção — a consulta ainda será integrada ao controle de lotes da loja.</span>
+  </div>
 </div>
 {% endblock %}
 

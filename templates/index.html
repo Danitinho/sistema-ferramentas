@@ -1,105 +1,69 @@
 {% extends "base.html" %}
 
 {% block title %}Menu — Sistema de Ferramentas{% endblock %}
-{% block header_title %}Sistema de Ferramentas{% endblock %}
-{% block breadcrumb %}{% endblock %}
+{% block header_title %}Menu principal{% endblock %}
+{% block breadcrumb %}Ferramentas internas · acesso via rede local{% endblock %}
 
 {% block extra_head %}
 <style>
-  .menu-top { margin-bottom: 22px; }
-  .menu-sub { font-size: 14px; color: var(--gray); margin-bottom: 14px; }
+  .searchbox { display: flex; align-items: center; gap: 9px; background: var(--surface);
+    border: 1px solid var(--line-2); border-radius: var(--radius); padding: 11px 14px;
+    max-width: 440px; margin-bottom: 8px; transition: border-color .15s, box-shadow .15s; }
+  .searchbox:focus-within { border-color: var(--amber-btn); box-shadow: 0 0 0 3px var(--glow); }
+  .searchbox svg { width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
+  .searchbox input { border: none !important; outline: none; box-shadow: none !important;
+    padding: 0; font-size: 14.5px; background: transparent !important; width: 100%; }
 
-  .searchbox {
-    display: flex; align-items: center; gap: 9px;
-    background: #fff; border: 0.5px solid var(--border);
-    border-radius: var(--radius); padding: 11px 14px;
-    max-width: 420px; transition: border-color .15s, box-shadow .15s;
-  }
-  .searchbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
-  .searchbox svg { width: 18px; height: 18px; color: var(--gray); flex-shrink: 0; }
-  .searchbox input {
-    border: none; outline: none; box-shadow: none !important;
-    padding: 0; font-size: 15px; background: transparent; width: 100%;
-  }
-
-  .setor { margin-bottom: 8px; }
-  .setor-title {
-    font-size: 12px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.07em; color: #8C8A82; margin: 24px 0 12px;
-  }
-  .setor:first-of-type .setor-title { margin-top: 6px; }
+  .setor { margin-bottom: 6px; scroll-margin-top: 110px; }
+  .setor-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .16em; color: var(--muted); margin: 26px 0 13px;
+    display: flex; align-items: center; gap: 10px; }
+  .setor-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .setor:first-of-type .setor-title { margin-top: 12px; }
 
   .tool-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 13px; }
   @media (min-width: 600px) { .tool-grid { grid-template-columns: repeat(3, 1fr); gap: 14px; } }
   @media (min-width: 900px) { .tool-grid { grid-template-columns: repeat(4, 1fr); } }
 
-  .tool-card {
-    position: relative; overflow: hidden;
-    background: #fff; border: 0.5px solid var(--border);
-    border-radius: 16px; padding: 20px 18px;
-    text-decoration: none; color: var(--ink);
-    display: flex; flex-direction: column; gap: 6px;
-    transition: box-shadow .15s, transform .1s, border-color .15s;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .tool-card::after {
-    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px;
-    background: var(--accent); transform: scaleX(0); transform-origin: left;
-    transition: transform .18s ease;
-  }
-  .tool-card:hover { box-shadow: 0 6px 22px rgba(0,0,0,0.09); border-color: rgba(0,0,0,0.14); }
+  .tool-card { position: relative; overflow: hidden; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 15px; padding: 18px 17px;
+    text-decoration: none; color: var(--ink); display: flex; flex-direction: column; gap: 7px;
+    transition: border-color .16s, transform .12s, background .16s;
+    -webkit-tap-highlight-color: transparent; }
+  .tool-card::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: var(--amber-btn); transform: scaleX(0); transform-origin: left;
+    transition: transform .2s ease; }
+  .tool-card:hover { border-color: var(--line-2); background: var(--surface-2); transform: translateY(-2px); }
   .tool-card:hover::after { transform: scaleX(1); }
-  .tool-card:active { transform: scale(0.98); }
+  .tool-card:active { transform: scale(.98); }
 
-  .tool-icon {
-    width: 44px; height: 44px; border-radius: 13px;
-    background: #F1F0EB; color: var(--graphite);
-    display: flex; align-items: center; justify-content: center;
-    margin-bottom: 6px;
-  }
-  .tool-icon svg { width: 23px; height: 23px; }
+  .tool-icon { width: 42px; height: 42px; border-radius: 12px; background: var(--surface-3);
+    color: var(--amber); display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+  .tool-icon svg { width: 22px; height: 22px; }
+  .tool-name { font-size: 14px; font-weight: 650; line-height: 1.3; }
+  .tool-desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
 
-  .tool-name { font-size: 14.5px; font-weight: 600; line-height: 1.3; }
-  .tool-desc { font-size: 12px; color: #8C8A82; line-height: 1.4; }
-
-  /* Card horizontal largo (setor com 1 item) */
-  .wide-card {
-    grid-column: 1 / -1;
-    flex-direction: row; align-items: center; gap: 16px;
-  }
+  .wide-card { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 16px; }
   .wide-card .tool-icon { margin-bottom: 0; flex-shrink: 0; }
   .wide-card .wide-body { flex: 1; display: flex; flex-direction: column; gap: 3px; }
-  .wide-card .chev { color: #C2C0B6; flex-shrink: 0; }
+  .wide-card .chev { color: var(--muted); flex-shrink: 0; }
   .wide-card .chev svg { width: 20px; height: 20px; }
 
-  .tool-card.soon { opacity: 0.6; cursor: default; }
-  .badge-em-breve {
-    display: inline-block; font-size: 10px; background: var(--gray-light);
-    color: #8C8A82; padding: 2px 8px; border-radius: 20px;
-    margin-top: 4px; width: fit-content;
-  }
-
-  .no-results { display: none; font-size: 14px; color: var(--gray); padding: 20px 4px; }
-
-  .footer-note {
-    text-align: center; font-size: 12px; color: #8C8A82;
-    margin-top: 36px; padding-top: 18px; border-top: 0.5px solid var(--border);
-  }
+  .no-results { display: none; font-size: 14px; color: var(--muted); padding: 20px 4px; }
+  .footer-note { text-align: center; font-size: 12px; color: var(--muted);
+    margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<div class="menu-top full">
-  <div class="menu-sub">Ferramentas internas · acesso via rede local</div>
-  <div class="searchbox">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-    <input type="text" id="busca" placeholder="Buscar ferramenta…" autocomplete="off">
-  </div>
+<div class="searchbox full">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+  <input type="text" id="busca" placeholder="Buscar ferramenta…" autocomplete="off">
 </div>
 
 <!-- SETOR: CADASTRO -->
-<section class="setor full" data-setor>
+<section class="setor full" id="setor-cadastro" data-setor>
   <div class="setor-title">Cadastro</div>
   <div class="tool-grid">
 
@@ -114,7 +78,6 @@
       <div class="tool-name">Placas de oferta</div>
       <div class="tool-desc">Gera placas em lote a partir de lista</div>
     </a>
-
 
     <a href="/relatorios" class="tool-card" data-nome="relatórios de venda curva abc código de barras">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="11" width="3" height="6"/><rect x="11" y="7" width="3" height="10"/><rect x="16" y="13" width="3" height="4"/></svg></div>
@@ -131,8 +94,25 @@
   </div>
 </section>
 
+<!-- SETOR: FINANCEIRO -->
+<section class="setor full" id="setor-financeiro" data-setor>
+  <div class="setor-title">Financeiro</div>
+  <div class="tool-grid">
+
+    <a href="/debitos" class="tool-card wide-card" data-nome="débitos bonificações pagamentos alocações vencimentos rebaixas abatimentos nota fiscal">
+      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15l-2.5-1.5L14 21l-2.5-1.5L9 21l-2.5-1.5L4 21V4a1 1 0 0 1 1-1z"/><line x1="8" y1="8" x2="15" y2="8"/><line x1="8" y1="12" x2="15" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg></div>
+      <div class="wide-body">
+        <div class="tool-name">Débitos &amp; Bonificações</div>
+        <div class="tool-desc">Acompanha a quitação de débitos nota a nota</div>
+      </div>
+      <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+    </a>
+
+  </div>
+</section>
+
 <!-- SETOR: LOJA -->
-<section class="setor full" data-setor>
+<section class="setor full" id="setor-loja" data-setor>
   <div class="setor-title">Loja — repositores e caixas</div>
   <div class="tool-grid">
 
@@ -142,35 +122,11 @@
       <div class="tool-desc">Acompanha validade e lotes na loja</div>
     </a>
 
-    <div class="tool-card soon" data-nome="em breve novas ferramentas">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
-      <div class="tool-name">Em breve</div>
-      <div class="tool-desc">Novas ferramentas serão adicionadas aqui</div>
-      <span class="badge-em-breve">em breve</span>
-    </div>
-
-  </div>
-</section>
-
-<!-- SETOR: FINANCEIRO -->
-<section class="setor full" data-setor>
-  <div class="setor-title">Financeiro</div>
-  <div class="tool-grid">
-
-    <a href="/debitos" class="tool-card wide-card" data-nome="débitos bonificações vencimentos rebaixas abatimentos nota fiscal">
-      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15l-2.5-1.5L14 21l-2.5-1.5L9 21l-2.5-1.5L4 21V4a1 1 0 0 1 1-1z"/><line x1="8" y1="8" x2="15" y2="8"/><line x1="8" y1="12" x2="15" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg></div>
-      <div class="wide-body">
-        <div class="tool-name">Débitos &amp; Bonificações</div>
-        <div class="tool-desc">Controla vencimentos, rebaixas e abatimentos por NF</div>
-      </div>
-      <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
-    </a>
-
   </div>
 </section>
 
 <!-- SETOR: SISTEMA -->
-<section class="setor full" data-setor>
+<section class="setor full" id="setor-sistema" data-setor>
   <div class="setor-title">Sistema</div>
   <div class="tool-grid">
 

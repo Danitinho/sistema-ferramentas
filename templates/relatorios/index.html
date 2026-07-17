@@ -7,122 +7,65 @@
 <script src="/assets/chart.min.js"></script>
 <script src="/assets/chartjs-plugin-datalabels.min.js"></script>
 <style>
-  .log-line { font-size:13px; padding:6px 0; border-bottom:0.5px solid var(--border); }
+  .log-line { font-size:13px; padding:6px 0; border-bottom:1px solid var(--line); }
   .log-line:last-child { border-bottom:none; }
   .log-ok  { color:var(--success); }
   .log-err { color:var(--danger); }
   .mini-list { list-style:none; margin-top:10px; }
   .mini-list li {
     display:flex; justify-content:space-between; align-items:center;
-    font-size:13px; padding:8px 10px; border-radius:8px;
-    background:var(--gray-light); margin-bottom:6px; color:#1a1a18;
+    font-size:13px; padding:8px 11px; border-radius:8px;
+    background:var(--surface-2); border:1px solid var(--line);
+    margin-bottom:6px; color:var(--ink);
   }
-  .mini-list li .q { color:var(--gray); font-size:12px; }
-  .pill { font-size:11px; padding:2px 8px; border-radius:12px;
-          background:var(--brand-light); color:var(--brand-dark); }
-  .hint { font-size:13px; color:var(--gray); line-height:1.6; }
+  .mini-list li .q { color:var(--muted); font-size:12px; }
+  .mpill { font-size:11px; padding:2px 9px; border-radius:12px; font-weight:650;
+           background:var(--warning-bg); color:var(--warning);
+           font-family:var(--mono); font-variant-numeric:tabular-nums; }
   .row-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .row-btns .btn { margin-top:0; }
 
   /* ── Lista de produtos ── */
-  .produto-item {
-    border:0.5px solid var(--border);
-    border-radius:var(--radius);
-    margin-bottom:8px;
-    overflow:hidden;
-    background:#fff;
-  }
-  .produto-header {
-    display:flex; align-items:center; gap:12px;
-    padding:12px 14px;
-    cursor:pointer;
-    user-select:none;
-    transition:background 0.12s;
-  }
-  .produto-header:hover { background:var(--gray-light); }
+  .produto-item { border:1px solid var(--line); border-radius:var(--radius);
+    margin-bottom:8px; overflow:hidden; background:var(--surface); }
+  .produto-header { display:flex; align-items:center; gap:12px; padding:12px 14px;
+    cursor:pointer; user-select:none; transition:background 0.12s; }
+  .produto-header:hover { background:var(--surface-2); }
   .produto-info { flex:1; min-width:0; }
-  .produto-desc {
-    display:block; font-weight:600; font-size:14px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    color:var(--ink);
-  }
-  .produto-sub {
-    display:block; font-size:12px; color:var(--gray); margin-top:2px;
-  }
+  .produto-desc { display:block; font-weight:600; font-size:14px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink); }
+  .produto-sub { display:block; font-size:12px; color:var(--muted); margin-top:2px;
+    font-family:var(--mono); font-variant-numeric:tabular-nums; }
   .produto-total { text-align:right; flex-shrink:0; }
-  .total-num {
-    display:block; font-size:20px; font-weight:700;
-    color:var(--graphite); line-height:1.1;
-  }
-  .total-label { display:block; font-size:11px; color:var(--gray); }
-  .seta {
-    flex-shrink:0; color:var(--gray);
-    transition:transform 0.2s ease;
-  }
+  .total-num { display:block; font-size:20px; font-weight:700; color:var(--amber);
+    line-height:1.1; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .total-label { display:block; font-size:11px; color:var(--muted); }
+  .seta { flex-shrink:0; color:var(--muted); transition:transform 0.2s ease; }
   .seta.aberta { transform:rotate(180deg); }
 
   /* grafico inline */
-  .produto-grafico {
-    display:none;
-    padding:4px 14px 16px;
-    border-top:0.5px solid var(--border);
-    background:#fafaf9;
-  }
+  .produto-grafico { display:none; padding:4px 14px 16px;
+    border-top:1px solid var(--line); background:var(--surface-2); }
   .produto-grafico.aberto { display:block; }
   .canvas-wrap { position:relative; max-height:240px; }
 
   /* produto não encontrado */
-  .produto-item.nao-enc .produto-header {
-    cursor:default; background:var(--danger-bg);
-  }
+  .produto-item.nao-enc .produto-header { cursor:default; background:var(--danger-bg); }
   .produto-item.nao-enc .produto-header:hover { background:var(--danger-bg); }
   .produto-item.nao-enc .produto-desc { color:var(--danger); font-weight:400; }
   .produto-item.nao-enc .produto-sub  { color:var(--danger); opacity:.7; }
 
   /* ── Gatilho discreto da função administrativa ── */
-  .admin-trigger {
-    display:inline-flex; align-items:center; gap:6px;
-    background:none; border:none; cursor:pointer;
-    font-size:13px; color:var(--gray);
-    padding:6px 2px; margin-top:4px;
-    -webkit-tap-highlight-color:transparent;
-  }
-  .admin-trigger:hover { color:var(--brand); }
+  .admin-trigger { display:inline-flex; align-items:center; gap:6px;
+    background:none; border:none; cursor:pointer; font-size:13px; color:var(--muted);
+    padding:6px 2px; margin-top:4px; -webkit-tap-highlight-color:transparent; }
+  .admin-trigger:hover { color:var(--amber); }
   .admin-trigger .gear { font-size:15px; }
 
-  /* ── Modal ── */
-  .modal-overlay {
-    position:fixed; inset:0; z-index:200;
-    background:rgba(0,0,0,0.45);
-    display:none; align-items:flex-start; justify-content:center;
-    padding:24px 14px; overflow-y:auto;
-  }
-  .modal-overlay.show { display:flex; }
-  .modal {
-    background:#fff; border-radius:var(--radius);
-    width:100%; max-width:520px; margin:auto 0;
-    box-shadow:0 12px 40px rgba(0,0,0,0.25);
-    overflow:hidden;
-    animation:modal-in 0.15s ease-out;
-  }
-  @keyframes modal-in { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
-  .modal-head {
-    display:flex; align-items:center; gap:10px;
-    padding:16px 18px; border-bottom:0.5px solid var(--border);
-  }
-  .modal-head .modal-title { font-size:15px; font-weight:600; flex:1; }
-  .modal-close {
-    background:none; border:none; cursor:pointer;
-    font-size:22px; line-height:1; color:var(--gray);
-    padding:2px 6px; border-radius:6px;
-  }
-  .modal-close:hover { background:var(--gray-light); color:#1a1a18; }
-  .modal-body { padding:18px; }
-  .modal-warn {
-    background:var(--warning-bg); color:var(--warning);
-    border:0.5px solid #E8C98A; border-radius:var(--radius-sm);
-    font-size:12.5px; line-height:1.5; padding:10px 12px; margin-bottom:14px;
-  }
+  .modal-warn { background:var(--warning-bg); color:var(--warning);
+    border:1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+    border-radius:var(--radius-sm); font-size:12.5px; line-height:1.5;
+    padding:10px 12px; margin-bottom:14px; }
 </style>
 {% endblock %}
 
@@ -166,7 +109,7 @@
 
   <ul class="mini-list" id="lista-meses">
     {% for m in status.meses %}
-    <li><span>{{ m.rotulo }} <span class="q">· {{ m.periodo }}</span></span><span class="pill">{{ m.produtos }} prod.</span></li>
+    <li><span>{{ m.rotulo }} <span class="q">· {{ m.periodo }}</span></span><span class="mpill">{{ m.produtos }} prod.</span></li>
     {% else %}
     <li><span class="q">Nenhum relatório processado ainda.</span></li>
     {% endfor %}
@@ -277,7 +220,7 @@ function aplicarStatus(s) {
     ul.innerHTML = '<li><span class="q">Nenhum relatório processado ainda.</span></li>';
   } else {
     ul.innerHTML = s.meses.map(m =>
-      `<li><span>${m.rotulo} <span class="q">· ${m.periodo}</span></span><span class="pill">${m.produtos} prod.</span></li>`
+      `<li><span>${m.rotulo} <span class="q">· ${m.periodo}</span></span><span class="mpill">${m.produtos} prod.</span></li>`
     ).join("");
   }
 }
@@ -381,11 +324,19 @@ function toggleGrafico(idx) {
 // ── Instancia o Chart.js ──────────────────────────────────────────────────────
 Chart.register(ChartDataLabels);
 
+function corTema(nome) {
+  return getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+}
+
 function criarGrafico(idx) {
   const ln      = _consulta.linhas[idx];
   const rotulos = _consulta.rotulos;
   const meses   = _consulta.meses;
   const qtds    = meses.map(m => ln.qtds[m] ?? 0);
+  const cInk    = corTema("--ink")      || "#F3F1EC";
+  const cMuted  = corTema("--muted")    || "#7C7C88";
+  const cLine   = corTema("--line")     || "#26262F";
+  const cAmber  = corTema("--amber-btn")|| "#F5A524";
 
   _graficos[idx] = new Chart($(`canvas-${idx}`), {
     type: "bar",
@@ -394,7 +345,7 @@ function criarGrafico(idx) {
       datasets: [{
         label: "Qtd vendida",
         data: qtds,
-        backgroundColor: "#E5A23B",
+        backgroundColor: cAmber,
         borderRadius: 4,
         borderSkipped: false,
       }]
@@ -415,7 +366,7 @@ function criarGrafico(idx) {
         datalabels: {
           anchor: "end",
           align: "end",
-          color: "#26262B",
+          color: cInk,
           font: { size: 11, weight: "600" },
           formatter: v => v > 0 ? v.toLocaleString("pt-BR", {maximumFractionDigits: 3}) : "",
         }
@@ -423,20 +374,29 @@ function criarGrafico(idx) {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 11 } }
+          ticks: { font: { size: 11 }, color: cMuted }
         },
         y: {
           beginAtZero: true,
           ticks: {
             font: { size: 11 },
+            color: cMuted,
             callback: v => v.toLocaleString("pt-BR", {maximumFractionDigits: 3})
           },
-          grid: { color: "#ececec" }
+          grid: { color: cLine }
         }
       }
     }
   });
 }
+
+// recria gráficos abertos quando o tema muda
+document.getElementById("theme-toggle")?.addEventListener("click", () => {
+  Object.keys(_graficos).forEach(idx => {
+    _graficos[idx].destroy(); delete _graficos[idx];
+    criarGrafico(idx);
+  });
+});
 
 // ── Baixar Excel ──────────────────────────────────────────────────────────────
 async function baixarExcel() {
