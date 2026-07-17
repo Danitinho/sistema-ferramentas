@@ -3,47 +3,45 @@
 {% block header_title %}Usuários{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> · Sistema · Usuários{% endblock %}
 
+{% block header_actions %}
+<button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-senha')">Trocar minha senha</button>
+<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-user')">+ Novo usuário</button>
+{% endblock %}
+
 {% block extra_head %}
 <style>
-  .u-row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:0.5px solid var(--border); }
-  .u-row:last-child { border-bottom:none; }
-  .u-info { flex:1; min-width:0; }
-  .u-nome { font-weight:600; font-size:14px; }
-  .u-sub { font-size:12px; color:var(--gray); }
-  .u-eu { font-size:10px; background:var(--accent-light); color:var(--accent-dark); padding:2px 8px; border-radius:10px; font-weight:700; }
-  .btn-lixo { background:none;border:none;cursor:pointer;color:var(--gray);padding:6px;border-radius:6px;display:flex; }
-  .btn-lixo:hover { color:var(--danger); background:var(--danger-bg); }
-  .modal-overlay { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.45);
-    display:none; align-items:flex-start; justify-content:center; padding:24px 14px; overflow-y:auto; }
-  .modal-overlay.show { display:flex; }
-  .modal { background:#fff; border-radius:var(--radius); width:100%; max-width:420px; margin:auto 0;
-    box-shadow:0 12px 40px rgba(0,0,0,0.25); overflow:hidden; }
-  .modal-head { display:flex; align-items:center; padding:16px 18px; border-bottom:0.5px solid var(--border); }
-  .modal-title { font-size:15px; font-weight:600; flex:1; }
-  .modal-close { background:none;border:none;cursor:pointer;font-size:22px;color:var(--gray); }
-  .modal-body { padding:18px; }
-  .modal-footer { display:flex; gap:8px; justify-content:flex-end; padding:14px 18px; border-top:0.5px solid var(--border); }
-  .modal-footer .btn { margin-top:0; width:auto; }
+  .u-row { display: flex; align-items: center; gap: 13px; padding: 14px 18px;
+    border-bottom: 1px solid var(--line); }
+  .u-row:last-child { border-bottom: none; }
+  .u-av { width: 36px; height: 36px; border-radius: 50%; background: var(--surface-3);
+    color: var(--amber); display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; flex-shrink: 0; }
+  .u-info { flex: 1; min-width: 0; }
+  .u-nome { font-weight: 650; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .u-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .u-eu { font-size: 9.5px; background: var(--warning-bg); color: var(--warning);
+    padding: 2px 8px; border-radius: 10px; font-weight: 750; text-transform: uppercase;
+    letter-spacing: .05em; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="card">
-  <div class="card-title">Usuários do sistema</div>
-  <div style="display:flex;justify-content:flex-end;gap:8px;margin:-6px 0 14px;">
-    <button class="btn btn-secondary" style="margin:0;width:auto" onclick="abrir('modal-senha')">Trocar minha senha</button>
-    <button class="btn btn-primary" style="margin:0;width:auto" onclick="abrir('modal-user')">Novo usuário</button>
+<div class="card card-flush">
+  <div class="card-head">
+    <span class="ttl">Usuários do sistema</span>
+    <span class="hint">{{ usuarios | length }} conta(s) · cada ação fica registrada por usuário</span>
   </div>
   {% for u in usuarios %}
   <div class="u-row">
+    <span class="u-av">{{ (u.nome or u.usuario)[0] | upper }}</span>
     <div class="u-info">
       <div class="u-nome">{{ u.nome or u.usuario }}
         {% if u.usuario == atual %}<span class="u-eu">você</span>{% endif %}
       </div>
-      <div class="u-sub">{{ u.usuario }} · {{ u.papel }} · desde {{ u.criado_em }}</div>
+      <div class="u-sub num">{{ u.usuario }} · {{ u.papel }} · desde {{ u.criado_em }}</div>
     </div>
     {% if u.usuario != atual %}
-    <button class="btn-lixo" title="Excluir" onclick="excluir('{{ u.usuario }}')">
+    <button class="btn-lixo" title="Excluir usuário" onclick="excluir('{{ u.usuario }}')">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 4h11M5.5 4V2.5h4V4M4 4l.8 9h6.4l.8-9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     {% endif %}
@@ -52,34 +50,39 @@
 </div>
 
 <!-- Modal novo usuário -->
-<div class="modal-overlay" id="modal-user" onclick="fundo(event,'modal-user')">
-  <div class="modal">
+<div class="modal-overlay" id="modal-user" onclick="fecharSeFundo(event,'modal-user')">
+  <div class="modal" role="dialog" aria-modal="true">
     <div class="modal-head"><div class="modal-title">Novo usuário</div>
-      <button class="modal-close" onclick="fechar('modal-user')">&times;</button></div>
+      <button class="modal-close" onclick="fecharModal('modal-user')">&times;</button></div>
     <div class="modal-body">
-      <label>Nome (opcional)</label><input type="text" id="n-nome">
-      <label>Usuário</label><input type="text" id="n-usuario">
-      <label>Senha</label><input type="password" id="n-senha">
-      <div class="result-box error" id="msg-user" style="margin-top:10px"></div>
+      <label>Nome</label><input type="text" id="n-nome" placeholder="Como aparece no sistema">
+      <label>Usuário <em>*</em></label><input type="text" id="n-usuario">
+      <label>Senha <em>*</em></label><input type="password" id="n-senha">
+      <div class="fhelp">Mínimo de 4 caracteres.</div>
+      <div class="result-box error" id="msg-user" style="margin-top:12px">
+        <div class="result-value error" id="msg-user-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="fechar('modal-user')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="fecharModal('modal-user')">Cancelar</button>
       <button class="btn btn-primary" onclick="criar()">Criar</button>
     </div>
   </div>
 </div>
 
 <!-- Modal trocar senha -->
-<div class="modal-overlay" id="modal-senha" onclick="fundo(event,'modal-senha')">
-  <div class="modal">
+<div class="modal-overlay" id="modal-senha" onclick="fecharSeFundo(event,'modal-senha')">
+  <div class="modal" role="dialog" aria-modal="true">
     <div class="modal-head"><div class="modal-title">Trocar minha senha</div>
-      <button class="modal-close" onclick="fechar('modal-senha')">&times;</button></div>
+      <button class="modal-close" onclick="fecharModal('modal-senha')">&times;</button></div>
     <div class="modal-body">
-      <label>Nova senha</label><input type="password" id="s-senha">
-      <div class="result-box error" id="msg-senha" style="margin-top:10px"></div>
+      <label>Nova senha <em>*</em></label><input type="password" id="s-senha">
+      <div class="result-box error" id="msg-senha" style="margin-top:12px">
+        <div class="result-value error" id="msg-senha-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="fechar('modal-senha')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="fecharModal('modal-senha')">Cancelar</button>
       <button class="btn btn-primary" onclick="trocarSenha()">Salvar</button>
     </div>
   </div>
@@ -89,27 +92,24 @@
 {% block extra_scripts %}
 <script>
 const $ = id => document.getElementById(id);
-function abrir(id){ $(id).classList.add("show"); }
-function fechar(id){ $(id).classList.remove("show"); }
-function fundo(e,id){ if(e.target.id===id) fechar(id); }
 
-async function criar(){
-  const msg=$("msg-user"); msg.classList.remove("show");
-  const r=await postJSON("/sistema/usuarios/api/criar",{
-    nome:$("n-nome").value.trim(), usuario:$("n-usuario").value.trim(), senha:$("n-senha").value });
-  if(r.ok) location.reload();
-  else { msg.textContent=r.msg; msg.classList.add("show"); }
+async function criar() {
+  const msg = $("msg-user"); msg.classList.remove("show");
+  const r = await postJSON("/sistema/usuarios/api/criar", {
+    nome: $("n-nome").value.trim(), usuario: $("n-usuario").value.trim(), senha: $("n-senha").value });
+  if (r.ok) location.reload();
+  else { $("msg-user-txt").textContent = r.msg; msg.classList.add("show"); }
 }
-async function trocarSenha(){
-  const msg=$("msg-senha"); msg.classList.remove("show");
-  const r=await postJSON("/sistema/usuarios/api/senha",{ senha:$("s-senha").value });
-  if(r.ok){ alert("Senha alterada."); fechar("modal-senha"); }
-  else { msg.textContent=r.msg; msg.classList.add("show"); }
+async function trocarSenha() {
+  const msg = $("msg-senha"); msg.classList.remove("show");
+  const r = await postJSON("/sistema/usuarios/api/senha", { senha: $("s-senha").value });
+  if (r.ok) { alert("Senha alterada."); fecharModal("modal-senha"); }
+  else { $("msg-senha-txt").textContent = r.msg; msg.classList.add("show"); }
 }
-async function excluir(u){
-  if(!confirm(`Excluir o usuário "${u}"?`)) return;
-  const r=await postJSON("/sistema/usuarios/api/excluir",{ usuario:u });
-  if(r.ok) location.reload(); else alert(r.msg);
+async function excluir(u) {
+  if (!confirm(`Excluir o usuário "${u}"?`)) return;
+  const r = await postJSON("/sistema/usuarios/api/excluir", { usuario: u });
+  if (r.ok) location.reload(); else alert(r.msg);
 }
 </script>
 {% endblock %}

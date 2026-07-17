@@ -1,21 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Entrar — Sistema de Ferramentas{% endblock %}
-{% block header_title %}Sistema de Ferramentas{% endblock %}
-{% block breadcrumb %}{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block extra_head %}
+<style>
+  main { max-width: 960px; padding-top: clamp(24px, 7vh, 72px); }
+  .login-shell { display: grid; grid-template-columns: 1fr; border: 1px solid var(--line);
+    border-radius: 20px; overflow: hidden; background: var(--surface);
+    box-shadow: 0 30px 70px -40px rgba(0,0,0,.5); }
+  @media (min-width: 820px) { .login-shell { grid-template-columns: 1.05fr 1fr; min-height: 460px; } }
+  .login-brand { display: none; position: relative; padding: clamp(28px,4vw,46px);
+    flex-direction: column; justify-content: space-between;
+    background: radial-gradient(560px 340px at 20% 110%, var(--glow), transparent 60%), var(--surface-2);
+    border-right: 1px solid var(--line); }
+  @media (min-width: 820px) { .login-brand { display: flex; } }
+  .login-brand h3 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800;
+    letter-spacing: -.03em; line-height: 1.12; margin-top: 26px; text-wrap: balance; }
+  .login-brand h3 em { font-style: normal; color: var(--amber); }
+  .login-brand .foot { font-size: 12px; color: var(--muted); }
+  .badge-net { display: inline-flex; align-items: center; gap: 7px; font-size: 11px;
+    color: var(--ink-2); border: 1px solid var(--line-2); border-radius: 100px;
+    padding: 5px 11px; margin-top: 16px; width: fit-content; }
+  .badge-net i { width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+    box-shadow: 0 0 8px var(--success); font-style: normal; }
+  .login-form { padding: clamp(26px,4vw,46px); display: flex;
+    flex-direction: column; justify-content: center; }
+  .login-form h4 { font-size: 1.15rem; font-weight: 750; letter-spacing: -.01em; }
+  .login-form .sub { font-size: 13px; color: var(--muted); margin: 5px 0 20px; }
+  .logo-inline { display: flex; align-items: center; gap: 10px; font-weight: 800;
+    letter-spacing: -.02em; font-size: 14.5px; }
+  .logo-inline .mk { width: 28px; height: 28px; border-radius: 8px; background: var(--amber-btn);
+    color: var(--amber-ink); display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 13px; box-shadow: 0 4px 14px -4px var(--glow); }
+  .logo-inline span { color: var(--muted); font-weight: 600; }
+  .logo-mobile { margin-bottom: 20px; }
+  @media (min-width: 820px) { .logo-mobile { display: none; } }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width:400px;margin:6vh auto 0">
-  <div class="card-title">Entrar</div>
-  <form method="post" action="/login">
-    <input type="hidden" name="next" value="{{ proximo }}">
-    <label>Usuário</label>
-    <input type="text" name="usuario" autocomplete="username" autofocus required>
-    <label>Senha</label>
-    <input type="password" name="senha" autocomplete="current-password" required>
-    {% if erro %}
-    <div class="result-box error show" style="margin-top:12px">{{ erro }}</div>
-    {% endif %}
-    <button type="submit" class="btn btn-primary">Entrar</button>
-  </form>
+<div class="login-shell">
+  <div class="login-brand">
+    <div>
+      <div class="logo-inline"><span class="mk">SF</span>Sistema <span>·&nbsp;Ferramentas</span></div>
+      <h3>As ferramentas da loja,<br>num só <em>lugar</em>.</h3>
+      <span class="badge-net"><i></i> Rede local da loja</span>
+    </div>
+    <div class="foot">Acesso restrito à equipe · ações registradas por usuário</div>
+  </div>
+  <div class="login-form">
+    <div class="logo-inline logo-mobile"><span class="mk">SF</span>Sistema <span>·&nbsp;Ferramentas</span></div>
+    <h4>Entrar</h4>
+    <div class="sub">Use o usuário criado pelo administrador.</div>
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ proximo }}">
+      <label>Usuário</label>
+      <input type="text" name="usuario" autocomplete="username" autofocus required>
+      <label>Senha</label>
+      <input type="password" name="senha" autocomplete="current-password" required>
+      {% if erro %}
+      <div class="result-box error show" style="margin-top:14px">
+        <div class="result-value error">{{ erro }}</div>
+      </div>
+      {% endif %}
+      <button type="submit" class="btn btn-primary">Entrar no sistema</button>
+    </form>
+  </div>
 </div>
 {% endblock %}

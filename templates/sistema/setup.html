@@ -1,25 +1,51 @@
 {% extends "base.html" %}
 {% block title %}Primeiro acesso — Sistema de Ferramentas{% endblock %}
-{% block header_title %}Sistema de Ferramentas{% endblock %}
-{% block breadcrumb %}{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block extra_head %}
+<style>
+  main { max-width: 520px; padding-top: clamp(24px, 8vh, 80px); }
+  .setup-card { border: 1px solid var(--line); border-radius: 20px; overflow: hidden;
+    background: var(--surface); box-shadow: 0 30px 70px -40px rgba(0,0,0,.5); }
+  .setup-head { padding: clamp(24px,4vw,34px) clamp(24px,4vw,34px) 20px;
+    background: radial-gradient(420px 220px at 15% 120%, var(--glow), transparent 60%), var(--surface-2);
+    border-bottom: 1px solid var(--line); }
+  .logo-inline { display: flex; align-items: center; gap: 10px; font-weight: 800;
+    letter-spacing: -.02em; font-size: 14.5px; }
+  .logo-inline .mk { width: 28px; height: 28px; border-radius: 8px; background: var(--amber-btn);
+    color: var(--amber-ink); display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 13px; box-shadow: 0 4px 14px -4px var(--glow); }
+  .logo-inline span { color: var(--muted); font-weight: 600; }
+  .setup-head h3 { font-size: 1.4rem; font-weight: 800; letter-spacing: -.02em; margin-top: 16px; }
+  .setup-head p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .setup-body { padding: clamp(22px,4vw,30px); }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width:420px;margin:6vh auto 0">
-  <div class="card-title">Primeiro acesso</div>
-  <p style="font-size:13px;color:var(--gray);margin-bottom:6px">
-    Nenhum usuário cadastrado ainda. Crie o administrador do sistema.
-  </p>
-  <form method="post" action="/setup">
-    <label>Nome (opcional)</label>
-    <input type="text" name="nome" autocomplete="name">
-    <label>Usuário</label>
-    <input type="text" name="usuario" autocomplete="username" autofocus required>
-    <label>Senha <span style="font-weight:400;color:var(--gray)">(mín. 4 caracteres)</span></label>
-    <input type="password" name="senha" autocomplete="new-password" required>
-    {% if erro %}
-    <div class="result-box error show" style="margin-top:12px">{{ erro }}</div>
-    {% endif %}
-    <button type="submit" class="btn btn-primary">Criar e entrar</button>
-  </form>
+<div class="setup-card">
+  <div class="setup-head">
+    <div class="logo-inline"><span class="mk">SF</span>Sistema <span>·&nbsp;Ferramentas</span></div>
+    <h3>Primeiro acesso</h3>
+    <p>Nenhum usuário cadastrado ainda. Crie o administrador do sistema.</p>
+  </div>
+  <div class="setup-body">
+    <form method="post" action="/setup">
+      <label>Nome</label>
+      <input type="text" name="nome" autocomplete="name" placeholder="Como você quer aparecer no sistema">
+      <label>Usuário <em>*</em></label>
+      <input type="text" name="usuario" autocomplete="username" autofocus required>
+      <label>Senha <em>*</em></label>
+      <input type="password" name="senha" autocomplete="new-password" required>
+      <div class="fhelp">Mínimo de 4 caracteres.</div>
+      {% if erro %}
+      <div class="result-box error show" style="margin-top:14px">
+        <div class="result-value error">{{ erro }}</div>
+      </div>
+      {% endif %}
+      <button type="submit" class="btn btn-primary">Criar e entrar</button>
+    </form>
+  </div>
 </div>
 {% endblock %}
