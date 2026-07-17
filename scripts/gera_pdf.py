@@ -42,20 +42,20 @@ def gerar_pdf_preenchimento_total(pasta_entrada, nome_saida="ofertas_final.pdf",
         ]
         
     else:
-        print("❌ Erro: O parâmetro 'layout' deve ser 1, 2 ou 4.")
+        print("[erro] Erro: O parâmetro 'layout' deve ser 1, 2 ou 4.")
         return
 
     extensoes_validas = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp')
     
     if not os.path.exists(pasta_entrada):
-        print(f"❌ Erro: Pasta '{pasta_entrada}' não encontrada.")
+        print(f"[erro] Erro: Pasta '{pasta_entrada}' não encontrada.")
         return
 
     arquivos = [f for f in os.listdir(pasta_entrada) if f.lower().endswith(extensoes_validas)]
     arquivos.sort()
     
     if not arquivos:
-        print("❌ Nenhuma imagem encontrada.")
+        print("[erro] Nenhuma imagem encontrada.")
         return
 
     paginas_geradas = []
@@ -80,7 +80,7 @@ def gerar_pdf_preenchimento_total(pasta_entrada, nome_saida="ofertas_final.pdf",
                     pagina_atual.paste(img_distorcida, posicoes[indice])
                     
             except Exception as e:
-                print(f"❌ Erro em {arquivo}: {e}")
+                print(f"[erro] Erro em {arquivo}: {e}")
         
         paginas_geradas.append(pagina_atual)
 
@@ -96,7 +96,7 @@ def gerar_pdf_preenchimento_total(pasta_entrada, nome_saida="ofertas_final.pdf",
             save_all=True, 
             append_images=outras
         )
-        print(f"\n✅ Sucesso! PDF gerado: {nome_saida}")
+        print(f"\n[ok] Sucesso! PDF gerado: {nome_saida}")
         print(f"Layout escolhido: {layout} imagem(ns) por página.")
         print(f"Total de imagens processadas: {len(arquivos)}")
         print(f"Total de páginas: {len(paginas_geradas)}")

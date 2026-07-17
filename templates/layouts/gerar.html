@@ -8,13 +8,15 @@
 {% block extra_head %}
 <style>
   .info-box {
-    background: #f9f8f4; border-radius: 10px; padding: 12px 14px;
-    font-size: 12px; color: #666; margin-bottom: 16px; line-height: 1.7;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; font-size: 12px; color: var(--ink-2);
+    margin-bottom: 16px; line-height: 1.7;
   }
-  .info-box b { color: #333; }
+  .info-box b { color: var(--ink); }
+  .info-box code { font-family: var(--mono); color: var(--amber); }
   .campos-header {
     display: flex; gap: 6px; margin-bottom: 4px;
-    font-size: 11px; color: #888780; font-weight: 600; padding: 0 2px;
+    font-size: 11px; color: var(--muted); font-weight: 600; padding: 0 2px;
   }
   .campo-col       { flex: 1; }
   .campo-col.small { flex: 0.6; }
@@ -22,60 +24,57 @@
   .produto-row input { flex: 1; }
   .produto-row input.small { flex: 0.6; }
   .btn-remove {
-    background: none; border: none; color: #dc3545;
-    cursor: pointer; font-size: 16px; padding: 0 4px;
+    background: none; border: none; color: var(--danger);
+    cursor: pointer; font-size: 16px; padding: 0 4px; border-radius: 6px;
   }
-  .separador { text-align:center; margin:18px 0; color:#888780; font-weight:bold; }
+  .btn-remove:hover { background: var(--danger-bg); }
+  .separador { text-align:center; margin:18px 0; color:var(--muted); font-weight:bold; }
 
   /* ── Painel de prévia + impressão ────────────────────────────────────────── */
   #painel-previa {
-    display: none; margin-top: 24px;
-    border: 0.5px solid rgba(0,0,0,0.1); border-radius: 14px; overflow: hidden;
+    display: none; margin-top: 24px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
   }
   #painel-previa.ativo { display: block; }
   .previa-header {
-    background: #f9f8f4; border-bottom: 0.5px solid rgba(0,0,0,0.08);
+    background: var(--surface-2); border-bottom: 1px solid var(--line);
     padding: 12px 16px; display: flex; align-items: center;
     justify-content: space-between; flex-wrap: wrap; gap: 10px;
   }
-  .previa-info { font-size: 13px; color: #333; }
-  .previa-info strong { color: #1a1a18; }
+  .previa-info { font-size: 13px; color: var(--ink-2); }
+  .previa-info strong { color: var(--ink); font-family: var(--mono); }
   .previa-badge {
     font-size: 11px; font-weight: 600; padding: 3px 10px;
-    border-radius: 20px; background: var(--accent-light); color: var(--accent-dark);
+    border-radius: 20px; background: var(--warning-bg); color: var(--warning);
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
   }
   #pdf-iframe {
     width: 100%; height: 72vh; border: none; display: block;
-    background: #e8e8e8;
+    background: var(--surface-3);
   }
   .previa-footer {
-    background: #f9f8f4; border-top: 0.5px solid rgba(0,0,0,0.08);
+    background: var(--surface-2); border-top: 1px solid var(--line);
     padding: 12px 16px; display: flex; align-items: center;
     justify-content: space-between; gap: 10px; flex-wrap: wrap;
   }
   #status-impressao {
-    font-size: 13px; color: #888780; display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px;
   }
-  #status-impressao.ok     { color: #166534; }
-  #status-impressao.erro   { color: #991b1b; }
-  #status-impressao.aguard { color: var(--accent-dark); }
+  #status-impressao.ok     { color: var(--success); }
+  #status-impressao.erro   { color: var(--danger); }
+  #status-impressao.aguard { color: var(--amber); }
   .dot-pulse {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     background: currentColor; animation: pulse 1s infinite;
   }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
   .btn-imprimir {
-    background: var(--brand); color: #fff; border: none;
-    border-radius: 8px; padding: 10px 22px; font-size: 13px;
-    font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    background: var(--amber-btn); color: var(--amber-ink); border: none;
+    border-radius: 9px; padding: 10px 22px; font-size: 13px;
+    font-weight: 650; cursor: pointer; display: flex; align-items: center; gap: 6px;
   }
-  .btn-imprimir:hover  { background: var(--brand-dark); }
-  .btn-imprimir:disabled { background: #aaa; cursor: not-allowed; }
-
-  /* ── Erro geral ──────────────────────────────────────────────────────────── */
-  .result-box.error { background:#fee2e2; border-radius:10px; padding:12px 14px; display:none; margin-top:12px; }
-  .result-box.error.show { display:block; }
-  .result-box.error .result-value { color:#991b1b; font-size:13px; }
+  .btn-imprimir:hover  { background: var(--amber-2); }
+  .btn-imprimir:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 {% endblock %}
 
@@ -105,7 +104,7 @@
     <div class="upload-area" onclick="this.querySelector('input').click()">
       <input type="file" name="produtos" accept=".txt" id="input-arquivo">
       <div class="upload-label">Toque para selecionar o arquivo</div>
-      <div style="font-size:12px;color:#888780;margin-top:4px;">
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">
         Formato: <code>{{ formato }}</code>
       </div>
     </div>
@@ -119,7 +118,7 @@
       {% if not c.valor_fixo %}
       <span class="campo-col {% if c.tipo == 'texto' and c.id == 'unidade' %}small{% endif %}">
         {{ c.label }}
-        {% if c.opcional %}<span style="color:#aaa;">(opc.)</span>{% endif %}
+        {% if c.opcional %}<span style="color:var(--muted);opacity:.7">(opc.)</span>{% endif %}
       </span>
       {% endif %}
       {% endfor %}
@@ -134,7 +133,7 @@
       + Adicionar produto
     </button>
 
-    <hr style="border:0; border-top:1px solid #eee; margin:16px 0;">
+    <hr style="border:0; border-top:1px solid var(--line); margin:16px 0;">
 
     <!-- Layout do PDF -->
     <label>Layout do PDF</label>

@@ -258,7 +258,7 @@ def criar_imagem_oferta(nome_produto, preco_anterior, preco_oferta,
     )
 
     imagem.save(caminho_saida)
-    print(f"  ✓ {caminho_saida}")
+    print(f"  [ok] {caminho_saida}")
 
 
 # =============================================================================
@@ -346,10 +346,10 @@ def main(arquivo_lista=None, arquivo_base=None, pasta_saida=None):
             print(f"ERRO ao processar '{nome}': {e}")
             falha += 1
 
-    print(f"\n{'─'*40}")
+    print(f"\n{'-'*40}")
     print(f"  Geradas com sucesso : {sucesso}")
     print(f"  Ignoradas / com erro: {falha}")
-    print(f"{'─'*40}")
+    print(f"{'-'*40}")
 
 
 if __name__ == "__main__":

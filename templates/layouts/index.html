@@ -3,155 +3,65 @@
 {% block header_title %}Layouts de Placa{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> › Layouts{% endblock %}
 
+{% block header_actions %}
+<a href="/layouts/cadastrar" class="btn btn-primary btn-sm" style="text-decoration:none">+ Novo layout</a>
+{% endblock %}
+
 {% block extra_head %}
 <style>
-  .topbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-  .topbar-count {
-    font-size: 13px;
-    color: #888780;
-  }
-  .btn-novo {
-    background: var(--brand);
-    border: none;
-    color: #fff;
-    border-radius: 8px;
-    padding: 7px 14px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .btn-novo:hover { background: var(--brand-dark); }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .topbar-count { font-size: 13px; color: var(--muted); }
 
-  .layout-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .layout-card {
-    background: #fff;
-    border: 0.5px solid rgba(0,0,0,0.1);
-    border-radius: 12px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    width: 220px;
-  }
-  .layout-card:hover {
-    border-color: rgba(0,0,0,0.2);
-  }
+  .layout-grid { display: flex; flex-wrap: wrap; gap: 13px; }
+  .layout-card { background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
+    width: 220px; transition: border-color .15s, transform .12s; }
+  .layout-card:hover { border-color: var(--line-2); transform: translateY(-2px); }
 
-  .card-preview {
-    width: 100%;
-    aspect-ratio: 1 / 1.414;
-    background: #f1efe8;
-    border-bottom: 0.5px solid rgba(0,0,0,0.08);
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .card-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .card-preview-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: #b4b2a9;
-    font-size: 10px;
-    font-family: monospace;
-  }
-  .card-preview-placeholder svg {
-    opacity: 0.4;
-  }
+  .card-preview { width: 100%; aspect-ratio: 1 / 1.414; background: var(--surface-3);
+    border-bottom: 1px solid var(--line); overflow: hidden;
+    display: flex; align-items: center; justify-content: center; }
+  .card-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .card-preview-placeholder { display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 6px; color: var(--muted); font-size: 10px;
+    font-family: var(--mono); }
+  .card-preview-placeholder svg { opacity: 0.4; }
 
-  .card-body {
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex: 1;
-  }
-  .card-nome {
-    font-size: 13px;
-    font-weight: 500;
-    color: #1a1a18;
-    line-height: 1.3;
-  }
-  .card-arquivo {
-    font-size: 10px;
-    color: #b4b2a9;
-    font-family: monospace;
-    margin-top: 2px;
-  }
+  .card-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .card-nome { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+  .card-arquivo { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
 
-  .badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-  }
-  .badge {
-    font-size: 10px;
-    font-weight: 500;
-    padding: 2px 7px;
-    border-radius: 20px;
-    border: 0.5px solid;
-    white-space: nowrap;
-  }
-  .badge-default      { background: #F1EFE8; color: #444441; border-color: #D3D1C7; }
-  .badge-preco_split  { background: #FCEBEB; color: #791F1F; border-color: #F7C1C1; }
-  .badge-preco_simples{ background: #FCEBEB; color: #791F1F; border-color: #F7C1C1; }
-  .badge-texto_riscado{ background: #FAEEDA; color: #633806; border-color: #FAC775; }
+  .badges { display: flex; flex-wrap: wrap; gap: 3px; }
+  .badges .badge { font-size: 10px; font-weight: 550; padding: 2px 8px;
+    border-radius: 20px; white-space: nowrap; margin-bottom: 0;
+    text-transform: none; letter-spacing: 0; }
+  .badge-default      { background: var(--surface-3);  color: var(--ink-2); }
+  .badge-preco_split  { background: var(--danger-bg);  color: var(--danger); }
+  .badge-preco_simples{ background: var(--danger-bg);  color: var(--danger); }
+  .badge-texto_riscado{ background: var(--warning-bg); color: var(--warning); }
 
-  .card-footer {
-    padding: 10px 12px;
-    border-top: 0.5px solid rgba(0,0,0,0.08);
-    display: grid;
-    grid-template-columns: 1fr 1fr 32px;
-    gap: 6px;
-  }
-  .btn-acao {
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    text-decoration: none;
-    border: 0.5px solid rgba(0,0,0,0.15);
-    background: #fff;
-    color: #1a1a18;
-  }
-  .btn-acao:hover { background: #f1efe8; }
-  .btn-gerar { background: var(--brand); border-color: var(--brand); color: #fff; }
-  .btn-gerar:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
-  .btn-del { border-color: #F7C1C1; color: #791F1F; }
-  .btn-del:hover { background: #FCEBEB; }
+  .card-footer { padding: 10px 12px; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: 1fr 1fr 32px; gap: 6px; }
+  .btn-acao { border-radius: 8px; font-size: 12px; font-weight: 550; cursor: pointer;
+    height: 32px; display: flex; align-items: center; justify-content: center; gap: 4px;
+    text-decoration: none; border: 1px solid var(--line-2);
+    background: var(--surface-2); color: var(--ink); transition: background .12s; }
+  .btn-acao:hover { background: var(--surface-3); }
+  .btn-gerar { background: var(--amber-btn); border-color: var(--amber-btn); color: var(--amber-ink); }
+  .btn-gerar:hover { background: var(--amber-2); border-color: var(--amber-2); }
+  .btn-del { border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger); background: transparent; }
+  .btn-del:hover { background: var(--danger-bg); }
 
-  .vazio {
-    text-align: center;
-    padding: 60px 20px;
-    color: #888780;
-  }
-  .vazio svg { opacity: 0.25; margin-bottom: 12px; }
-  .vazio-titulo { font-size: 14px; font-weight: 500; color: #1a1a18; margin-bottom: 6px; }
+  .vazio { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .vazio svg { opacity: 0.3; margin-bottom: 12px; color: var(--muted); }
+  .vazio-titulo { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
   .vazio-desc { font-size: 13px; margin-bottom: 16px; }
+  .btn-novo { display: inline-flex; align-items: center; gap: 6px;
+    background: var(--amber-btn); color: var(--amber-ink); border: none;
+    border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 650;
+    cursor: pointer; text-decoration: none; }
+  .btn-novo:hover { background: var(--amber-2); }
 </style>
 {% endblock %}
 
@@ -159,7 +69,6 @@
 
 <div class="topbar">
   <span class="topbar-count">{{ layouts|length }} layout(s) cadastrado(s)</span>
-  <a href="/layouts/cadastrar" class="btn-novo">+ Novo layout</a>
 </div>
 
 {% if layouts %}
@@ -218,7 +127,7 @@
 
 {% else %}
 <div class="vazio">
-  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#888780" stroke-width="1.5" display="block" style="margin:0 auto 12px;">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" display="block" style="margin:0 auto 12px;">
     <rect x="3" y="3" width="18" height="18" rx="2"/>
     <circle cx="8.5" cy="8.5" r="1.5"/>
     <polyline points="21 15 16 10 5 21"/>

@@ -4,7 +4,7 @@ from PIL import Image, ImageOps
 def girar_e_adicionar_borda(pasta, angulo=90, espessura_borda=2, cor_borda="black"):
     # Verifica se a pasta existe
     if not os.path.exists(pasta):
-        print(f"❌ A pasta '{pasta}' não foi encontrada.")
+        print(f"[erro] A pasta '{pasta}' não foi encontrada.")
         return
 
     # Extensões de imagem aceitas
@@ -18,7 +18,7 @@ def girar_e_adicionar_borda(pasta, angulo=90, espessura_borda=2, cor_borda="blac
     elif angulo == 270 or angulo == -90:
         metodo_rotacao = Image.Transpose.ROTATE_270
     else:
-        print("❌ Ângulo inválido para transposição exata (use 90 ou 270).")
+        print("[erro] Ângulo inválido para transposição exata (use 90 ou 270).")
         return
 
     print(f"Processando imagens na pasta '{pasta}'...")
@@ -43,13 +43,13 @@ def girar_e_adicionar_borda(pasta, angulo=90, espessura_borda=2, cor_borda="blac
                     
                     img_processada.save(caminho_completo)
                 
-                print(f"✅ Processada: {nome_arquivo}")
+                print(f"[ok] Processada: {nome_arquivo}")
                 contador += 1
                 
             except Exception as e:
-                print(f"❌ Erro ao processar '{nome_arquivo}': {e}")
+                print(f"[erro] Erro ao processar '{nome_arquivo}': {e}")
 
-    print(f"\n🎉 Concluído! {contador} imagens foram giradas e receberam borda.")
+    print(f"\n[ok] Concluído! {contador} imagens foram giradas e receberam borda.")
 
 
 # --- MODIFICAÇÃO: envolvido em if __name__ para não executar ao ser importado ---

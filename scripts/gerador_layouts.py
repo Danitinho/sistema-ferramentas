@@ -253,7 +253,9 @@ def criar_imagem_com_layout(layout, valores, img_base, caminho_saida):
                         outline=(0, 0, 0), width=espessura)
 
     imagem.save(caminho_saida)
-    print(f"  ✓ {caminho_saida}")
+    # NOTA: sem caracteres fora do ASCII no print — com stdout em cp1252
+    # (terminal Windows), um "✓" derruba a geração inteira com UnicodeEncodeError.
+    print(f"  [ok] {caminho_saida}")
 
 
 # =============================================================================
@@ -322,10 +324,10 @@ def processar_lote(layout, arquivo_lista, pasta_saida,
             import traceback; traceback.print_exc()
             falha += 1
 
-    print(f"\n{'─'*40}")
+    print(f"\n{'-'*40}")
     print(f"  Geradas com sucesso : {sucesso}")
     print(f"  Ignoradas / com erro: {falha}")
-    print(f"{'─'*40}")
+    print(f"{'-'*40}")
     return sucesso, falha
 
 

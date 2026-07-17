@@ -280,15 +280,22 @@ movido (fica na entrada para inspeção).
 Todo o visual mora em `templates/base.html`. **Mudar a paleta lá reskinna o
 sistema inteiro**, pois todos os templates estendem `base.html`.
 
-### Paleta atual — "Grafite & Âmbar"
-Definida em CSS variables no `:root` de `base.html`:
-- `--graphite #26262B` (primária: header, botões), `--graphite-dark #15151A`
-- `--amber #E5A23B` (acento: foco de campo, hover, badges), `--amber-dark #8A5B12`, `--amber-light #FBEFD9`
-- Aliases mantidos por compatibilidade: `--brand` (= grafite), `--brand-light`,
-  `--brand-dark`, `--accent` (= âmbar). **Use sempre as variáveis, nunca hex
-  cravado** — assim trocar a paleta continua sendo um ponto único.
+### Paleta atual — "Carbono & Âmbar" (tema escuro padrão + claro)
+Definida em CSS variables no `:root` de `base.html`. O tema **escuro é o
+padrão**; o claro é ativado por `html[data-theme="claro"]` (switch no header,
+persistido em `localStorage.tema`, aplicado antes do paint por um script
+inline no `<head>`).
+- Superfícies: `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--line`, `--line-2`.
+- Texto: `--ink`, `--ink-2`, `--muted`.
+- Marca: `--amber` (acento de texto/ícone — muda por tema p/ contraste),
+  `--amber-btn` (fundo de botão primário), `--amber-ink` (texto sobre âmbar),
+  `--amber-2` (hover), `--glow` (sombra/foco).
 - Semânticas: `--success`, `--warning`, `--danger` (+ versões `-bg`).
-- Neutros: `--gray`, `--gray-light`, `--ink`, `--border`.
+- Tipos: `--sans` (texto) e `--mono` (números, NF, códigos — use a classe `.num`).
+- Aliases legados mantidos (`--brand`, `--accent`, `--graphite`, `--gray`,
+  `--gray-light`, `--border`...) mapeados para os tokens novos.
+**Use sempre as variáveis, nunca hex cravado** — um hex claro cravado quebra o
+tema escuro (e vice-versa). Ambos os temas precisam funcionar em toda tela nova.
 
 ### Responsividade
 - `--maxw: 1200px` (largura do app no desktop), `--maxw-read: 880px` (coluna de
@@ -317,9 +324,19 @@ Helpers globais já disponíveis em `base.html`: `postJSON(url, data)`,
   ícone externas. Ao adicionar um card no menu, copie o padrão de `<svg>` de
   linha já usado em `index.html`.
 - A busca do menu filtra os cards no cliente via `data-nome` em cada `.tool-card`.
-- Componentes prontos no `base.html`: `.card`, `.btn` (`.btn-primary`,
-  `.btn-secondary`, `.btn-accent`), `.metric`, `.result-box`, `.upload-area`,
-  `.badge`, `.spinner`. Reutilize antes de criar novos.
+- Componentes prontos no `base.html`: `.card` (+ `.card-flush`/`.card-head`/
+  `.card-body`), `.btn` (`.btn-primary` = âmbar, `.btn-secondary`, `.btn-danger`,
+  `.btn-sm`), `.pill` (status `p-aberto`/`p-parcial`/`p-quitado`), `.tag`,
+  `.chip`, `.stat-card` (`s-danger`/`s-success`/`s-amber`), `.alertx`, `.seg`
+  (seletor segmentado), `.fseg` + `.search` (filtros/busca), `.ingrp` (campo com
+  prefixo R$), o **modal global** (`.modal-overlay`/`.modal` + helpers JS
+  `abrirModal`/`fecharModal`/`fecharSeFundo`), o livro-razão (`.ledger`,
+  `.lg-head`/`.lg-row`), `.metric`, `.result-box`, `.upload-area`, `.badge`,
+  `.spinner`, `.btn-lixo`, `.icon-btn`, `.empty-state`. Reutilize antes de criar novos.
+- O header some numa tela ao sobrescrever `{% block header %}{% endblock %}`
+  (usado em login/setup).
+- **Prints em `scripts/*.py`: só ASCII.** Com stdout em cp1252 (terminal
+  Windows), um `print("✓")` derruba a requisição inteira com UnicodeEncodeError.
 
 ---
 

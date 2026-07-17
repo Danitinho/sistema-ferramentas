@@ -19,11 +19,11 @@
   /* ── Botão salvar no header ──────────────────────────────────────────────── */
   .btn-header-salvar {
     display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
-    background: var(--amber); color: #1A1A1A; border: none; border-radius: 9px;
+    background: var(--amber-btn); color: var(--amber-ink); border: none; border-radius: 9px;
     padding: 9px 16px; font-size: 13px; font-weight: 650; cursor: pointer;
     transition: background .15s;
   }
-  .btn-header-salvar:hover { background: #D8922B; }
+  .btn-header-salvar:hover { background: var(--amber-2); }
 
   /* ── Layout duas colunas ──────────────────────────────────────────────────── */
   .editor-wrap {
@@ -43,7 +43,7 @@
     letter-spacing: .09em; color: var(--gray); margin: 0 0 8px;
   }
   .sec-card {
-    background: #fff; border: 0.5px solid var(--border);
+    background: var(--surface); border: 1px solid var(--line);
     border-radius: var(--radius); padding: 18px; margin-bottom: 20px;
   }
 
@@ -61,9 +61,9 @@
   /* ── Upload imagem ───────────────────────────────────────────────────────── */
   .img-upload-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
   .img-thumb {
-    width: 52px; height: 66px; border-radius: 8px; border: 0.5px solid rgba(0,0,0,.14);
-    overflow: hidden; flex-shrink: 0; background: var(--gray-light);
-    display: flex; align-items: center; justify-content: center; color: #ABA79E;
+    width: 52px; height: 66px; border-radius: 8px; border: 1px solid var(--line-2);
+    overflow: hidden; flex-shrink: 0; background: var(--surface-3);
+    display: flex; align-items: center; justify-content: center; color: var(--muted);
   }
   .img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .upload-btn {
@@ -72,7 +72,7 @@
     border: 0.5px solid var(--border); background: var(--gray-light);
     color: var(--ink); cursor: pointer; white-space: nowrap; flex-shrink: 0;
   }
-  .upload-btn:hover { background: #E0DED9; }
+  .upload-btn:hover { background: var(--surface-3); }
   .img-nome { font-size: 12px; color: var(--gray); font-family: monospace; word-break: break-all; margin-bottom: 7px; }
 
   /* ── Toggles ─────────────────────────────────────────────────────────────── */
@@ -83,7 +83,7 @@
     border-radius: var(--radius-sm); padding: 8px 13px; cursor: pointer;
     font-size: 13px; color: var(--ink); user-select: none;
   }
-  .toggle-item input { cursor: pointer; accent-color: var(--graphite); margin: 0; }
+  .toggle-item input { cursor: pointer; accent-color: var(--amber-btn); margin: 0; }
 
   /* ── Cabeçalho da seção Campos ───────────────────────────────────────────── */
   .campos-header-row {
@@ -97,13 +97,13 @@
     font: 600 11px system-ui; cursor: pointer; padding: 0;
   }
   .link-btn:hover { text-decoration: underline; }
-  .campos-actions .sep { color: rgba(0,0,0,.18); }
+  .campos-actions .sep { color: var(--line-2); }
 
   /* ── Campo card ──────────────────────────────────────────────────────────── */
   .campo-card {
-    display: flex; background: #fff; border: 0.5px solid var(--border);
+    display: flex; background: var(--surface); border: 1px solid var(--line);
     border-radius: 13px; margin-bottom: 10px; overflow: hidden;
-    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    box-shadow: 0 1px 2px rgba(0,0,0,.08);
     outline: 2px solid transparent; outline-offset: -2px;
     transition: outline-color .15s;
   }
@@ -128,7 +128,7 @@
   }
   .campo-badge-tipo { background: var(--gray-light); color: var(--gray); }
   .campo-chevron {
-    color: #9A968F; font-size: 10px; flex-shrink: 0; transition: transform .18s;
+    color: var(--muted); font-size: 10px; flex-shrink: 0; transition: transform .18s;
   }
 
   .campo-body { padding: 2px 14px 15px; }
@@ -138,7 +138,7 @@
     width: 28px; height: 26px; border: 0.5px solid var(--border);
     background: var(--gray-light); border-radius: 7px; cursor: pointer; color: var(--gray);
   }
-  .btn-icon:hover { background: #E5E2DB; }
+  .btn-icon:hover { background: var(--surface-3); }
   .btn-icon:disabled { opacity: .4; cursor: not-allowed; }
   .btn-icon:disabled:hover { background: var(--gray-light); }
   .btn-rem {
@@ -146,14 +146,15 @@
     border: 0.5px solid var(--border); background: var(--gray-light); border-radius: 7px;
     cursor: pointer; color: var(--gray); font: 600 11px system-ui;
   }
-  .btn-rem:hover { background: var(--danger-bg); color: var(--danger); border-color: #F0B7B7; }
+  .btn-rem:hover { background: var(--danger-bg); color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
   .divider-c { height: 0.5px; background: var(--border); margin: 0 0 12px; }
 
   /* ── Seletor de cor ──────────────────────────────────────────────────────── */
   .cor-display {
     display: flex; align-items: center; gap: 8px;
-    border: 0.5px solid var(--border); border-radius: var(--radius-sm);
-    padding: 7px 10px; background: #fff; cursor: pointer;
+    border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+    padding: 7px 10px; background: var(--bg); cursor: pointer;
     position: relative; overflow: hidden;
   }
   .cor-preview {
@@ -170,19 +171,20 @@
     background: var(--gray-light); border: 0.5px solid var(--border);
     border-radius: 8px; padding: 6px 11px; font-size: 12px; cursor: pointer; user-select: none;
   }
-  .check-item input { cursor: pointer; accent-color: var(--graphite); margin: 0; }
+  .check-item input { cursor: pointer; accent-color: var(--amber-btn); margin: 0; }
 
   /* ── Área ─────────────────────────────────────────────────────────────────── */
-  .area-box { background: #FAF8F4; border: 0.5px solid rgba(0,0,0,.07); border-radius: 10px; padding: 11px 12px; }
+  .area-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; }
   .area-box-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .area-box-label { font: 600 11px system-ui; color: var(--gray); }
   .area-box-coords { font: 11px ui-monospace, monospace; color: var(--amber-dark); }
   .area-btn {
     display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
     padding: 9px; border-radius: 8px; font: 600 12px system-ui;
-    border: 1px dashed #C79A54; background: var(--amber-light); color: var(--amber-dark); cursor: pointer;
+    border: 1px dashed color-mix(in srgb, var(--warning) 55%, transparent);
+    background: var(--warning-bg); color: var(--warning); cursor: pointer;
   }
-  .area-btn:hover { background: #F3E3C0; }
+  .area-btn:hover { background: color-mix(in srgb, var(--warning) 24%, transparent); }
   .area-split-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .area-split-col { flex: 1; min-width: 130px; }
 
@@ -193,18 +195,19 @@
     color: var(--gray); cursor: pointer; transition: border-color .15s, background .15s;
     display: flex; align-items: center; justify-content: center; gap: 7px;
   }
-  .btn-add-campo:hover { background: var(--gray-light); border-color: #999; color: var(--ink); }
+  .btn-add-campo:hover { background: var(--surface-2); border-color: var(--muted); color: var(--ink); }
   .btn-salvar {
     width: 100%; padding: 15px; border-radius: 12px; border: none;
-    background: var(--graphite); color: #fff; font: 650 15px system-ui;
+    background: var(--amber-btn); color: var(--amber-ink); font: 650 15px system-ui;
     cursor: pointer; transition: background .15s;
+    box-shadow: 0 6px 18px -8px var(--glow);
     display: flex; align-items: center; justify-content: center; gap: 8px;
   }
-  .btn-salvar:hover { background: var(--graphite-2); }
+  .btn-salvar:hover { background: var(--amber-2); }
 
   /* ── Verificação ─────────────────────────────────────────────────────────── */
   .avisos-card {
-    background: #fff; border: 0.5px solid var(--border); border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
     padding: 12px 14px; margin-bottom: 14px;
   }
   .avisos-title {
@@ -220,8 +223,8 @@
   /* ── Coluna preview ──────────────────────────────────────────────────────── */
   .editor-preview { position: sticky; top: 84px; }
   .preview-card {
-    background: #fff; border: 0.5px solid var(--border);
-    border-radius: var(--radius); overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.12);
   }
   .preview-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -244,7 +247,7 @@
   #preview-canvas { display: block; width: 100%; height: auto; }
   .preview-empty {
     flex-direction: column; align-items: center; justify-content: center;
-    padding: 32px 16px; text-align: center; color: #666; gap: 8px;
+    padding: 32px 16px; text-align: center; color: var(--muted); gap: 8px;
   }
   .preview-empty p { font-size: 12px; margin: 0; line-height: 1.5; }
   .preview-toggle-row {
@@ -265,7 +268,7 @@
     width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
     border: 0.5px solid rgba(0,0,0,0.15);
   }
-  .preview-hint { font: 400 11.5px/1.5 system-ui; color: #9A968F; margin: 12px 4px 0; }
+  .preview-hint { font: 400 11.5px/1.5 system-ui; color: var(--muted); margin: 12px 4px 0; }
 
   /* ── Canvas overlay (definir área) ──────────────────────────────────────── */
   #canvas-overlay {
@@ -291,8 +294,8 @@
     padding: 11px 28px; border-radius: 9px; border: none;
     cursor: pointer; font: 650 13px system-ui;
   }
-  #btn-confirmar-area { background: var(--amber); color: #1A1A1A; }
-  #btn-confirmar-area:hover { background: #D8922B; }
+  #btn-confirmar-area { background: var(--amber-btn); color: var(--amber-ink); }
+  #btn-confirmar-area:hover { background: var(--amber-2); }
   #btn-cancelar-area  { background: rgba(255,255,255,.12); color: #fff; }
   #btn-cancelar-area:hover { background: rgba(255,255,255,.2); }
 
@@ -304,8 +307,10 @@
     border: 0.5px solid transparent;
   }
   #toast.show { display: flex; animation: toastUp .28s ease; }
-  #toast.ok  { background: var(--success-bg); color: var(--success); border-color: #C0DD97; }
-  #toast.erro { background: var(--danger-bg); color: var(--danger); border-color: #F0B7B7; }
+  #toast.ok  { background: var(--success-bg); color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+  #toast.erro { background: var(--danger-bg); color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
   #toast-icon {
     width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center;
     justify-content: center; font-size: 11px; font-weight: 800;
@@ -409,7 +414,7 @@
       <div class="preview-canvas-wrap" id="preview-wrap">
         <canvas id="preview-canvas" style="display:none;"></canvas>
         <div class="preview-empty" id="preview-empty" style="display:flex;">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#888"
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2"/>
             <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -811,7 +816,7 @@ function buildAreasSplit(c, uid) {
           </button>
         </div>
       </div>
-      <label class="check-item" style="margin-top:10px; display:inline-flex; background:#fff;">
+      <label class="check-item" style="margin-top:10px; display:inline-flex; background:var(--surface);">
         <input type="checkbox" ${c.centavos_ajustado !== false ? 'checked' : ''}
                onchange="atualizarCampo(${uid},'centavos_ajustado',this.checked)">
         Centavos seguem borda do inteiro
