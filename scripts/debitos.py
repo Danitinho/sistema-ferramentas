@@ -7,11 +7,18 @@ Modelo de dados (acompanhamento de pagamento NF-a-NF):
   • debitos      — o que a empresa nos deve (vencimento por NF ou rebaxa de
                    preço). Cada débito acumula `valor_pago`; o status
                    (aberto/parcial/quitado) é derivado de valor_pago × valor_total.
-  • pagamentos   — créditos a nosso favor (NF de bonificação etc.). Acumulam
-                   `valor_alocado`; o que sobra é o crédito disponível.
+  • pagamentos   — abatimentos a nosso favor, de três `tipo`s: bonificação (NF),
+                   troca direta de produtos ou desconto no boleto. Cada um tem
+                   uma `referencia` (nº NF / nº boleto / descrição). Acumulam
+                   `valor_alocado`; o que sobra é o CRÉDITO disponível da empresa.
   • alocacoes    — ligação N:N: "R$ X do pagamento P quitou o débito D". É ela
                    que permite ver, por débito, quanto ainda falta, e por
                    pagamento, quais débitos ele cobriu.
+
+Fluxo: o pagamento é lançado DENTRO de um débito (abate aquele débito); se o
+valor exceder o saldo, o excedente vira crédito; o crédito pode depois ser
+aplicado em outro débito (alocar / alocar_automatico). Também é possível lançar
+um crédito avulso (sem débito de origem).
 
 Confiabilidade:
   • Datas em ISO (ordenação correta) + `data_fmt` para exibição.
@@ -31,6 +38,19 @@ DADOS_DIR = os.path.join(BASE_DIR, "dados")
 BANCO     = os.path.join(DADOS_DIR, "debitos.db")
 
 _EPS = 0.005  # tolerância p/ comparação de centavos
+
+# Tipos de pagamento (abatimento) e seus rótulos amigáveis.
+TIPOS_PAGAMENTO = {
+    "bonificacao":     "Bonificação",
+    "troca":           "Troca direta",
+    "desconto_boleto": "Desconto no boleto",
+}
+# Rótulo do campo de referência conforme o tipo (usado pela UI).
+REF_LABEL = {
+    "bonificacao":     "Nº da NF",
+    "troca":           "Descrição da troca",
+    "desconto_boleto": "Nº / venc. do boleto",
+}
 
 
 def _conn():
@@ -72,7 +92,8 @@ def _init_schema(conn):
             id            TEXT PRIMARY KEY,
             cnpj          TEXT NOT NULL,
             data          TEXT NOT NULL,
-            nf_numero     TEXT NOT NULL,
+            tipo          TEXT NOT NULL DEFAULT 'bonificacao',  -- bonificacao | troca | desconto_boleto
+            referencia    TEXT,                                 -- nº NF / nº boleto / descrição
             valor_total   REAL NOT NULL,
             valor_alocado REAL NOT NULL DEFAULT 0,
             obs           TEXT,
@@ -130,18 +151,40 @@ def _migrar(conn):
     if "valor_pago" not in _colunas(conn, "debitos"):
         conn.execute("ALTER TABLE debitos ADD COLUMN valor_pago REAL NOT NULL DEFAULT 0")
 
+    # pagamentos: nf_numero -> referencia + tipo. Como o SQLite não afrouxa o
+    # NOT NULL de nf_numero via ALTER, reconstrói a tabela (não destrutivo).
+    if "pagamentos" in _tabelas(conn) and "referencia" not in _colunas(conn, "pagamentos"):
+        conn.executescript("""
+            ALTER TABLE pagamentos RENAME TO _pag_old;
+            CREATE TABLE pagamentos (
+                id            TEXT PRIMARY KEY,
+                cnpj          TEXT NOT NULL,
+                data          TEXT NOT NULL,
+                tipo          TEXT NOT NULL DEFAULT 'bonificacao',
+                referencia    TEXT,
+                valor_total   REAL NOT NULL,
+                valor_alocado REAL NOT NULL DEFAULT 0,
+                obs           TEXT,
+                excluido_em   TEXT,
+                excluido_por  TEXT,
+                FOREIGN KEY (cnpj) REFERENCES empresas(cnpj) ON DELETE CASCADE
+            );
+            INSERT INTO pagamentos
+                (id, cnpj, data, tipo, referencia, valor_total, valor_alocado,
+                 obs, excluido_em, excluido_por)
+            SELECT id, cnpj, data, 'bonificacao', nf_numero, valor_total,
+                   COALESCE(valor_alocado, 0), obs, excluido_em, excluido_por
+            FROM _pag_old;
+            DROP TABLE _pag_old;
+            CREATE INDEX IF NOT EXISTS idx_pag_cnpj ON pagamentos(cnpj);
+        """)
+
     # migra a tabela antiga bonificacoes -> pagamentos (idempotente por PK).
-    # A bonificacoes pode ser de um schema anterior, sem as colunas de soft-delete.
     if "bonificacoes" in _tabelas(conn):
-        bcols   = _colunas(conn, "bonificacoes")
-        exc_em  = "excluido_em"  if "excluido_em"  in bcols else "NULL"
-        exc_por = "excluido_por" if "excluido_por" in bcols else "NULL"
-        conn.execute(f"""
+        conn.execute("""
             INSERT OR IGNORE INTO pagamentos
-                (id, cnpj, data, nf_numero, valor_total, valor_alocado, obs,
-                 excluido_em, excluido_por)
-            SELECT id, cnpj, data, nf_numero, valor_total, 0, obs,
-                   {exc_em}, {exc_por}
+                (id, cnpj, data, tipo, referencia, valor_total, valor_alocado, obs)
+            SELECT id, cnpj, data, 'bonificacao', nf_numero, valor_total, 0, obs
             FROM bonificacoes
         """)
 
@@ -228,6 +271,14 @@ def _nf_duplicada(conn, tabela, cnpj, nf):
     ).fetchone() is not None
 
 
+def _ref_bonificacao_duplicada(conn, cnpj, referencia):
+    """Barra NF de bonificação repetida (só bonificação tem nº único de NF)."""
+    return conn.execute(
+        "SELECT 1 FROM pagamentos WHERE cnpj = ? AND tipo = 'bonificacao' "
+        "AND referencia = ? AND excluido_em IS NULL", (cnpj, referencia),
+    ).fetchone() is not None
+
+
 # ── Empresas ──────────────────────────────────────────────────────────────────
 def listar_empresas():
     conn = _conn()
@@ -306,11 +357,19 @@ def excluir_empresa(cnpj, usuario=None):
 
 # ── Débitos ───────────────────────────────────────────────────────────────────
 def _alocacoes_do_debito(conn, debito_id):
-    return [dict(a) for a in conn.execute(
-        "SELECT a.id, a.valor, a.pagamento_id, p.nf_numero "
+    """Pagamentos aplicados a um débito, com o tipo e a referência de cada um."""
+    saida = []
+    for a in conn.execute(
+        "SELECT a.id, a.valor, a.pagamento_id, p.tipo, p.referencia "
         "FROM alocacoes a JOIN pagamentos p ON p.id = a.pagamento_id "
         "WHERE a.debito_id = ? AND a.excluido_em IS NULL ORDER BY a.criado_em",
-        (debito_id,)).fetchall()]
+        (debito_id,)).fetchall():
+        saida.append({
+            "id": a["id"], "valor": a["valor"], "pagamento_id": a["pagamento_id"],
+            "tipo": a["tipo"], "tipo_label": TIPOS_PAGAMENTO.get(a["tipo"], a["tipo"]),
+            "referencia": a["referencia"] or "",
+        })
+    return saida
 
 
 def listar_debitos(cnpj=None):
@@ -436,33 +495,84 @@ def listar_pagamentos(cnpj=None):
             p["valor_alocado"] = va
             p["disponivel"]    = round(p["valor_total"] - va, 2)
             p["data_fmt"]      = _fmt_data(p["data"])
+            p["tipo_label"]    = TIPOS_PAGAMENTO.get(p.get("tipo"), p.get("tipo") or "")
+            p["referencia"]    = p.get("referencia") or ""
             p["alocacoes"]     = _alocacoes_do_pagamento(conn, p["id"])
         return rows
     finally:
         conn.close()
 
 
-def adicionar_pagamento(cnpj, nf_numero, valor_total, obs="", usuario=None):
+def listar_creditos(cnpj):
+    """Pagamentos com saldo não alocado — o 'pool' de crédito da empresa."""
+    return [p for p in listar_pagamentos(cnpj) if p["disponivel"] > _EPS]
+
+
+def adicionar_pagamento(cnpj, valor_total, tipo="bonificacao", referencia="",
+                        obs="", usuario=None, debito_id=None):
+    """Registra um pagamento (abatimento). Se `debito_id` for informado, o valor
+    abate aquele débito e o excedente vira crédito; sem `debito_id`, entra como
+    crédito avulso."""
     if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
-    nf = nf_numero.strip()
-    if not nf:
-        return False, "Número da NF é obrigatório."
+    if tipo not in TIPOS_PAGAMENTO:
+        return False, "Tipo de pagamento inválido."
+    referencia = (referencia or "").strip()
+    if not referencia:
+        return False, f"Informe {REF_LABEL[tipo].lower()}."
     valor = _parse_valor(valor_total)
     if valor is None:
         return False, "Valor inválido."
     conn = _conn()
     try:
-        if _nf_duplicada(conn, "pagamentos", cnpj, nf):
-            return False, f"Já existe um pagamento com a NF {nf} para esta empresa."
+        if tipo == "bonificacao" and _ref_bonificacao_duplicada(conn, cnpj, referencia):
+            return False, f"Já existe uma bonificação com a NF {referencia} para esta empresa."
+
+        # se veio de um débito, valida antes de gravar qualquer coisa
+        d = None
+        if debito_id:
+            d = conn.execute(
+                "SELECT * FROM debitos WHERE id = ? AND cnpj = ? AND excluido_em IS NULL",
+                (debito_id, cnpj)).fetchone()
+            if not d:
+                return False, "Débito de destino não encontrado."
+
         pid = _uid()
         conn.execute(
-            "INSERT INTO pagamentos (id, cnpj, data, nf_numero, valor_total, obs) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (pid, cnpj, _agora(), nf, valor, obs.strip()))
-        _auditar(conn, "pagamento", pid, "criar", f"NF {nf} · R$ {valor:.2f}", usuario)
+            "INSERT INTO pagamentos (id, cnpj, data, tipo, referencia, valor_total, obs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (pid, cnpj, _agora(), tipo, referencia, valor, obs.strip()))
+        _auditar(conn, "pagamento", pid, "criar",
+                 f"{TIPOS_PAGAMENTO[tipo]} {referencia} · R$ {valor:.2f}"
+                 + (f" (no débito {debito_id})" if debito_id else " (crédito avulso)"),
+                 usuario)
+
+        alocado = 0.0
+        if d:
+            saldo = round(d["valor_total"] - (d["valor_pago"] or 0), 2)
+            aloc = round(min(valor, saldo), 2)
+            if aloc > _EPS:
+                aid = _uid()
+                conn.execute(
+                    "INSERT INTO alocacoes (id, pagamento_id, debito_id, valor, criado_em, criado_por) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (aid, pid, debito_id, aloc, _agora(), usuario))
+                conn.execute("UPDATE pagamentos SET valor_alocado = ROUND(COALESCE(valor_alocado,0)+?,2) WHERE id = ?",
+                             (aloc, pid))
+                conn.execute("UPDATE debitos SET valor_pago = ROUND(COALESCE(valor_pago,0)+?,2) WHERE id = ?",
+                             (aloc, debito_id))
+                _auditar(conn, "alocacao", aid, "criar",
+                         f"R$ {aloc:.2f} · pag {pid} → déb {debito_id}", usuario)
+                alocado = aloc
         conn.commit()
-        return True, f"Pagamento NF {nf} de R$ {valor:.2f} registrado."
+
+        credito = round(valor - alocado, 2)
+        if not debito_id:
+            return True, f"Crédito de R$ {valor:.2f} registrado."
+        if credito > _EPS:
+            return True, (f"R$ {alocado:.2f} abateram o débito e "
+                          f"R$ {credito:.2f} viraram crédito.")
+        return True, f"R$ {alocado:.2f} aplicados ao débito."
     finally:
         conn.close()
 

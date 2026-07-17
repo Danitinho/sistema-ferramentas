@@ -30,7 +30,9 @@ def empresa(cnpj):
         emp=emp,
         saldo=db.calcular_saldo(cnpj),
         debitos=db.listar_debitos(cnpj),
-        pagamentos=db.listar_pagamentos(cnpj),
+        creditos=db.listar_creditos(cnpj),
+        tipos=db.TIPOS_PAGAMENTO,
+        ref_label=db.REF_LABEL,
     )
 
 
@@ -83,10 +85,13 @@ def api_del_debito(id_debito):
 @debitos_bp.route("/api/pagamento", methods=["POST"])
 @debitos_bp.route("/api/bonificacao", methods=["POST"])  # alias legado
 def api_add_pagamento():
-    d = request.get_json()
+    d = request.get_json() or {}
+    # `referencia` é o campo novo; aceita `nf_numero` do frontend legado.
+    referencia = d.get("referencia") or d.get("nf_numero") or ""
     ok, msg = db.adicionar_pagamento(
-        cnpj=d.get("cnpj", ""), nf_numero=d.get("nf_numero", ""),
-        valor_total=d.get("valor_total", 0), obs=d.get("obs", ""), usuario=_usuario(),
+        cnpj=d.get("cnpj", ""), valor_total=d.get("valor_total", 0),
+        tipo=d.get("tipo", "bonificacao"), referencia=referencia,
+        obs=d.get("obs", ""), debito_id=d.get("debito_id"), usuario=_usuario(),
     )
     return jsonify({"ok": ok, "msg": msg})
 

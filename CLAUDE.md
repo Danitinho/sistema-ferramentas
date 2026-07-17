@@ -175,18 +175,27 @@ Controle por empresa (CNPJ) com **acompanhamento de quitação NF-a-NF**.
 Persistido em `dados/debitos.db` (SQLite). Modelo:
 - `debitos` — o que a empresa deve (vencimento por NF ou rebaxa). Acumula
   `valor_pago`; o status (aberto/parcial/quitado) é derivado.
-- `pagamentos` — créditos a nosso favor (NF de bonificação etc.). Acumulam
-  `valor_alocado`; o resto é crédito disponível.
+- `pagamentos` — abatimentos, de três **`tipo`**s: `bonificacao` (NF),
+  `troca` (troca direta de produtos) ou `desconto_boleto`. Cada um tem uma
+  `referencia` (nº NF / nº boleto / descrição — rótulo em `REF_LABEL`). Acumulam
+  `valor_alocado`; o resto é o crédito disponível.
 - `alocacoes` — ligação N:N: "R$ X do pagamento P quitou o débito D". Excluir um
   débito ou pagamento **reverte automaticamente** suas alocações (soft-delete).
 
-Regras: NF duplicada na mesma empresa é barrada; `alocar` valida que o valor não
-excede nem o disponível do pagamento nem o saldo do débito; `alocar_automatico`
-distribui o crédito nos débitos em aberto do mais antigo ao mais novo (FIFO).
+**Fluxo (débito-first):** `adicionar_pagamento(cnpj, valor, tipo, referencia,
+..., debito_id=?)`. Com `debito_id`, o valor abate aquele débito e o **excedente
+vira crédito** automaticamente; sem `debito_id`, entra como **crédito avulso**.
+O crédito (pagamento com `disponivel > 0`, ver `listar_creditos`) pode depois
+quitar outro débito via `alocar` (manual) ou `alocar_automatico` (FIFO). Só a
+NF de **bonificação** é barrada contra duplicata; troca/desconto podem repetir.
+Na tela, cada débito é um **bloco** com seus pagamentos dentro; há um **pool de
+crédito** no topo. (O antigo `pagamentos.nf_numero` foi migrado para `referencia`
+com rebuild não destrutivo da tabela; a antiga `bonificacoes` já vira `tipo=bonificacao`.)
 
 API JSON em `/debitos/api/...`: `debito/vencimento`, `debito/rebaxa`,
-`pagamento`, `alocar`, `alocar/auto`, `desalocar` (+ DELETEs). O endpoint
-`/api/bonificacao` continua existindo como **alias legado** de `/api/pagamento`.
+`pagamento` (aceita `tipo`, `referencia`, `debito_id`), `alocar`, `alocar/auto`,
+`desalocar` (+ DELETEs). `/api/bonificacao` segue como **alias legado** de
+`/api/pagamento` (mapeia `nf_numero`→`referencia`, `tipo=bonificacao`).
 > **Atenção:** a rota é `POST /debitos/api/debito/rebaxa` (grafia "rebaxa", sem
 > "i"). É um typo que o frontend já consome — **não "corrija" sem atualizar o
 > JS correspondente**, senão quebra.
