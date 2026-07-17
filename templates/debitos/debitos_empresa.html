@@ -5,185 +5,182 @@
   <a href="/">Menu principal</a> · <a href="/debitos">Débitos</a> · {{ emp.razao_social }}
 {% endblock %}
 
+{% block header_actions %}
+<button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-pag')">+ Pagamento</button>
+<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-debito')">+ Débito</button>
+{% endblock %}
+
 {% block extra_head %}
 <style>
-  .tipo-toggle { display:grid; grid-template-columns:1fr 1fr; border:1.5px solid var(--graphite);
-    border-radius:var(--radius); overflow:hidden; margin-bottom:16px; }
-  .tipo-btn { background:#fff; border:none; padding:11px 8px; cursor:pointer; font-size:13px;
-    font-weight:500; color:var(--graphite); transition:background .12s,color .12s; -webkit-tap-highlight-color:transparent; }
-  .tipo-btn + .tipo-btn { border-left:1.5px solid var(--graphite); }
-  .tipo-btn.ativo { background:var(--graphite); color:#fff; }
+  /* saldo hero */
+  .saldo-hero { display: grid; grid-template-columns: 1fr; border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden; background: var(--surface); margin-bottom: 16px; }
+  @media (min-width: 760px) { .saldo-hero { grid-template-columns: 1.15fr 1fr; } }
+  .saldo-main { padding: 20px 22px;
+    background: radial-gradient(520px 220px at 85% -20%, var(--danger-bg), transparent 60%); }
+  .saldo-main.ok { background: radial-gradient(520px 220px at 85% -20%, var(--success-bg), transparent 60%); }
+  .saldo-main .cnpj { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .saldo-big { font-size: clamp(2.2rem, 6.5vw, 3rem); font-weight: 750; line-height: 1; margin: 12px 0 4px; }
+  .saldo-cap { font-size: 12.5px; color: var(--muted); }
+  .saldo-side { border-top: 1px solid var(--line); display: grid;
+    grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+  @media (min-width: 760px) { .saldo-side { border-top: none; border-left: 1px solid var(--line); } }
+  .saldo-side > div { background: var(--surface); padding: 15px 18px; }
+  .saldo-side .v { font-size: 1.18rem; font-weight: 750; }
+  .saldo-side .l { font-size: 10px; color: var(--muted); letter-spacing: .06em;
+    text-transform: uppercase; margin-top: 3px; }
 
-  .lancamento { display:flex; align-items:flex-start; gap:10px; padding:11px 0; border-bottom:0.5px solid var(--border); }
-  .lancamento:last-child { border-bottom:none; }
-  .lanc-info { flex:1; min-width:0; }
-  .lanc-titulo { font-size:13px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .lanc-sub { font-size:12px; color:var(--gray); margin-top:2px; }
-  .lanc-dir { flex-shrink:0; text-align:right; }
-  .lanc-valor { font-size:14px; font-weight:700; white-space:nowrap; }
-  .lanc-valor.debito { color:var(--danger); }
-  .lanc-valor.bonif  { color:var(--success); }
-  .lanc-saldo { font-size:11px; color:var(--gray); margin-top:1px; }
-
-  .badge-venc { background:#FEE2E2; color:var(--danger); font-size:10px; padding:2px 7px; border-radius:10px; font-weight:700; }
-  .badge-reb  { background:#FEF3C7; color:#92400E; font-size:10px; padding:2px 7px; border-radius:10px; font-weight:700; }
-  .st { font-size:10px; padding:2px 8px; border-radius:10px; font-weight:700; }
-  .st-aberto  { background:var(--danger-bg);  color:var(--danger); }
-  .st-parcial { background:var(--warning-bg); color:var(--warning); }
-  .st-quitado { background:var(--success-bg); color:var(--success); }
-
-  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
-  .chip { display:inline-flex; align-items:center; gap:6px; font-size:11px; background:var(--gray-light);
-    color:var(--ink); border-radius:10px; padding:3px 8px; }
-  .chip b { font-weight:700; }
-  .chip .x { cursor:pointer; color:var(--gray); font-weight:700; line-height:1; }
-  .chip .x:hover { color:var(--danger); }
-
-  .mini-acts { display:flex; gap:6px; margin-top:7px; }
-  .mini-btn { font-size:12px; padding:5px 10px; border-radius:8px; border:0.5px solid var(--border);
-    background:#fff; cursor:pointer; color:var(--graphite); }
-  .mini-btn:hover { background:var(--gray-light); }
-  .mini-btn.accent { background:var(--amber); border-color:var(--amber); color:#1A1A1A; }
-  .mini-btn.accent:hover { background:#D8922B; }
-
-  .btn-lixo { background:none; border:none; cursor:pointer; flex-shrink:0; color:var(--gray);
-    padding:4px; border-radius:6px; display:flex; align-items:center; transition:color .12s,background .12s; }
-  .btn-lixo:hover { color:var(--danger); background:var(--danger-bg); }
-  .empty-state { text-align:center; padding:20px 0; color:var(--gray); font-size:13px; }
-
-  .saldo-destaque { font-size:32px; font-weight:700; letter-spacing:-0.5px; margin:4px 0 2px; }
-  .saldo-destaque.devedor { color:var(--danger); }
-  .saldo-destaque.quitado { color:var(--success); }
-  .preview-total { font-size:13px; font-weight:600; color:var(--graphite); background:var(--gray-light);
-    border-radius:var(--radius-sm); padding:7px 12px; text-align:center; margin-top:6px; }
-
-  .modal-overlay { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.45);
-    display:none; align-items:flex-start; justify-content:center; padding:24px 14px; overflow-y:auto; }
-  .modal-overlay.show { display:flex; }
-  .modal { background:#fff; border-radius:var(--radius); width:100%; max-width:500px; margin:auto 0;
-    box-shadow:0 12px 40px rgba(0,0,0,0.25); overflow:hidden; animation:modal-in .15s ease-out; }
-  @keyframes modal-in { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
-  .modal-head { display:flex; align-items:center; gap:10px; padding:16px 18px; border-bottom:0.5px solid var(--border); }
-  .modal-title { font-size:15px; font-weight:600; flex:1; }
-  .modal-close { background:none; border:none; cursor:pointer; font-size:22px; color:var(--gray); }
-  .modal-body { padding:18px; }
-  .modal-footer { display:flex; gap:8px; justify-content:flex-end; padding:14px 18px; border-top:0.5px solid var(--border); }
-  .modal-footer .btn { margin-top:0; }
-  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .two-col label { margin-top:0; }
+  /* pagamentos */
+  .pay-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px;
+    border-bottom: 1px solid var(--line); }
+  .pay-row:last-child { border-bottom: none; }
+  .pay-ic { width: 34px; height: 34px; border-radius: 9px; background: var(--success-bg);
+    color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .pay-info { flex: 1; min-width: 0; }
+  .pay-t { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 650; flex-wrap: wrap; }
+  .pay-s { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .pay-amt { text-align: right; flex-shrink: 0; }
+  .pay-amt .a1 { font-size: 14px; font-weight: 700; color: var(--success); }
+  .pay-amt .a2 { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .mini-acts { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
 </style>
 {% endblock %}
 
 {% block content %}
 
 <!-- Saldo da empresa -->
-<div class="card">
-  <span class="badge badge-financeiro">Financeiro</span>
-  <div class="card-title">{{ emp.cnpj }}</div>
-  <div class="saldo-destaque {% if saldo.saldo_devedor > 0 %}devedor{% else %}quitado{% endif %}">
-    {{ saldo.saldo_devedor | brl }}
+{% set cobertura = ((saldo.total_pago * 100 / saldo.total_debito) | int) if saldo.total_debito > 0 else 0 %}
+<div class="saldo-hero full">
+  <div class="saldo-main {% if saldo.saldo_devedor <= 0 %}ok{% endif %}">
+    <div class="cnpj num">CNPJ {{ emp.cnpj }}</div>
+    <div class="saldo-big num" style="color:{% if saldo.saldo_devedor > 0 %}var(--danger){% else %}var(--success){% endif %}">
+      {{ saldo.saldo_devedor | brl }}
+    </div>
+    <div class="saldo-cap">
+      {% if saldo.saldo_devedor > 0 %}em aberto · {{ debitos | selectattr('status', 'ne', 'quitado') | list | length }} débito(s) ativo(s)
+      {% else %}sem pendências{% endif %}
+    </div>
+    {% if saldo.total_debito > 0 %}
+    <div class="cover">
+      <div class="bar"><i style="width:{{ cobertura }}%"></i></div>
+      <div class="leg">
+        <span><b>{{ cobertura }}% coberto</b> por pagamentos</span>
+        <span class="num">{{ saldo.total_pago | brl }} de {{ saldo.total_debito | brl }}</span>
+      </div>
+    </div>
+    {% endif %}
   </div>
-  <div style="font-size:13px; color:var(--gray); margin-bottom:14px;">
-    {% if saldo.saldo_devedor > 0 %}débitos em aberto{% else %}sem pendências{% endif %}
-  </div>
-  <div class="metrics">
-    <div class="metric">
-      <div class="metric-value" style="color:var(--danger)">{{ saldo.total_debito | brl }}</div>
-      <div class="metric-label">total em débitos</div>
-    </div>
-    <div class="metric">
-      <div class="metric-value" style="color:var(--success)">{{ saldo.credito_disponivel | brl }}</div>
-      <div class="metric-label">crédito disponível</div>
-    </div>
-    <div class="metric">
-      <div class="metric-value">{{ saldo.total_pagamentos | brl }}</div>
-      <div class="metric-label">total em pagamentos</div>
-    </div>
+  <div class="saldo-side">
+    <div><div class="v num" style="color:var(--danger)">{{ saldo.total_debito | brl }}</div><div class="l">Total em débitos</div></div>
+    <div><div class="v num" style="color:var(--success)">{{ saldo.credito_disponivel | brl }}</div><div class="l">Crédito livre</div></div>
+    <div><div class="v num">{{ saldo.total_pagamentos | brl }}</div><div class="l">Em pagamentos</div></div>
+    <div><div class="v num">{{ (debitos | length) + (pagamentos | length) }}</div><div class="l">Lançamentos</div></div>
   </div>
 </div>
 
-<!-- Débitos -->
-<div class="card">
-  <div class="card-title">Débitos</div>
-  <div style="display:flex; justify-content:flex-end; margin:-6px 0 14px;">
-    <button class="btn btn-primary" style="margin:0;background:var(--danger);border-color:var(--danger)"
-            onclick="abrirModal('modal-debito')">+ Registrar débito</button>
+<!-- Filtros -->
+<div class="toolrow full">
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" id="busca" placeholder="Buscar por NF ou produto…" autocomplete="off">
   </div>
+  <div class="fseg" id="filtro-status">
+    <button class="on" data-f="">Todos</button>
+    <button data-f="aberto">Abertos</button>
+    <button data-f="parcial">Parciais</button>
+    <button data-f="quitado">Quitados</button>
+  </div>
+</div>
 
-  {% if debitos %}
-  {% for d in debitos %}
-  <div class="lancamento">
-    <div class="lanc-info">
-      <div class="lanc-titulo">
-        {% if d.tipo == 'vencimento' %}<span class="badge-venc">Vencimento</span> NF {{ d.nf_numero }}
-        {% else %}<span class="badge-reb">Rebaxa</span> {{ d.produto }}{% endif %}
-        <span class="st st-{{ d.status }}">{{ d.status }}</span>
+<!-- Livro-razão de débitos -->
+<div class="ledger full">
+  <div class="ledger-scroll"><div class="lg-grid">
+    <div class="lg-head">
+      <span>Documento</span><span>Data</span><span>Status</span>
+      <span class="r">Total</span><span class="r">Pago</span><span class="r">Falta</span><span></span>
+    </div>
+    {% if debitos %}
+    {% for d in debitos %}
+    <div class="lg-row" data-status="{{ d.status }}"
+         data-busca="{{ ((d.nf_numero or '') ~ ' ' ~ (d.produto or '') ~ ' ' ~ (d.obs or '')) | lower }}">
+      <div class="lg-doc">
+        <span class="d1">
+          {% if d.tipo == 'vencimento' %}<span class="tag tag-v">Venc</span>NF {{ d.nf_numero }}
+          {% else %}<span class="tag tag-r">Rebaxa</span>{{ d.produto }}{% endif %}
+        </span>
+        <span class="d2">
+          {% if d.tipo == 'rebaxa' %}<span class="num">{{ d.quantidade | int if d.quantidade == d.quantidade | int else d.quantidade }} un × {{ d.valor_unit | brl }}</span>{% if d.obs %} · {% endif %}{% endif %}{{ d.obs }}
+        </span>
       </div>
-      <div class="lanc-sub">
-        {{ d.data_fmt }}
-        {% if d.tipo == 'rebaxa' %} · {{ d.quantidade | int if d.quantidade == d.quantidade | int else d.quantidade }} un × {{ d.valor_unit | brl }}{% endif %}
-        {% if d.obs %} · {{ d.obs }}{% endif %}
-      </div>
+      <span class="cell-sub num">{{ d.data_fmt[:10] }}</span>
+      <span><span class="pill p-{{ d.status }}">{{ d.status }}</span></span>
+      <span class="r cell-num num">{{ '%.2f' | format(d.valor_total) | replace('.', ',') }}</span>
+      <span class="r {% if d.valor_pago > 0 %}cell-num num" style="color:var(--success)"{% else %}cell-sub num"{% endif %}>{% if d.valor_pago > 0 %}{{ '%.2f' | format(d.valor_pago) | replace('.', ',') }}{% else %}—{% endif %}</span>
+      <span class="r {% if d.saldo > 0 %}cell-num num" style="color:var(--danger)"{% else %}cell-sub num"{% endif %}>{% if d.saldo > 0 %}{{ '%.2f' | format(d.saldo) | replace('.', ',') }}{% else %}—{% endif %}</span>
+      <button class="icon-btn" onclick="excluir('debito','{{ d.id }}')" title="Excluir débito">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8"/></svg>
+      </button>
+      {% if d.status == 'parcial' %}
+      <div class="rowbar"><div class="bar"><i style="width:{{ ((d.valor_pago * 100 / d.valor_total) | int) if d.valor_total > 0 else 0 }}%"></i></div></div>
+      {% endif %}
       {% if d.alocacoes %}
-      <div class="chips">
+      <div class="rowchips">
         {% for a in d.alocacoes %}
-        <span class="chip">pago por <b>NF {{ a.nf_numero }}</b>: {{ a.valor | brl }}
-          <span class="x" title="Desfazer" onclick="desalocar('{{ a.id }}')">&times;</span></span>
+        <span class="chip">pago por <b>NF {{ a.nf_numero }}</b> · <span class="num">{{ a.valor | brl }}</span>
+          <span class="x" title="Desfazer alocação" onclick="desalocar('{{ a.id }}')">&times;</span></span>
         {% endfor %}
       </div>
       {% endif %}
     </div>
-    <div class="lanc-dir">
-      <div class="lanc-valor debito">{{ d.valor_total | brl }}</div>
-      {% if d.saldo > 0 and d.valor_pago > 0 %}<div class="lanc-saldo">falta {{ d.saldo | brl }}</div>{% endif %}
-    </div>
-    <button class="btn-lixo" onclick="excluir('debito','{{ d.id }}')" title="Excluir">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state" style="grid-column:1/-1">Nenhum débito registrado.</div>
+    {% endif %}
+  </div></div>
+  <div class="ledger-foot">
+    <span id="foot-count">{{ debitos | length }} documento(s)</span>
+    <span>Em aberto: <b class="num" style="color:var(--danger)">{{ saldo.saldo_devedor | brl }}</b></span>
   </div>
-  {% endfor %}
-  {% else %}
-  <div class="empty-state">Nenhum débito registrado.</div>
-  {% endif %}
 </div>
 
-<!-- Pagamentos -->
-<div class="card">
-  <div class="card-title">Pagamentos / bonificações</div>
-  <div style="display:flex; justify-content:flex-end; margin:-6px 0 14px;">
-    <button class="btn btn-primary" style="margin:0;background:var(--success);border-color:var(--success)"
-            onclick="abrirModal('modal-pag')">+ Registrar pagamento</button>
+<!-- Pagamentos / bonificações -->
+<div class="card card-flush full">
+  <div class="card-head">
+    <span class="ttl">Pagamentos e bonificações</span>
+    <div class="acts"><button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-pag')">+ Pagamento</button></div>
   </div>
-
   {% if pagamentos %}
   {% for p in pagamentos %}
-  <div class="lancamento">
-    <div class="lanc-info">
-      <div class="lanc-titulo">NF {{ p.nf_numero }}
-        {% if p.disponivel > 0 %}<span class="st st-parcial">R$ {{ '%.2f'|format(p.disponivel) }} livre</span>
-        {% else %}<span class="st st-quitado">alocado</span>{% endif %}
+  <div class="pay-row">
+    <div class="pay-ic">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 7H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    </div>
+    <div class="pay-info">
+      <div class="pay-t"><span class="num">NF {{ p.nf_numero }}</span>
+        {% if p.disponivel > 0 %}<span class="pill p-part"><span class="num">{{ p.disponivel | brl }}</span>&nbsp;livre</span>
+        {% else %}<span class="pill p-quit">alocado</span>{% endif %}
       </div>
-      <div class="lanc-sub">{{ p.data_fmt }}{% if p.obs %} · {{ p.obs }}{% endif %}</div>
+      <div class="pay-s"><span class="num">{{ p.data_fmt }}</span>{% if p.obs %} · {{ p.obs }}{% endif %}</div>
       {% if p.alocacoes %}
-      <div class="chips">
+      <div class="rowchips" style="margin-top:8px">
         {% for a in p.alocacoes %}
-        <span class="chip">→ <b>{{ a.rotulo }}</b>: {{ a.valor | brl }}
-          <span class="x" title="Desfazer" onclick="desalocar('{{ a.id }}')">&times;</span></span>
+        <span class="chip">→ <b>{{ a.rotulo }}</b> · <span class="num">{{ a.valor | brl }}</span>
+          <span class="x" title="Desfazer alocação" onclick="desalocar('{{ a.id }}')">&times;</span></span>
         {% endfor %}
       </div>
       {% endif %}
       {% if p.disponivel > 0 %}
       <div class="mini-acts">
-        <button class="mini-btn accent" onclick="abrirAlocar('{{ p.id }}')">Alocar a um débito</button>
-        <button class="mini-btn" onclick="alocarAuto('{{ p.id }}')">Quitar automático</button>
+        <button class="btn btn-primary btn-sm" onclick="abrirAlocar('{{ p.id }}')">Alocar a um débito</button>
+        <button class="btn btn-secondary btn-sm" onclick="alocarAuto('{{ p.id }}')">Quitar automático</button>
       </div>
       {% endif %}
     </div>
-    <div class="lanc-dir">
-      <div class="lanc-valor bonif">{{ p.valor_total | brl }}</div>
-      {% if p.valor_alocado > 0 %}<div class="lanc-saldo">alocado {{ p.valor_alocado | brl }}</div>{% endif %}
+    <div class="pay-amt">
+      <div class="a1 num">{{ p.valor_total | brl }}</div>
+      {% if p.valor_alocado > 0 %}<div class="a2 num">alocado {{ p.valor_alocado | brl }}</div>{% endif %}
     </div>
-    <button class="btn-lixo" onclick="excluir('pagamento','{{ p.id }}')" title="Excluir">
+    <button class="btn-lixo" onclick="excluir('pagamento','{{ p.id }}')" title="Excluir pagamento">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
   </div>
@@ -199,31 +196,40 @@
     <div class="modal-head"><div class="modal-title">Registrar débito</div>
       <button class="modal-close" onclick="fecharModal('modal-debito')">&times;</button></div>
     <div class="modal-body">
-      <label>Tipo</label>
-      <div class="tipo-toggle">
-        <button class="tipo-btn ativo" id="btn-venc" onclick="selecionarTipo('vencimento')">Vencimento</button>
-        <button class="tipo-btn" id="btn-reb" onclick="selecionarTipo('rebaxa')">Rebaxa de preço</button>
+      <div class="seg" style="margin-bottom:16px">
+        <button class="ativo" id="btn-venc" onclick="selecionarTipo('vencimento')">Vencimento</button>
+        <button id="btn-reb" onclick="selecionarTipo('rebaxa')">Rebaxa de preço</button>
       </div>
       <div id="campos-vencimento">
-        <label>Número da NF</label><input type="text" id="v-nf" placeholder="Ex: 001234">
-        <label>Valor total (R$)</label>
-        <input type="number" id="v-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal">
-        <label>Observação <span style="font-weight:400;color:var(--gray)">(opcional)</span></label>
-        <input type="text" id="v-obs" placeholder="Lote, período...">
+        <label>Nº da nota fiscal <em>*</em></label>
+        <input type="text" id="v-nf" class="num" placeholder="001234">
+        <label>Valor total <em>*</em></label>
+        <div class="ingrp"><span class="pre">R$</span>
+          <input type="number" id="v-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
+        <label>Observação</label>
+        <input type="text" id="v-obs" placeholder="Lote, período…">
       </div>
       <div id="campos-rebaxa" style="display:none">
-        <label>Produto</label><input type="text" id="r-produto" placeholder="Ex: Sopinha de Legumes">
-        <div class="two-col">
-          <div><label>Quantidade</label>
-            <input type="number" id="r-qtd" placeholder="0" min="0" step="1" inputmode="decimal" oninput="atualizarPreview()"></div>
-          <div><label>Diferença unit. (R$)</label>
-            <input type="number" id="r-vunit" placeholder="0,50" min="0" step="0.01" inputmode="decimal" oninput="atualizarPreview()"></div>
+        <label>Produto <em>*</em></label>
+        <input type="text" id="r-produto" placeholder="Ex.: Sopinha de Legumes">
+        <div class="two-col" style="margin-top:14px">
+          <div>
+            <label>Quantidade <em>*</em></label>
+            <input type="number" id="r-qtd" placeholder="0" min="0" step="1" inputmode="decimal" oninput="atualizarPreview()">
+          </div>
+          <div>
+            <label>Diferença unit. <em>*</em></label>
+            <div class="ingrp"><span class="pre">R$</span>
+              <input type="number" id="r-vunit" placeholder="0,50" min="0" step="0.01" inputmode="decimal" oninput="atualizarPreview()"></div>
+          </div>
         </div>
-        <div class="preview-total" id="preview-total">Total: R$ 0,00</div>
-        <label style="margin-top:10px">Observação <span style="font-weight:400;color:var(--gray)">(opcional)</span></label>
-        <input type="text" id="r-obs" placeholder="Preço original, preço rebaixado...">
+        <div class="alertx" style="margin-top:12px" id="preview-total">Total: R$ 0,00</div>
+        <label>Observação</label>
+        <input type="text" id="r-obs" placeholder="Preço original, preço rebaixado…">
       </div>
-      <div class="result-box error" id="msg-debito" style="margin-top:10px"></div>
+      <div class="result-box error" id="msg-debito" style="margin-top:12px">
+        <div class="result-value error" id="msg-debito-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-debito')">Cancelar</button>
@@ -238,12 +244,16 @@
     <div class="modal-head"><div class="modal-title">Registrar pagamento</div>
       <button class="modal-close" onclick="fecharModal('modal-pag')">&times;</button></div>
     <div class="modal-body">
-      <label>Número da NF</label><input type="text" id="b-nf" placeholder="Ex: 001234">
-      <label>Valor total (R$)</label>
-      <input type="number" id="b-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal">
-      <label>Observação <span style="font-weight:400;color:var(--gray)">(opcional)</span></label>
+      <label>Nº da nota fiscal <em>*</em></label>
+      <input type="text" id="b-nf" class="num" placeholder="001234">
+      <label>Valor total <em>*</em></label>
+      <div class="ingrp"><span class="pre">R$</span>
+        <input type="number" id="b-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
+      <label>Observação</label>
       <input type="text" id="b-obs" placeholder="Observações da NF">
-      <div class="result-box error" id="msg-pag" style="margin-top:10px"></div>
+      <div class="result-box error" id="msg-pag" style="margin-top:12px">
+        <div class="result-value error" id="msg-pag-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-pag')">Cancelar</button>
@@ -258,12 +268,16 @@
     <div class="modal-head"><div class="modal-title">Alocar a um débito</div>
       <button class="modal-close" onclick="fecharModal('modal-alocar')">&times;</button></div>
     <div class="modal-body">
-      <div id="alocar-info" style="font-size:13px;color:var(--gray);margin-bottom:10px"></div>
-      <label>Débito em aberto</label>
+      <div id="alocar-info" style="font-size:13px;color:var(--muted);margin-bottom:12px"></div>
+      <label>Débito em aberto <em>*</em></label>
       <select id="al-debito" onchange="ajustarValorAlocacao()"></select>
-      <label>Valor a alocar (R$)</label>
-      <input type="number" id="al-valor" min="0" step="0.01" inputmode="decimal">
-      <div class="result-box error" id="msg-alocar" style="margin-top:10px"></div>
+      <label>Valor a alocar <em>*</em></label>
+      <div class="ingrp"><span class="pre">R$</span>
+        <input type="number" id="al-valor" min="0" step="0.01" inputmode="decimal"></div>
+      <div class="fhelp">Preenchido com o menor entre o crédito livre e o que falta no débito.</div>
+      <div class="result-box error" id="msg-alocar" style="margin-top:12px">
+        <div class="result-value error" id="msg-alocar-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-alocar')">Cancelar</button>
@@ -282,68 +296,96 @@ const PAGAMENTOS = {{ pagamentos | tojson }};
 let _tipo = "vencimento";
 let _pagAtual = null;
 
-function abrirModal(id){ $(id).classList.add("show"); }
-function fecharModal(id){ $(id).classList.remove("show"); }
-function fecharSeFundo(e,id){ if(e.target.id===id) fecharModal(id); }
-document.addEventListener("keydown", e => {
-  if(e.key==="Escape") document.querySelectorAll(".modal-overlay.show").forEach(m=>m.classList.remove("show"));
+function rotuloDebito(d) { return d.tipo === "vencimento" ? ("NF " + d.nf_numero) : (d.produto || "rebaxa"); }
+
+// ── Filtro e busca (client-side) ──
+const rows = Array.from(document.querySelectorAll(".lg-row"));
+let _fStatus = "", _fBusca = "";
+function aplicarFiltro() {
+  let visiveis = 0;
+  rows.forEach(r => {
+    const okS = !_fStatus || r.dataset.status === _fStatus;
+    const okB = !_fBusca || (r.dataset.busca || "").includes(_fBusca);
+    const ok = okS && okB;
+    r.style.display = ok ? "" : "none";
+    if (ok) visiveis++;
+  });
+  const foot = $("foot-count");
+  if (foot) foot.textContent = visiveis + " documento(s)";
+}
+$("busca").addEventListener("input", e => { _fBusca = e.target.value.trim().toLowerCase(); aplicarFiltro(); });
+document.querySelectorAll("#filtro-status button").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("#filtro-status button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    _fStatus = b.dataset.f; aplicarFiltro();
+  });
 });
 
-function rotuloDebito(d){ return d.tipo==="vencimento" ? ("NF "+d.nf_numero) : (d.produto||"rebaxa"); }
-
 // ── Débito ──
-function selecionarTipo(t){
-  _tipo=t;
-  $("btn-venc").classList.toggle("ativo", t==="vencimento");
-  $("btn-reb").classList.toggle("ativo", t==="rebaxa");
-  $("campos-vencimento").style.display = t==="vencimento" ? "" : "none";
-  $("campos-rebaxa").style.display = t==="rebaxa" ? "" : "none";
+function selecionarTipo(tipo) {
+  _tipo = tipo;
+  $("btn-venc").classList.toggle("ativo", tipo === "vencimento");
+  $("btn-reb").classList.toggle("ativo",  tipo === "rebaxa");
+  $("campos-vencimento").style.display = tipo === "vencimento" ? "" : "none";
+  $("campos-rebaxa").style.display     = tipo === "rebaxa"     ? "" : "none";
   $("msg-debito").classList.remove("show");
 }
-function atualizarPreview(){
-  const q=parseFloat($("r-qtd").value)||0, v=parseFloat($("r-vunit").value)||0;
-  $("preview-total").textContent = "Total: " + brl(q*v);
+function atualizarPreview() {
+  const qtd   = parseFloat($("r-qtd").value)   || 0;
+  const vunit = parseFloat($("r-vunit").value)  || 0;
+  $("preview-total").textContent = "Total: " + brl(qtd * vunit);
 }
-async function salvarDebito(){
-  const msg=$("msg-debito"); msg.classList.remove("show");
+async function salvarDebito() {
+  const msg = $("msg-debito");
+  msg.classList.remove("show");
   let url, body;
-  if(_tipo==="vencimento"){
-    const nf=$("v-nf").value.trim(), valor=parseFloat($("v-valor").value), obs=$("v-obs").value.trim();
-    if(!nf||!valor){ msg.textContent="Informe NF e valor."; msg.classList.add("show"); return; }
-    url="/debitos/api/debito/vencimento"; body={cnpj:CNPJ,nf_numero:nf,valor_total:valor,obs};
+  if (_tipo === "vencimento") {
+    const nf = $("v-nf").value.trim(), valor = parseFloat($("v-valor").value), obs = $("v-obs").value.trim();
+    if (!nf || !valor) { $("msg-debito-txt").textContent = "Informe NF e valor."; msg.classList.add("show"); return; }
+    url = "/debitos/api/debito/vencimento";
+    body = { cnpj: CNPJ, nf_numero: nf, valor_total: valor, obs };
   } else {
-    const produto=$("r-produto").value.trim(), qtd=parseFloat($("r-qtd").value), vunit=parseFloat($("r-vunit").value), obs=$("r-obs").value.trim();
-    if(!produto||!qtd||!vunit){ msg.textContent="Preencha produto, quantidade e diferença unitária."; msg.classList.add("show"); return; }
-    url="/debitos/api/debito/rebaxa"; body={cnpj:CNPJ,produto,quantidade:qtd,valor_unit:vunit,obs};
+    const produto = $("r-produto").value.trim(), qtd = parseFloat($("r-qtd").value),
+          vunit = parseFloat($("r-vunit").value), obs = $("r-obs").value.trim();
+    if (!produto || !qtd || !vunit) {
+      $("msg-debito-txt").textContent = "Preencha produto, quantidade e diferença unitária.";
+      msg.classList.add("show"); return;
+    }
+    url = "/debitos/api/debito/rebaxa";
+    body = { cnpj: CNPJ, produto, quantidade: qtd, valor_unit: vunit, obs };
   }
-  const r=await postJSON(url,body);
-  if(r.ok) location.reload(); else { msg.textContent=r.msg; msg.classList.add("show"); }
+  const r = await postJSON(url, body);
+  if (r.ok) location.reload();
+  else { $("msg-debito-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
 // ── Pagamento ──
-async function salvarPagamento(){
-  const msg=$("msg-pag"); msg.classList.remove("show");
-  const nf=$("b-nf").value.trim(), valor=parseFloat($("b-valor").value), obs=$("b-obs").value.trim();
-  if(!nf||!valor){ msg.textContent="Informe NF e valor."; msg.classList.add("show"); return; }
-  const r=await postJSON("/debitos/api/pagamento",{cnpj:CNPJ,nf_numero:nf,valor_total:valor,obs});
-  if(r.ok) location.reload(); else { msg.textContent=r.msg; msg.classList.add("show"); }
+async function salvarPagamento() {
+  const msg = $("msg-pag");
+  const nf = $("b-nf").value.trim(), valor = parseFloat($("b-valor").value), obs = $("b-obs").value.trim();
+  msg.classList.remove("show");
+  if (!nf || !valor) { $("msg-pag-txt").textContent = "Informe NF e valor."; msg.classList.add("show"); return; }
+  const r = await postJSON("/debitos/api/pagamento", { cnpj: CNPJ, nf_numero: nf, valor_total: valor, obs });
+  if (r.ok) location.reload();
+  else { $("msg-pag-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
 // ── Alocação ──
-function abrirAlocar(pagId){
-  _pagAtual = PAGAMENTOS.find(p=>p.id===pagId);
-  if(!_pagAtual) return;
-  const abertos = DEBITOS.filter(d=>d.saldo>0.005);
-  const sel=$("al-debito");
-  sel.innerHTML="";
-  if(!abertos.length){
-    $("alocar-info").textContent="Não há débitos em aberto para alocar.";
-    sel.innerHTML="<option value=''>—</option>";
+function abrirAlocar(pagId) {
+  _pagAtual = PAGAMENTOS.find(p => p.id === pagId);
+  if (!_pagAtual) return;
+  const abertos = DEBITOS.filter(d => d.saldo > 0.005);
+  const sel = $("al-debito");
+  sel.innerHTML = "";
+  if (!abertos.length) {
+    $("alocar-info").textContent = "Não há débitos em aberto para alocar.";
+    sel.innerHTML = "<option value=''>—</option>";
   } else {
-    $("alocar-info").innerHTML = `Pagamento <b>NF ${_pagAtual.nf_numero}</b> · disponível ${brl(_pagAtual.disponivel)}`;
-    abertos.forEach(d=>{
-      const o=document.createElement("option");
-      o.value=d.id; o.dataset.saldo=d.saldo;
+    $("alocar-info").innerHTML = `Pagamento <b class="num">NF ${_pagAtual.nf_numero}</b> · disponível <b class="num">${brl(_pagAtual.disponivel)}</b>`;
+    abertos.forEach(d => {
+      const o = document.createElement("option");
+      o.value = d.id; o.dataset.saldo = d.saldo;
       o.textContent = `${rotuloDebito(d)} — falta ${brl(d.saldo)}`;
       sel.appendChild(o);
     });
@@ -352,35 +394,36 @@ function abrirAlocar(pagId){
   ajustarValorAlocacao();
   abrirModal("modal-alocar");
 }
-function ajustarValorAlocacao(){
-  const opt=$("al-debito").selectedOptions[0];
-  if(!opt||!_pagAtual){ $("al-valor").value=""; return; }
-  const saldo=parseFloat(opt.dataset.saldo)||0;
+function ajustarValorAlocacao() {
+  const opt = $("al-debito").selectedOptions[0];
+  if (!opt || !_pagAtual) { $("al-valor").value = ""; return; }
+  const saldo = parseFloat(opt.dataset.saldo) || 0;
   $("al-valor").value = Math.min(saldo, _pagAtual.disponivel).toFixed(2);
 }
-async function confirmarAlocacao(){
-  const msg=$("msg-alocar"); msg.classList.remove("show");
-  const debito_id=$("al-debito").value, valor=parseFloat($("al-valor").value);
-  if(!debito_id||!valor){ msg.textContent="Escolha o débito e o valor."; msg.classList.add("show"); return; }
-  const r=await postJSON("/debitos/api/alocar",{pagamento_id:_pagAtual.id, debito_id, valor});
-  if(r.ok) location.reload(); else { msg.textContent=r.msg; msg.classList.add("show"); }
+async function confirmarAlocacao() {
+  const msg = $("msg-alocar"); msg.classList.remove("show");
+  const debito_id = $("al-debito").value, valor = parseFloat($("al-valor").value);
+  if (!debito_id || !valor) { $("msg-alocar-txt").textContent = "Escolha o débito e o valor."; msg.classList.add("show"); return; }
+  const r = await postJSON("/debitos/api/alocar", { pagamento_id: _pagAtual.id, debito_id, valor });
+  if (r.ok) location.reload();
+  else { $("msg-alocar-txt").textContent = r.msg; msg.classList.add("show"); }
 }
-async function alocarAuto(pagId){
-  if(!confirm("Distribuir o crédito disponível deste pagamento nos débitos em aberto (mais antigos primeiro)?")) return;
-  const r=await postJSON("/debitos/api/alocar/auto",{pagamento_id:pagId});
-  if(r.ok) location.reload(); else alert(r.msg);
+async function alocarAuto(pagId) {
+  if (!confirm("Distribuir o crédito disponível deste pagamento nos débitos em aberto (mais antigos primeiro)?")) return;
+  const r = await postJSON("/debitos/api/alocar/auto", { pagamento_id: pagId });
+  if (r.ok) location.reload(); else alert(r.msg);
 }
-async function desalocar(id){
-  if(!confirm("Desfazer esta alocação?")) return;
-  const r=await postJSON("/debitos/api/desalocar",{alocacao_id:id});
-  if(r.ok) location.reload(); else alert(r.msg);
+async function desalocar(id) {
+  if (!confirm("Desfazer esta alocação?")) return;
+  const r = await postJSON("/debitos/api/desalocar", { alocacao_id: id });
+  if (r.ok) location.reload(); else alert(r.msg);
 }
 
 // ── Exclusão ──
-async function excluir(tipo,id){
-  const label = tipo==="debito" ? "este débito" : "este pagamento";
-  if(!confirm(`Excluir ${label}? As alocações relacionadas serão desfeitas.`)) return;
-  await fetch(`/debitos/api/${tipo}/${id}`, {method:"DELETE"});
+async function excluir(tipo, id) {
+  const label = tipo === "debito" ? "este débito" : "este pagamento";
+  if (!confirm(`Excluir ${label}? As alocações relacionadas serão desfeitas.`)) return;
+  await fetch(`/debitos/api/${tipo}/${id}`, { method: "DELETE" });
   location.reload();
 }
 </script>

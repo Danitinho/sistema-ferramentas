@@ -1,142 +1,91 @@
 {% extends "base.html" %}
 {% block title %}Débitos e Bonificações{% endblock %}
-{% block header_title %}Débitos e Bonificações{% endblock %}
+{% block header_title %}Débitos &amp; Bonificações{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> · Financeiro{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-empresa')">+ Nova empresa</button>
+{% endblock %}
 
 {% block extra_head %}
 <style>
-  .empresa-row {
-    display:flex; align-items:center; gap:12px;
-    padding:12px 0; border-bottom:0.5px solid var(--border);
-  }
-  .empresa-row:last-child { border-bottom:none; }
-  .empresa-link {
-    flex:1; display:flex; align-items:center; gap:12px;
-    text-decoration:none; color:inherit; min-width:0;
-  }
-  .empresa-link:hover .empresa-nome { color:var(--amber-dark); }
-  .empresa-info { flex:1; min-width:0; }
-  .empresa-nome {
-    display:block; font-weight:600; font-size:14px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    transition:color 0.1s;
-  }
-  .empresa-cnpj { display:block; font-size:12px; color:var(--gray); margin-top:1px; }
-  .saldo-tag {
-    flex-shrink:0; font-size:12px; font-weight:700;
-    padding:3px 10px; border-radius:12px; white-space:nowrap;
-  }
-  .saldo-tag.devedor { background:var(--danger-bg); color:var(--danger); }
-  .saldo-tag.quitado { background:var(--success-bg); color:var(--success); }
-  .btn-lixo {
-    flex-shrink:0; background:none; border:none; cursor:pointer;
-    color:var(--gray); padding:6px; border-radius:6px;
-    display:flex; align-items:center;
-    transition:color 0.12s, background 0.12s;
-    -webkit-tap-highlight-color:transparent;
-  }
-  .btn-lixo:hover { color:var(--danger); background:var(--danger-bg); }
-  .empty-state {
-    text-align:center; padding:32px 0; color:var(--gray); font-size:14px;
-  }
-  /* Modal */
-  .modal-overlay {
-    position:fixed; inset:0; z-index:200;
-    background:rgba(0,0,0,0.45);
-    display:none; align-items:flex-start; justify-content:center;
-    padding:24px 14px; overflow-y:auto;
-  }
-  .modal-overlay.show { display:flex; }
-  .modal {
-    background:#fff; border-radius:var(--radius);
-    width:100%; max-width:480px; margin:auto 0;
-    box-shadow:0 12px 40px rgba(0,0,0,0.25);
-    overflow:hidden; animation:modal-in 0.15s ease-out;
-  }
-  @keyframes modal-in { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
-  .modal-head {
-    display:flex; align-items:center; gap:10px;
-    padding:16px 18px; border-bottom:0.5px solid var(--border);
-  }
-  .modal-title { font-size:15px; font-weight:600; flex:1; }
-  .modal-close {
-    background:none; border:none; cursor:pointer;
-    font-size:22px; line-height:1; color:var(--gray); padding:2px 6px; border-radius:6px;
-  }
-  .modal-close:hover { background:var(--gray-light); }
-  .modal-body { padding:18px; }
-  .modal-footer { display:flex; gap:8px; justify-content:flex-end; padding:14px 18px; border-top:0.5px solid var(--border); }
-  .modal-footer .btn { margin-top:0; }
+  .grid-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 16px; }
+  .empresa-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    border-bottom: 1px solid var(--line); transition: background .12s; }
+  .empresa-row:last-child { border-bottom: none; }
+  .empresa-row:hover { background: var(--surface-2); }
+  .empresa-link { flex: 1; display: flex; align-items: center; gap: 12px;
+    text-decoration: none; color: inherit; min-width: 0; }
+  .empresa-av { width: 36px; height: 36px; border-radius: 10px; background: var(--surface-3);
+    color: var(--amber); display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 800; flex-shrink: 0; }
+  .empresa-info { flex: 1; min-width: 0; }
+  .empresa-nome { display: block; font-weight: 650; font-size: 14px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .12s; }
+  .empresa-link:hover .empresa-nome { color: var(--amber); }
+  .empresa-cnpj { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .saldo-tag { flex-shrink: 0; font-size: 12.5px; font-weight: 700; white-space: nowrap; text-align: right; }
+  .saldo-tag .v { display: block; }
+  .saldo-tag .l { display: block; font-size: 10px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- Métricas gerais -->
 {% set total_deb = empresas | sum(attribute='total_debito') %}
-{% set total_bon = empresas | sum(attribute='total_bonificacao') %}
+{% set total_pag = empresas | sum(attribute='total_pagamentos') %}
 {% set total_sal = empresas | sum(attribute='saldo_devedor') %}
-<div class="card">
-  <span class="badge badge-financeiro">Financeiro</span>
-  <div class="card-title">Resumo geral</div>
-  <div class="metrics">
-    <div class="metric">
-      <div class="metric-value" style="color:var(--danger)">{{ total_deb | brl }}</div>
-      <div class="metric-label">total em débitos</div>
-    </div>
-    <div class="metric">
-      <div class="metric-value" style="color:var(--success)">{{ total_bon | brl }}</div>
-      <div class="metric-label">total bonificado</div>
-    </div>
-    <div class="metric">
-      <div class="metric-value" style="color:{% if total_sal > 0 %}var(--danger){% else %}var(--success){% endif %}">
-        {{ total_sal | brl }}
-      </div>
-      <div class="metric-label">saldo devedor</div>
-    </div>
+<div class="grid-stats">
+  <div class="stat-card s-danger">
+    <div class="stat-v num" style="color:var(--danger)">{{ total_deb | brl }}</div>
+    <div class="stat-l">Total em débitos</div>
+  </div>
+  <div class="stat-card s-success">
+    <div class="stat-v num" style="color:var(--success)">{{ total_pag | brl }}</div>
+    <div class="stat-l">Total em pagamentos</div>
+  </div>
+  <div class="stat-card {% if total_sal > 0 %}s-amber{% else %}s-success{% endif %}">
+    <div class="stat-v num" style="color:{% if total_sal > 0 %}var(--warning){% else %}var(--success){% endif %}">{{ total_sal | brl }}</div>
+    <div class="stat-l">Saldo devedor</div>
   </div>
 </div>
 
-<!-- Lista de empresas -->
-<div class="card">
-  <div class="card-title">Empresas</div>
-  <div style="display:flex; justify-content:flex-end; margin:-6px 0 14px;">
-    <button class="btn btn-primary" style="margin:0" onclick="abrirModal('modal-empresa')">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="vertical-align:-1px;margin-right:4px">
-        <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+<div class="card card-flush">
+  <div class="card-head">
+    <span class="ttl">Empresas</span>
+    <span class="hint">{{ empresas | length }} cadastrada(s)</span>
+  </div>
+  {% if empresas %}
+  {% for e in empresas %}
+  <div class="empresa-row">
+    <a href="/debitos/empresa/{{ e.cnpj }}" class="empresa-link">
+      <span class="empresa-av">{{ e.razao_social[0] | upper }}</span>
+      <div class="empresa-info">
+        <span class="empresa-nome">{{ e.razao_social }}</span>
+        <span class="empresa-cnpj num">{{ e.cnpj }}</span>
+      </div>
+      <span class="saldo-tag">
+        {% if e.saldo_devedor > 0 %}
+        <span class="v num" style="color:var(--danger)">{{ e.saldo_devedor | brl }}</span>
+        <span class="l">em aberto</span>
+        {% else %}
+        <span class="v" style="color:var(--success)">Quitado</span>
+        {% if e.credito_disponivel > 0 %}<span class="l num">{{ e.credito_disponivel | brl }} livre</span>{% endif %}
+        {% endif %}
+      </span>
+    </a>
+    <button class="btn-lixo" onclick="excluirEmpresa('{{ e.cnpj }}', '{{ e.razao_social }}')" title="Excluir empresa">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M2 4h11M5.5 4V2.5h4V4M4 4l.8 9h6.4l.8-9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      Nova empresa
     </button>
   </div>
-
-  {% if empresas %}
-  <div>
-    {% for e in empresas %}
-    <div class="empresa-row">
-      <a href="/debitos/empresa/{{ e.cnpj }}" class="empresa-link">
-        <div class="empresa-info">
-          <span class="empresa-nome">{{ e.razao_social }}</span>
-          <span class="empresa-cnpj">{{ e.cnpj }}</span>
-        </div>
-        <span class="saldo-tag {% if e.saldo_devedor > 0 %}devedor{% else %}quitado{% endif %}">
-          {% if e.saldo_devedor > 0 %}{{ e.saldo_devedor | brl }}{% else %}Quitado{% endif %}
-        </span>
-      </a>
-      <button class="btn-lixo" onclick="excluirEmpresa('{{ e.cnpj }}', '{{ e.razao_social }}')" title="Excluir empresa">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-          <path d="M2 4h11M5.5 4V2.5h4V4M4 4l.8 9h6.4l.8-9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-    </div>
-    {% endfor %}
-  </div>
+  {% endfor %}
   {% else %}
   <div class="empty-state">
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 10px;display:block;opacity:.4">
-      <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
-    </svg>
     Nenhuma empresa cadastrada.<br>
-    <button class="btn btn-primary" style="margin-top:14px" onclick="abrirModal('modal-empresa')">Cadastrar primeira empresa</button>
+    <button class="btn btn-primary btn-auto" style="margin-top:14px" onclick="abrirModal('modal-empresa')">Cadastrar primeira empresa</button>
   </div>
   {% endif %}
 </div>
@@ -149,11 +98,13 @@
       <button class="modal-close" onclick="fecharModal('modal-empresa')">&times;</button>
     </div>
     <div class="modal-body">
-      <label>CNPJ</label>
-      <input type="text" id="inp-cnpj" placeholder="00.000.000/0001-00">
-      <label>Razão Social</label>
+      <label>CNPJ <em>*</em></label>
+      <input type="text" id="inp-cnpj" class="num" placeholder="00.000.000/0001-00">
+      <label>Razão social <em>*</em></label>
       <input type="text" id="inp-razao" placeholder="Nome da empresa">
-      <div class="result-box error" id="msg-empresa" style="margin-top:10px"></div>
+      <div class="result-box error" id="msg-empresa" style="margin-top:12px">
+        <div class="result-value error" id="msg-empresa-txt"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-empresa')">Cancelar</button>
@@ -167,23 +118,18 @@
 <script>
 const $ = id => document.getElementById(id);
 
-function abrirModal(id) { $(id).classList.add("show"); }
-function fecharModal(id) { $(id).classList.remove("show"); }
-function fecharSeFundo(e, id) { if (e.target.id === id) fecharModal(id); }
-document.addEventListener("keydown", e => {
-  if (e.key === "Escape")
-    document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
-});
-
 async function salvarEmpresa() {
   const cnpj  = $("inp-cnpj").value.trim();
   const razao = $("inp-razao").value.trim();
   const msg   = $("msg-empresa");
   msg.classList.remove("show");
-  if (!cnpj || !razao) { msg.textContent = "Preencha CNPJ e razão social."; msg.classList.add("show"); return; }
+  if (!cnpj || !razao) {
+    $("msg-empresa-txt").textContent = "Preencha CNPJ e razão social.";
+    msg.classList.add("show"); return;
+  }
   const r = await postJSON("/debitos/api/empresa", { cnpj, razao_social: razao });
   if (r.ok) { location.reload(); }
-  else { msg.textContent = r.msg; msg.classList.add("show"); }
+  else { $("msg-empresa-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
 async function excluirEmpresa(cnpj, nome) {
