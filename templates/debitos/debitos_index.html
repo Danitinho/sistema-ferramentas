@@ -10,24 +10,41 @@
 {% block extra_head %}
 <style>
   .grid-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 16px; }
-  .empresa-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+
+  .empresas-card .card-head { padding: 16px 22px; }
+  .empresas-card .card-head .ttl { font-size: 15px; }
+
+  .empresa-row { display: flex; align-items: center; gap: 16px; padding: 18px 22px;
     border-bottom: 1px solid var(--line); transition: background .12s; }
   .empresa-row:last-child { border-bottom: none; }
   .empresa-row:hover { background: var(--surface-2); }
-  .empresa-link { flex: 1; display: flex; align-items: center; gap: 12px;
+  .empresa-link { flex: 1; display: flex; align-items: center; gap: 16px;
     text-decoration: none; color: inherit; min-width: 0; }
-  .empresa-av { width: 36px; height: 36px; border-radius: 10px; background: var(--surface-3);
+  .empresa-av { width: 50px; height: 50px; border-radius: 14px; background: var(--surface-3);
     color: var(--amber); display: flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 800; flex-shrink: 0; }
+    font-size: 20px; font-weight: 800; flex-shrink: 0; border: 1px solid var(--line-2);
+    transition: border-color .12s, background .12s; }
+  .empresa-row:hover .empresa-av { border-color: var(--amber-btn); background: var(--warning-bg); }
   .empresa-info { flex: 1; min-width: 0; }
-  .empresa-nome { display: block; font-weight: 650; font-size: 14px;
+  .empresa-nome { display: block; font-weight: 700; font-size: 18px; letter-spacing: -.02em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .12s; }
   .empresa-link:hover .empresa-nome { color: var(--amber); }
-  .empresa-cnpj { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
-  .saldo-tag { flex-shrink: 0; font-size: 12.5px; font-weight: 700; white-space: nowrap; text-align: right; }
-  .saldo-tag .v { display: block; }
-  .saldo-tag .l { display: block; font-size: 10px; font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: .05em; }
+  .empresa-cnpj { display: block; font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  .saldo-tag { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .saldo-tag .v { font-size: 22px; font-weight: 800; white-space: nowrap; letter-spacing: -.02em; }
+  .saldo-tag .l { font-size: 10.5px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .06em; }
+  .saldo-quit { font-size: 12px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase;
+    padding: 5px 13px; border-radius: 100px; background: var(--success-bg); color: var(--success); }
+  .empresa-chev { color: var(--line-2); flex-shrink: 0; transition: color .12s, transform .12s; }
+  .empresa-row:hover .empresa-chev { color: var(--amber); transform: translateX(2px); }
+
+  @media (max-width: 560px) {
+    .empresa-nome { font-size: 16px; }
+    .saldo-tag .v { font-size: 18px; }
+    .empresa-av { width: 44px; height: 44px; font-size: 18px; }
+  }
 </style>
 {% endblock %}
 
@@ -51,7 +68,7 @@
   </div>
 </div>
 
-<div class="card card-flush">
+<div class="card card-flush full empresas-card">
   <div class="card-head">
     <span class="ttl">Empresas</span>
     <span class="hint">{{ empresas | length }} cadastrada(s)</span>
@@ -70,9 +87,12 @@
         <span class="v num" style="color:var(--danger)">{{ e.saldo_devedor | brl }}</span>
         <span class="l">em aberto</span>
         {% else %}
-        <span class="v" style="color:var(--success)">Quitado</span>
+        <span class="saldo-quit">Quitado</span>
         {% if e.credito_disponivel > 0 %}<span class="l num">{{ e.credito_disponivel | brl }} livre</span>{% endif %}
         {% endif %}
+      </span>
+      <span class="empresa-chev">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
       </span>
     </a>
     <button class="btn-lixo" onclick="excluirEmpresa('{{ e.cnpj }}', '{{ e.razao_social }}')" title="Excluir empresa">
