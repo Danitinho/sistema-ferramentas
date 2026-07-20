@@ -55,7 +55,9 @@
   .deb-top { display: flex; align-items: flex-start; gap: 10px; padding: 15px 16px 10px; }
   .deb-ident { flex: 1; min-width: 0; }
   .deb-ident .l1 { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 14px; font-weight: 700; }
-  .deb-ident .l2 { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .deb-desc { font-size: 13.5px; font-weight: 550; color: var(--ink); line-height: 1.35;
+    margin-top: 7px; padding-left: 9px; border-left: 2px solid var(--amber-btn); }
+  .deb-ident .l2 { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
   .deb-val { text-align: right; flex-shrink: 0; }
   .deb-val .t { font-size: 16px; font-weight: 750; }
   .deb-val .s { font-size: 11px; color: var(--danger); margin-top: 2px; }
@@ -173,10 +175,10 @@
           {% else %}<span class="tag tag-r">Rebaixa</span> {{ d.produto }}{% endif %}
           <span class="pill p-{{ d.status }}">{{ d.status }}</span>
         </div>
+        {% if d.obs %}<div class="deb-desc">{{ d.obs }}</div>{% endif %}
         <div class="l2 num">
           {{ d.data_fmt[:10] }}
           {% if d.tipo == 'rebaxa' %} · {{ d.quantidade | int if d.quantidade == d.quantidade | int else d.quantidade }} un × {{ d.valor_unit | brl }}{% endif %}
-          {% if d.obs %} · <span style="font-family:var(--sans)">{{ d.obs }}</span>{% endif %}
         </div>
       </div>
       <div class="deb-val">
@@ -232,8 +234,8 @@
         <label>Valor total <em>*</em></label>
         <div class="ingrp"><span class="pre">R$</span>
           <input type="number" id="v-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
-        <label>Observação</label>
-        <input type="text" id="v-obs" placeholder="Lote, período…">
+        <label>Descrição <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(ajuda a identificar)</span></label>
+        <input type="text" id="v-obs" placeholder="Ex.: vencidos do mês de junho/2026">
       </div>
       <div id="campos-rebaxa" style="display:none">
         <label>Produto <em>*</em></label>
@@ -250,8 +252,8 @@
           </div>
         </div>
         <div class="alertx" style="margin-top:12px" id="preview-total">Total: R$ 0,00</div>
-        <label>Observação</label>
-        <input type="text" id="r-obs" placeholder="Preço original, preço rebaixado…">
+        <label>Descrição <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(ajuda a identificar)</span></label>
+        <input type="text" id="r-obs" placeholder="Ex.: rebaixa dos vencidos de junho/2026">
       </div>
       <div class="result-box error" id="msg-debito" style="margin-top:12px">
         <div class="result-value error" id="msg-debito-txt"></div>
