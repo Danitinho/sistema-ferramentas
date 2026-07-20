@@ -192,6 +192,16 @@ Na tela, cada débito é um **bloco** com seus pagamentos dentro; há um **pool 
 crédito** no topo. (O antigo `pagamentos.nf_numero` foi migrado para `referencia`
 com rebuild não destrutivo da tabela; a antiga `bonificacoes` já vira `tipo=bonificacao`.)
 
+**Período do débito:** cada débito tem um período de referência (obrigatório ao
+criar) — `periodo_tipo` (`mes` | `intervalo`) + `periodo_inicio`/`periodo_fim`
+(datas ISO). "Mês fechado" vira 1º→último dia do mês; "intervalo" guarda as duas
+datas. O `periodo_label` (ex.: "junho/2026" ou "05/04/2026 a 30/06/2026") aparece
+no bloco. A página filtra por mês (seletor no topo, `?mes=AAAA-MM` server-side):
+um débito com **intervalo aparece em TODOS os meses que cobre** (sobreposição
+`inicio <= último_dia_do_mes AND fim >= primeiro_dia`). `meses_debitos(cnpj)` lista
+os meses presentes; `?mes=sem` traz débitos antigos sem período. Débitos antigos
+recebem as colunas por migração (ficam sem período).
+
 API JSON em `/debitos/api/...`: `debito/vencimento`, `debito/rebaxa`,
 `pagamento` (aceita `tipo`, `referencia`, `debito_id`), `alocar`, `alocar/auto`,
 `desalocar` (+ DELETEs). `/api/bonificacao` segue como **alias legado** de

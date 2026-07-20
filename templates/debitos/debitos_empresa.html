@@ -57,7 +57,16 @@
   .deb-ident .l1 { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 14px; font-weight: 700; }
   .deb-desc { font-size: 13.5px; font-weight: 550; color: var(--ink); line-height: 1.35;
     margin-top: 7px; padding-left: 9px; border-left: 2px solid var(--amber-btn); }
+  .deb-per { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px;
+    color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 100px; padding: 3px 11px; margin-top: 8px; }
+  .deb-per svg { color: var(--amber); }
+  .deb-per b { font-weight: 700; color: var(--ink); }
   .deb-ident .l2 { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .mes-sel { width: auto; min-width: 180px; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
+  /* período no modal */
+  .per-campos { margin-top: 4px; }
+  .per-campos .two-col label { font-size: 11px; margin-bottom: 5px; }
   .deb-val { text-align: right; flex-shrink: 0; }
   .deb-val .t { font-size: 16px; font-weight: 750; }
   .deb-val .s { font-size: 11px; color: var(--danger); margin-top: 2px; }
@@ -98,7 +107,7 @@
       {{ saldo.saldo_devedor | brl }}
     </div>
     <div class="saldo-cap">
-      {% if saldo.saldo_devedor > 0 %}em aberto · {{ debitos | selectattr('status', 'ne', 'quitado') | list | length }} débito(s) ativo(s)
+      {% if saldo.saldo_devedor > 0 %}em aberto · {{ saldo.debitos_abertos }} débito(s) ativo(s)
       {% else %}sem pendências{% endif %}
     </div>
     {% if saldo.total_debito > 0 %}
@@ -115,7 +124,7 @@
     <div><div class="v num" style="color:var(--danger)">{{ saldo.total_debito | brl }}</div><div class="l">Total em débitos</div></div>
     <div><div class="v num" style="color:var(--success)">{{ saldo.credito_disponivel | brl }}</div><div class="l">Crédito livre</div></div>
     <div><div class="v num">{{ saldo.total_pagamentos | brl }}</div><div class="l">Em pagamentos</div></div>
-    <div><div class="v num">{{ debitos | length }}</div><div class="l">Débitos</div></div>
+    <div><div class="v num">{{ saldo.debitos_total }}</div><div class="l">Débitos</div></div>
   </div>
 </div>
 
@@ -150,6 +159,15 @@
 
 <!-- Filtros -->
 <div class="toolrow full">
+  <select class="mes-sel" id="sel-mes" onchange="irParaMes(this.value)" title="Filtrar por mês de referência">
+    <option value="">📅 Todos os meses</option>
+    {% for m in meses.meses %}
+    <option value="{{ m.mes }}" {% if mes_atual == m.mes %}selected{% endif %}>{{ m.rotulo }}</option>
+    {% endfor %}
+    {% if meses.tem_sem_periodo %}
+    <option value="sem" {% if mes_atual == 'sem' %}selected{% endif %}>Sem período</option>
+    {% endif %}
+  </select>
   <div class="search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
     <input type="text" id="busca" placeholder="Buscar por NF ou produto…" autocomplete="off">
@@ -176,6 +194,12 @@
           <span class="pill p-{{ d.status }}">{{ d.status }}</span>
         </div>
         {% if d.obs %}<div class="deb-desc">{{ d.obs }}</div>{% endif %}
+        {% if d.periodo_label %}
+        <div class="deb-per">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          Referente a <b>{{ d.periodo_label }}</b>
+        </div>
+        {% endif %}
         <div class="l2 num">
           {{ d.data_fmt[:10] }}
           {% if d.tipo == 'rebaxa' %} · {{ d.quantidade | int if d.quantidade == d.quantidade | int else d.quantidade }} un × {{ d.valor_unit | brl }}{% endif %}
@@ -215,7 +239,9 @@
   {% endfor %}
 </div>
 {% else %}
-<div class="card full"><div class="empty-state">Nenhum débito registrado.</div></div>
+<div class="card full"><div class="empty-state">
+  {% if mes_atual %}Nenhum débito neste filtro.{% else %}Nenhum débito registrado.{% endif %}
+</div></div>
 {% endif %}
 
 <!-- Modal: Registrar Débito -->
@@ -255,6 +281,23 @@
         <label>Descrição <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(ajuda a identificar)</span></label>
         <input type="text" id="r-obs" placeholder="Ex.: rebaixa dos vencidos de junho/2026">
       </div>
+
+      <!-- Período (comum aos dois tipos) -->
+      <label style="margin-top:16px">Período a que se refere <em>*</em></label>
+      <div class="seg" style="margin-bottom:10px">
+        <button class="ativo" id="per-mes-btn" onclick="selecionarPeriodo('mes')">Mês fechado</button>
+        <button id="per-int-btn" onclick="selecionarPeriodo('intervalo')">Período específico</button>
+      </div>
+      <div class="per-campos" id="per-mes">
+        <input type="month" id="p-mes">
+      </div>
+      <div class="per-campos" id="per-int" style="display:none">
+        <div class="two-col">
+          <div><label>Início</label><input type="date" id="p-ini"></div>
+          <div><label>Fim</label><input type="date" id="p-fim"></div>
+        </div>
+      </div>
+
       <div class="result-box error" id="msg-debito" style="margin-top:12px">
         <div class="result-value error" id="msg-debito-txt"></div>
       </div>
@@ -330,11 +373,26 @@ const DEBITOS = {{ debitos | tojson }};
 const CREDITOS = {{ creditos | tojson }};
 const REF_LABEL = {{ ref_label | tojson }};
 let _tipo = "vencimento";       // débito
+let _periodoModo = "mes";       // 'mes' | 'intervalo'
 let _tipoPag = "bonificacao";   // pagamento
 let _debitoAlvo = null;         // débito onde o pagamento entra (null = crédito avulso)
 let _credAtual = null;          // crédito sendo alocado
 
 function rotuloDebito(d) { return d.tipo === "vencimento" ? ("NF " + d.nf_numero) : (d.produto || "rebaxa"); }
+
+// ── Filtro por mês (recarrega a página) ──
+function irParaMes(mes) {
+  location.href = "/debitos/empresa/" + encodeURIComponent(CNPJ) + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");
+}
+
+// ── Período do débito ──
+function selecionarPeriodo(modo) {
+  _periodoModo = modo;
+  $("per-mes-btn").classList.toggle("ativo", modo === "mes");
+  $("per-int-btn").classList.toggle("ativo", modo === "intervalo");
+  $("per-mes").style.display = modo === "mes" ? "" : "none";
+  $("per-int").style.display = modo === "intervalo" ? "" : "none";
+}
 
 // ── Filtro e busca ──
 const blocks = Array.from(document.querySelectorAll(".deb-block"));
@@ -367,6 +425,18 @@ function atualizarPreview() {
   const q = parseFloat($("r-qtd").value) || 0, v = parseFloat($("r-vunit").value) || 0;
   $("preview-total").textContent = "Total: " + brl(q * v);
 }
+function _coletarPeriodo(msg) {
+  // devolve {periodo_tipo, periodo_inicio, periodo_fim} ou null (com erro na tela)
+  if (_periodoModo === "mes") {
+    const mes = $("p-mes").value;
+    if (!mes) { $("msg-debito-txt").textContent = "Informe o mês do débito."; msg.classList.add("show"); return null; }
+    return { periodo_tipo: "mes", periodo_inicio: mes };
+  }
+  const ini = $("p-ini").value, fim = $("p-fim").value;
+  if (!ini || !fim) { $("msg-debito-txt").textContent = "Informe o início e o fim do período."; msg.classList.add("show"); return null; }
+  if (ini > fim) { $("msg-debito-txt").textContent = "O início do período não pode ser depois do fim."; msg.classList.add("show"); return null; }
+  return { periodo_tipo: "intervalo", periodo_inicio: ini, periodo_fim: fim };
+}
 async function salvarDebito() {
   const msg = $("msg-debito"); msg.classList.remove("show");
   let url, body;
@@ -380,8 +450,12 @@ async function salvarDebito() {
     if (!produto || !qtd || !vunit) { $("msg-debito-txt").textContent = "Preencha produto, quantidade e diferença unitária."; msg.classList.add("show"); return; }
     url = "/debitos/api/debito/rebaxa"; body = { cnpj: CNPJ, produto, quantidade: qtd, valor_unit: vunit, obs };
   }
+  const per = _coletarPeriodo(msg);
+  if (!per) return;
+  Object.assign(body, per);
   const r = await postJSON(url, body);
-  if (r.ok) location.reload();
+  // volta para a visão de todos os meses para o novo débito aparecer
+  if (r.ok) location.href = "/debitos/empresa/" + encodeURIComponent(CNPJ);
   else { $("msg-debito-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 

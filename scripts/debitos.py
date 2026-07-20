@@ -31,6 +31,7 @@ import os
 import re
 import uuid
 import sqlite3
+import calendar
 from datetime import datetime
 
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,6 +52,8 @@ REF_LABEL = {
     "troca":           "Descrição da troca",
     "desconto_boleto": "Nº / venc. do boleto",
 }
+MESES_PT = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+            "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 
 
 def _conn():
@@ -84,6 +87,9 @@ def _init_schema(conn):
             valor_total REAL NOT NULL,
             valor_pago  REAL NOT NULL DEFAULT 0,
             obs         TEXT,
+            periodo_tipo   TEXT,   -- 'mes' | 'intervalo' | NULL (sem período)
+            periodo_inicio TEXT,   -- AAAA-MM-DD
+            periodo_fim    TEXT,   -- AAAA-MM-DD
             excluido_em  TEXT,
             excluido_por TEXT,
             FOREIGN KEY (cnpj) REFERENCES empresas(cnpj) ON DELETE CASCADE
@@ -150,6 +156,9 @@ def _migrar(conn):
             conn.execute(f"ALTER TABLE {tabela} ADD COLUMN excluido_por TEXT")
     if "valor_pago" not in _colunas(conn, "debitos"):
         conn.execute("ALTER TABLE debitos ADD COLUMN valor_pago REAL NOT NULL DEFAULT 0")
+    for col in ("periodo_tipo", "periodo_inicio", "periodo_fim"):
+        if col not in _colunas(conn, "debitos"):
+            conn.execute(f"ALTER TABLE debitos ADD COLUMN {col} TEXT")
 
     # pagamentos: nf_numero -> referencia + tipo. Como o SQLite não afrouxa o
     # NOT NULL de nf_numero via ALTER, reconstrói a tabela (não destrutivo).
@@ -245,6 +254,114 @@ def _parse_valor(v):
         return val
     except (TypeError, ValueError):
         return None
+
+
+# ── Período do débito ─────────────────────────────────────────────────────────
+_DATA_ISO = re.compile(r'^(\d{4})-(\d{2})-(\d{2})$')
+_DATA_BR  = re.compile(r'^(\d{2})/(\d{2})/(\d{4})$')
+
+
+def _norm_dia(s):
+    """Aceita 'AAAA-MM-DD' ou 'DD/MM/AAAA' → ISO; None se inválido."""
+    if not s:
+        return None
+    s = s.strip()
+    if _DATA_ISO.match(s):
+        return s
+    m = _DATA_BR.match(s)
+    if m:
+        d, mo, y = m.groups()
+        return f"{y}-{mo}-{d}"
+    return None
+
+
+def _fmt_dia(s):
+    """'2026-04-05' → '05/04/2026'."""
+    m = _DATA_ISO.match(s or "")
+    if not m:
+        return s or ""
+    y, mo, d = m.groups()
+    return f"{d}/{mo}/{y}"
+
+
+def _parse_periodo(tipo, inicio, fim):
+    """Valida o período informado.
+    Retorna (tipo, inicio_iso, fim_iso) se ok; None se ausente; False se inválido.
+      • tipo 'mes':       `inicio` = 'AAAA-MM' → 1º ao último dia do mês.
+      • tipo 'intervalo': `inicio`/`fim` = datas (ISO ou BR), início <= fim.
+    """
+    tipo = (tipo or "").strip()
+    if tipo not in ("mes", "intervalo"):
+        return None
+    if tipo == "mes":
+        m = re.match(r'^(\d{4})-(\d{2})$', (inicio or "").strip())
+        if not m:
+            return False
+        y, mo = int(m.group(1)), int(m.group(2))
+        if not (1 <= mo <= 12):
+            return False
+        ult = calendar.monthrange(y, mo)[1]
+        return ("mes", f"{y:04d}-{mo:02d}-01", f"{y:04d}-{mo:02d}-{ult:02d}")
+    ini, f = _norm_dia(inicio), _norm_dia(fim)
+    if not ini or not f or ini > f:
+        return False
+    return ("intervalo", ini, f)
+
+
+def _periodo_label(tipo, inicio, fim):
+    if tipo == "mes" and inicio:
+        y, mo = inicio[:4], int(inicio[5:7])
+        return f"{MESES_PT[mo]}/{y}"
+    if tipo == "intervalo" and inicio and fim:
+        return f"{_fmt_dia(inicio)} a {_fmt_dia(fim)}"
+    return ""
+
+
+def _meses_entre(inicio_iso, fim_iso):
+    """Lista de 'AAAA-MM' cobertos por [inicio, fim] (inclusive)."""
+    if not inicio_iso or not fim_iso:
+        return []
+    y, m = int(inicio_iso[:4]), int(inicio_iso[5:7])
+    y2, m2 = int(fim_iso[:4]), int(fim_iso[5:7])
+    out = []
+    while (y, m) <= (y2, m2):
+        out.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1; y += 1
+    return out
+
+
+def rotulo_mes(mes):
+    """'2026-06' → 'junho/2026'."""
+    try:
+        y, mo = mes.split("-")
+        return f"{MESES_PT[int(mo)]}/{y}"
+    except (ValueError, IndexError):
+        return mes
+
+
+def meses_debitos(cnpj):
+    """Meses presentes nos débitos da empresa (para o seletor), do mais recente
+    ao mais antigo, + se há débitos sem período."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT periodo_tipo, periodo_inicio, periodo_fim FROM debitos "
+            "WHERE cnpj = ? AND excluido_em IS NULL", (cnpj,)).fetchall()
+    finally:
+        conn.close()
+    meses, tem_sem = set(), False
+    for r in rows:
+        if not r["periodo_inicio"]:
+            tem_sem = True
+            continue
+        meses.update(_meses_entre(r["periodo_inicio"], r["periodo_fim"]))
+    ordenados = sorted(meses, reverse=True)
+    return {
+        "meses": [{"mes": m, "rotulo": rotulo_mes(m)} for m in ordenados],
+        "tem_sem_periodo": tem_sem,
+    }
 
 
 def _status(valor_total, valor_pago):
@@ -372,29 +489,50 @@ def _alocacoes_do_debito(conn, debito_id):
     return saida
 
 
-def listar_debitos(cnpj=None):
+def listar_debitos(cnpj=None, mes=None):
+    """Lista débitos. `mes` filtra pelo período:
+      • 'AAAA-MM' → débitos cujo período cobre aquele mês (intervalos aparecem
+        em todos os meses que tocam);
+      • 'sem'     → débitos sem período;
+      • None/''   → todos.
+    """
     conn = _conn()
     try:
         sql = "SELECT * FROM debitos WHERE excluido_em IS NULL"
-        params = ()
+        params = []
         if cnpj:
             sql += " AND cnpj = ?"
-            params = (cnpj,)
+            params.append(cnpj)
+        if mes == "sem":
+            sql += " AND periodo_inicio IS NULL"
+        elif mes:
+            m = re.match(r'^(\d{4})-(\d{2})$', mes)
+            if m:
+                y, mo = int(m.group(1)), int(m.group(2))
+                primeiro = f"{y:04d}-{mo:02d}-01"
+                ultimo   = f"{y:04d}-{mo:02d}-{calendar.monthrange(y, mo)[1]:02d}"
+                # sobreposição: periodo_inicio <= último E periodo_fim >= primeiro
+                sql += (" AND periodo_inicio IS NOT NULL "
+                        "AND periodo_inicio <= ? AND periodo_fim >= ?")
+                params.extend([ultimo, primeiro])
         sql += " ORDER BY data DESC"
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
         for d in rows:
             vp = round(d.get("valor_pago") or 0, 2)
-            d["valor_pago"] = vp
-            d["saldo"]      = round(d["valor_total"] - vp, 2)
-            d["status"]     = _status(d["valor_total"], vp)
-            d["data_fmt"]   = _fmt_data(d["data"])
-            d["alocacoes"]  = _alocacoes_do_debito(conn, d["id"])
+            d["valor_pago"]     = vp
+            d["saldo"]          = round(d["valor_total"] - vp, 2)
+            d["status"]         = _status(d["valor_total"], vp)
+            d["data_fmt"]       = _fmt_data(d["data"])
+            d["periodo_label"]  = _periodo_label(d.get("periodo_tipo"),
+                                                 d.get("periodo_inicio"), d.get("periodo_fim"))
+            d["alocacoes"]      = _alocacoes_do_debito(conn, d["id"])
         return rows
     finally:
         conn.close()
 
 
-def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs="", usuario=None):
+def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs="", usuario=None,
+                                periodo_tipo=None, periodo_inicio=None, periodo_fim=None):
     if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
     nf = nf_numero.strip()
@@ -403,23 +541,32 @@ def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs="", usuario=No
     valor = _parse_valor(valor_total)
     if valor is None:
         return False, "Valor inválido."
+    per = _parse_periodo(periodo_tipo, periodo_inicio, periodo_fim)
+    if per is None:
+        return False, "Informe o período a que o débito se refere."
+    if per is False:
+        return False, "Período inválido."
+    p_tipo, p_ini, p_fim = per
     conn = _conn()
     try:
         if _nf_duplicada(conn, "debitos", cnpj, nf):
             return False, f"Já existe um débito com a NF {nf} para esta empresa."
         did = _uid()
         conn.execute(
-            "INSERT INTO debitos (id, cnpj, data, tipo, nf_numero, valor_total, obs) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (did, cnpj, _agora(), "vencimento", nf, valor, obs.strip()))
-        _auditar(conn, "debito", did, "criar", f"vencimento NF {nf} · R$ {valor:.2f}", usuario)
+            "INSERT INTO debitos (id, cnpj, data, tipo, nf_numero, valor_total, obs, "
+            "periodo_tipo, periodo_inicio, periodo_fim) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (did, cnpj, _agora(), "vencimento", nf, valor, obs.strip(), p_tipo, p_ini, p_fim))
+        _auditar(conn, "debito", did, "criar",
+                 f"vencimento NF {nf} · R$ {valor:.2f} · {_periodo_label(p_tipo, p_ini, p_fim)}", usuario)
         conn.commit()
         return True, f"Vencimento NF {nf} de R$ {valor:.2f} registrado."
     finally:
         conn.close()
 
 
-def adicionar_debito_rebaxa(cnpj, produto, quantidade, valor_unit, obs="", usuario=None):
+def adicionar_debito_rebaxa(cnpj, produto, quantidade, valor_unit, obs="", usuario=None,
+                            periodo_tipo=None, periodo_inicio=None, periodo_fim=None):
     if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
     produto = produto.strip()
@@ -433,14 +580,23 @@ def adicionar_debito_rebaxa(cnpj, produto, quantidade, valor_unit, obs="", usuar
         valor = round(qtd * v_uni, 2)
     except (TypeError, ValueError):
         return False, "Quantidade ou valor unitário inválido."
+    per = _parse_periodo(periodo_tipo, periodo_inicio, periodo_fim)
+    if per is None:
+        return False, "Informe o período a que o débito se refere."
+    if per is False:
+        return False, "Período inválido."
+    p_tipo, p_ini, p_fim = per
     conn = _conn()
     try:
         did = _uid()
         conn.execute(
-            "INSERT INTO debitos (id, cnpj, data, tipo, produto, quantidade, valor_unit, valor_total, obs) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (did, cnpj, _agora(), "rebaxa", produto, qtd, v_uni, valor, obs.strip()))
-        _auditar(conn, "debito", did, "criar", f"rebaxa {produto} · R$ {valor:.2f}", usuario)
+            "INSERT INTO debitos (id, cnpj, data, tipo, produto, quantidade, valor_unit, valor_total, obs, "
+            "periodo_tipo, periodo_inicio, periodo_fim) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (did, cnpj, _agora(), "rebaxa", produto, qtd, v_uni, valor, obs.strip(),
+             p_tipo, p_ini, p_fim))
+        _auditar(conn, "debito", did, "criar",
+                 f"rebaxa {produto} · R$ {valor:.2f} · {_periodo_label(p_tipo, p_ini, p_fim)}", usuario)
         conn.commit()
         return True, f"Rebaxa de R$ {valor:.2f} registrada."
     finally:
@@ -711,9 +867,11 @@ def calcular_saldo(cnpj):
     conn = _conn()
     try:
         tot_deb = conn.execute(
-            "SELECT COALESCE(SUM(valor_total),0), COALESCE(SUM(valor_pago),0) "
-            "FROM debitos WHERE cnpj = ? AND excluido_em IS NULL", (cnpj,)).fetchone()
+            "SELECT COALESCE(SUM(valor_total),0), COALESCE(SUM(valor_pago),0), "
+            "COUNT(*), COALESCE(SUM(CASE WHEN valor_pago + ? < valor_total THEN 1 ELSE 0 END),0) "
+            "FROM debitos WHERE cnpj = ? AND excluido_em IS NULL", (_EPS, cnpj)).fetchone()
         total_debito, total_pago = round(tot_deb[0], 2), round(tot_deb[1], 2)
+        debitos_total, debitos_abertos = tot_deb[2], tot_deb[3]
         tot_pag = conn.execute(
             "SELECT COALESCE(SUM(valor_total),0), COALESCE(SUM(valor_alocado),0) "
             "FROM pagamentos WHERE cnpj = ? AND excluido_em IS NULL", (cnpj,)).fetchone()
@@ -727,6 +885,8 @@ def calcular_saldo(cnpj):
             "saldo_devedor":      saldo_devedor,
             "total_pagamentos":   total_pagamentos,
             "credito_disponivel": credito_disponivel,
+            "debitos_total":      debitos_total,
+            "debitos_abertos":    debitos_abertos,
             # alias de compatibilidade com telas antigas
             "total_bonificacao":  total_pagamentos,
             "quitado":            saldo_devedor <= _EPS,

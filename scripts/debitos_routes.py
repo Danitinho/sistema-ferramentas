@@ -25,14 +25,17 @@ def empresa(cnpj):
     emp = db.buscar_empresa(cnpj)
     if not emp:
         return redirect(url_for("debitos.index"))
+    mes = request.args.get("mes", "")
     return render_template(
         "debitos/debitos_empresa.html",
         emp=emp,
         saldo=db.calcular_saldo(cnpj),
-        debitos=db.listar_debitos(cnpj),
+        debitos=db.listar_debitos(cnpj, mes=mes),
         creditos=db.listar_creditos(cnpj),
         tipos=db.TIPOS_PAGAMENTO,
         ref_label=db.REF_LABEL,
+        meses=db.meses_debitos(cnpj),
+        mes_atual=mes,
     )
 
 
@@ -59,6 +62,8 @@ def api_add_vencimento():
     ok, msg = db.adicionar_debito_vencimento(
         cnpj=d.get("cnpj", ""), nf_numero=d.get("nf_numero", ""),
         valor_total=d.get("valor_total", 0), obs=d.get("obs", ""), usuario=_usuario(),
+        periodo_tipo=d.get("periodo_tipo"), periodo_inicio=d.get("periodo_inicio"),
+        periodo_fim=d.get("periodo_fim"),
     )
     return jsonify({"ok": ok, "msg": msg})
 
@@ -70,6 +75,8 @@ def api_add_rebaxa():
         cnpj=d.get("cnpj", ""), produto=d.get("produto", ""),
         quantidade=d.get("quantidade", 0), valor_unit=d.get("valor_unit", 0),
         obs=d.get("obs", ""), usuario=_usuario(),
+        periodo_tipo=d.get("periodo_tipo"), periodo_inicio=d.get("periodo_inicio"),
+        periodo_fim=d.get("periodo_fim"),
     )
     return jsonify({"ok": ok, "msg": msg})
 
