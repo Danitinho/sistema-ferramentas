@@ -12,17 +12,29 @@ def _usuario():
     return session.get("usuario")
 
 
+LIM_TODOS = 500   # "Todos os meses" mostra só os mais recentes (evita página gigante)
+
+
 @vencidos_bp.route("/")
 def index():
-    mes = request.args.get("mes", "")
+    meses = v.meses_disponiveis()
+    # Sem ?mes: abre no mês mais recente com dados (ou no mês atual). ?mes= vazio = Todos.
+    mes = request.args.get("mes")
+    if mes is None:
+        mes = meses[0]["mes"] if meses else v._hoje()[:7]
+    todos = (mes == "")
+    limite = LIM_TODOS if todos else 5000
+    vencidos = v.listar_vencidos(mes=(None if todos else mes), limite=limite)
+    avisos   = v.listar_avisos(mes=(None if todos else mes), limite=limite)
     return render_template(
         "vencidos/index.html",
-        resumo=v.resumo(mes or None),
-        vencidos=v.listar_vencidos(mes=mes or None),
-        avisos=v.listar_avisos(mes=mes or None),
+        resumo=v.resumo(None if todos else mes),
+        vencidos=vencidos, avisos=avisos,
         tipos_baixa=v.TIPOS_BAIXA,
-        meses=v.meses_disponiveis(),
+        meses=meses,
         mes_atual=mes,
+        truncado=todos and (len(vencidos) >= LIM_TODOS or len(avisos) >= LIM_TODOS),
+        lim_todos=LIM_TODOS,
         hoje=v._hoje(),
     )
 

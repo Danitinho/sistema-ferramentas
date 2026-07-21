@@ -49,13 +49,14 @@
 <!-- Seletor de mês -->
 <div class="mes-bar full">
   <select class="mes-sel" id="sel-mes" onchange="irParaMes(this.value)" title="Paginar por mês">
-    <option value="">📅 Todos os meses</option>
     {% for m in meses %}
     <option value="{{ m.mes }}" {% if mes_atual == m.mes %}selected{% endif %}>{{ m.rotulo }}</option>
     {% endfor %}
+    <option value="__todos" {% if mes_atual == '' %}selected{% endif %}>Todos os meses (recentes)</option>
   </select>
   <span class="escopo">
     {% if mes_atual %}Vencidos <b>registrados</b> e avisos <b>vencendo</b> neste mês.
+    {% elif truncado %}Mostrando os {{ lim_todos }} mais recentes — selecione um mês para ver o mês completo.
     {% else %}Todos os meses.{% endif %}
   </span>
 </div>
@@ -326,6 +327,7 @@ const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devo
 
 // ── Paginação por mês (recarrega) ──
 function irParaMes(mes) {
+  if (mes === "__todos") { location.href = "/vencidos/?mes="; return; }  // ?mes= vazio = todos
   location.href = "/vencidos/" + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");
 }
 
