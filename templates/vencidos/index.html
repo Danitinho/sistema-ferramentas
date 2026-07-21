@@ -38,10 +38,27 @@
   .filtros .search { flex: 1; min-width: 160px; }
   .chk-banner { margin-top: 12px; display: none; }
   .chk-banner.show { display: flex; }
+  .mes-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .mes-bar .mes-sel { width: auto; min-width: 190px; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
+  .mes-bar .escopo { font-size: 12.5px; color: var(--muted); }
 </style>
 {% endblock %}
 
 {% block content %}
+
+<!-- Seletor de mês -->
+<div class="mes-bar full">
+  <select class="mes-sel" id="sel-mes" onchange="irParaMes(this.value)" title="Paginar por mês">
+    <option value="">📅 Todos os meses</option>
+    {% for m in meses %}
+    <option value="{{ m.mes }}" {% if mes_atual == m.mes %}selected{% endif %}>{{ m.rotulo }}</option>
+    {% endfor %}
+  </select>
+  <span class="escopo">
+    {% if mes_atual %}Vencidos <b>registrados</b> e avisos <b>vencendo</b> neste mês.
+    {% else %}Todos os meses.{% endif %}
+  </span>
+</div>
 
 <!-- Painel -->
 <div class="painel full">
@@ -63,7 +80,7 @@
   </div>
   <div class="stat-card {% if resumo.avisos_vencendo %}s-amber{% endif %}">
     <div class="stat-v num">{{ resumo.avisos_vencendo }}</div>
-    <div class="stat-l">Avisos vencendo ≤30d</div>
+    <div class="stat-l">{% if mes_atual %}Avisos vencendo no mês{% else %}Avisos vencendo ≤30d{% endif %}</div>
   </div>
 </div>
 
@@ -307,6 +324,11 @@ const $ = id => document.getElementById(id);
 let _baixaId = null, _baixaTipo = "perda";
 const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devolução" };
 
+// ── Paginação por mês (recarrega) ──
+function irParaMes(mes) {
+  location.href = "/vencidos/" + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");
+}
+
 // ── Abas ──
 function mostrarAba(qual) {
   const v = qual === "vencidos";
@@ -397,7 +419,7 @@ async function salvarVencido() {
     $("msg-ve-txt").textContent = "Informe produto e quantidade."; msg.classList.add("show"); return;
   }
   const r = await postJSON("/vencidos/api/vencido", body);
-  if (r.ok) location.reload();
+  if (r.ok) location.href = "/vencidos/";   // volta p/ todos os meses
   else { $("msg-ve-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
@@ -419,7 +441,7 @@ async function salvarAviso() {
     $("msg-av-txt").textContent = "Informe produto, quantidade e data de vencimento."; msg.classList.add("show"); return;
   }
   const r = await postJSON("/vencidos/api/aviso", body);
-  if (r.ok) location.reload();
+  if (r.ok) location.href = "/vencidos/";   // volta p/ todos os meses
   else { $("msg-av-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 

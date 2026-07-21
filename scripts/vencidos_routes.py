@@ -14,12 +14,15 @@ def _usuario():
 
 @vencidos_bp.route("/")
 def index():
+    mes = request.args.get("mes", "")
     return render_template(
         "vencidos/index.html",
-        resumo=v.resumo(),
-        vencidos=v.listar_vencidos(),
-        avisos=v.listar_avisos(),
+        resumo=v.resumo(mes or None),
+        vencidos=v.listar_vencidos(mes=mes or None),
+        avisos=v.listar_avisos(mes=mes or None),
         tipos_baixa=v.TIPOS_BAIXA,
+        meses=v.meses_disponiveis(),
+        mes_atual=mes,
         hoje=v._hoje(),
     )
 

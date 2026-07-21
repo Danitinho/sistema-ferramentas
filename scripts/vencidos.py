@@ -34,6 +34,18 @@ DIAS_MINIMO = 30  # antecedência mínima do aviso
 
 TIPOS_BAIXA = {"perda": "Perda", "devolucao": "Devolução ao fornecedor"}
 
+MESES_PT = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+            "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+
+def rotulo_mes(mes):
+    """'2026-07' → 'julho/2026'."""
+    try:
+        y, mo = mes.split("-")
+        return f"{MESES_PT[int(mo)]}/{y}"
+    except (ValueError, IndexError):
+        return mes
+
 
 def _conn():
     os.makedirs(DADOS_DIR, exist_ok=True)
@@ -266,7 +278,22 @@ def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
         conn.close()
 
 
-def listar_avisos(status=None, busca=None, incluir_resolvidos=True):
+def meses_disponiveis():
+    """União dos meses presentes: registro dos vencidos (criado_em) e vencimento
+    dos avisos (data_vencimento), do mais recente ao mais antigo."""
+    conn = _conn()
+    try:
+        vm = [r[0] for r in conn.execute(
+            "SELECT DISTINCT substr(criado_em,1,7) FROM vencidos WHERE excluido_em IS NULL")]
+        am = [r[0] for r in conn.execute(
+            "SELECT DISTINCT substr(data_vencimento,1,7) FROM avisos WHERE excluido_em IS NULL")]
+    finally:
+        conn.close()
+    meses = sorted({m for m in vm + am if m}, reverse=True)
+    return [{"mes": m, "rotulo": rotulo_mes(m)} for m in meses]
+
+
+def listar_avisos(status=None, busca=None, incluir_resolvidos=True, mes=None):
     conn = _conn()
     try:
         rows = [dict(r) for r in conn.execute(
@@ -277,6 +304,9 @@ def listar_avisos(status=None, busca=None, incluir_resolvidos=True):
     saida = []
     for a in rows:
         _enriquecer_aviso(a)
+        # avisos paginam pelo mês de VENCIMENTO
+        if mes and (a["data_vencimento"] or "")[:7] != mes:
+            continue
         if not incluir_resolvidos and a["status"] == "resolvido":
             continue
         if status and a["status"] != status:
@@ -371,7 +401,7 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
         conn.close()
 
 
-def listar_vencidos(baixa=None, avisado=None, busca=None):
+def listar_vencidos(baixa=None, avisado=None, busca=None, mes=None):
     conn = _conn()
     try:
         rows = [dict(r) for r in conn.execute(
@@ -382,6 +412,9 @@ def listar_vencidos(baixa=None, avisado=None, busca=None):
     saida = []
     for v in rows:
         _enriquecer_vencido(v)
+        # vencidos paginam pelo mês de REGISTRO (entrada no escritório)
+        if mes and (v["criado_em"] or "")[:7] != mes:
+            continue
         if baixa and v["baixa_status"] != baixa:
             continue
         if avisado == "sim" and not v["foi_avisado"]:
@@ -450,12 +483,18 @@ def excluir_vencido(id_vencido, usuario=None):
 
 
 # ── Painel ────────────────────────────────────────────────────────────────────
-def resumo():
+def resumo(mes=None):
+    """Painel. Se `mes` (AAAA-MM): vencidos por mês de registro; o card de avisos
+    passa a contar avisos que VENCEM naquele mês. Sem mês: visão geral, com o
+    card de avisos no sentido 'vencendo em ≤30 dias' a partir de hoje."""
     conn = _conn()
     try:
-        vrows = conn.execute(
-            "SELECT quantidade, custo, foi_avisado, baixa_status FROM vencidos "
-            "WHERE excluido_em IS NULL").fetchall()
+        vsql = "SELECT quantidade, custo, foi_avisado, baixa_status FROM vencidos WHERE excluido_em IS NULL"
+        vparams = []
+        if mes:
+            vsql += " AND substr(criado_em,1,7) = ?"
+            vparams.append(mes)
+        vrows = conn.execute(vsql, vparams).fetchall()
         arows = conn.execute(
             "SELECT data_vencimento, resolvido_em FROM avisos WHERE excluido_em IS NULL").fetchall()
     finally:
@@ -467,20 +506,23 @@ def resumo():
     pendentes_baixa = sum(1 for r in vrows if r["baixa_status"] != "baixado")
     pct_avisado = round(avisados * 100 / total_v) if total_v else 0
 
-    vencendo, avisos_ativos = 0, 0
-    for r in arows:
-        if r["resolvido_em"]:
-            continue
-        avisos_ativos += 1
-        dias = _dias_ate(r["data_vencimento"])
-        if dias is not None and dias <= 30:
-            vencendo += 1
+    if mes:
+        avisos_vencendo = sum(1 for r in arows
+                              if not r["resolvido_em"] and (r["data_vencimento"] or "")[:7] == mes)
+    else:
+        avisos_vencendo = 0
+        for r in arows:
+            if r["resolvido_em"]:
+                continue
+            dias = _dias_ate(r["data_vencimento"])
+            if dias is not None and dias <= 30:
+                avisos_vencendo += 1
     return {
         "total_vencidos": total_v,
         "valor_perdido": valor,
         "avisados": avisados,
         "pct_avisado": pct_avisado,
         "pendentes_baixa": pendentes_baixa,
-        "avisos_ativos": avisos_ativos,
-        "avisos_vencendo": vencendo,
+        "avisos_vencendo": avisos_vencendo,
+        "mes": mes,
     }
