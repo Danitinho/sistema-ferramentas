@@ -388,7 +388,7 @@ function rotuloDebito(d) { return d.tipo === "vencimento" ? ("NF " + d.nf_numero
 
 // ── Filtro por mês (recarrega a página) ──
 function irParaMes(mes) {
-  location.href = "/debitos/empresa/" + encodeURIComponent(CNPJ) + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");
+  location.href = "/debitos/empresa/" + CNPJ + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");  // CNPJ cru: contém '/'
 }
 
 // ── Período do débito ──
@@ -516,7 +516,7 @@ async function salvarDebito() {
   }
   const r = await postJSON(url, body);
   // volta para a visão de todos os meses para o novo débito aparecer
-  if (r.ok) location.href = "/debitos/empresa/" + encodeURIComponent(CNPJ);
+  if (r.ok) location.href = "/debitos/empresa/" + CNPJ;   // CNPJ cru: contém '/'
   else { $("msg-debito-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 

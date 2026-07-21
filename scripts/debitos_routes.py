@@ -20,7 +20,7 @@ def index():
     return render_template("debitos/debitos_index.html", empresas=db.resumo_empresas())
 
 
-@debitos_bp.route("/empresa/<cnpj>")
+@debitos_bp.route("/empresa/<path:cnpj>")   # path: o CNPJ contém '/'
 def empresa(cnpj):
     emp = db.buscar_empresa(cnpj)
     if not emp:
@@ -48,7 +48,7 @@ def api_add_empresa():
     return jsonify({"ok": ok, "msg": msg})
 
 
-@debitos_bp.route("/api/empresa/<cnpj>", methods=["DELETE"])
+@debitos_bp.route("/api/empresa/<path:cnpj>", methods=["DELETE"])   # path: o CNPJ contém '/'
 def api_del_empresa(cnpj):
     ok, msg = db.excluir_empresa(cnpj, usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})

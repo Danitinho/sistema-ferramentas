@@ -154,7 +154,7 @@ async function salvarEmpresa() {
 
 async function excluirEmpresa(cnpj, nome) {
   if (!confirm(`Excluir "${nome}" e todos os seus lançamentos?`)) return;
-  await fetch(`/debitos/api/empresa/${encodeURIComponent(cnpj)}`, { method: "DELETE" });
+  await fetch("/debitos/api/empresa/" + cnpj, { method: "DELETE" });   // CNPJ cru: contém '/'
   location.reload();
 }
 </script>
