@@ -494,7 +494,21 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   enquanto se digita o código de barras e pré-preenche produto/fornecedor/custo).
   Rotas: `/api/aviso`, `/api/vencido`, `/api/checar-aviso`,
   `/api/vencido/<id>/baixa`, `/reabrir` (+ DELETEs).
-- Tela `/vencidos`: painel (valor perdido, % avisado, baixas pendentes, avisos
-  vencendo ≤30d) + abas Vencidos/Avisos. Segue as convenções (ISO, soft-delete,
-  auditoria). A versão antiga (registro simples com `motivo`) foi substituída;
-  o `vencidos.db` legado (vazio) é recriado no boot.
+- Tela `/vencidos`: painel (valor perdido, % avisado, baixas pendentes, críticos
+  ≤7d, vencendo ≤30d) + abas **Vencidos / Avisos / Análise**. Segue as convenções
+  (ISO, soft-delete, auditoria). A versão antiga (registro simples com `motivo`)
+  foi substituída; o `vencidos.db` legado (vazio) é recriado no boot.
+- **Urgência do aviso em faixas** (`_enriquecer_aviso`): vencido / crítico ≤7d /
+  atenção 8–30d / programado 31–90d / antecipado >90d (`URGENCIA_LABEL`).
+- **Editar aviso** (`editar_aviso` + `/api/aviso/<id>/editar`): só avisos não
+  resolvidos; preserva `criado_em` (antecedência original). No cadastro, o campo
+  código de barras alerta duplicidade (reusa `/api/checar-aviso`).
+- **Risco de sobra** (`_riscos_para`): cruza avisos ativos com o `vendas.db` do
+  módulo de relatórios (import protegido, consulta em LOTE, read-only) e estima
+  `sobra = qtd − média_mensal × dias/30`. Códigos no vendas.db podem ter zeros à
+  esquerda — casa por `{cb, cb.zfill(14)}`. Falha do módulo de vendas não quebra.
+- **Vínculo com quantidades**: `listar_vencidos` faz LEFT JOIN no aviso e expõe
+  `vinculo` (avisadas × perdidas × aproveitadas) quando o vencido casou com aviso.
+- **Análise** (janela 6 meses): `ranking_reincidencia` (2+ ocorrências),
+  `ranking_fornecedores` (perda por custo), `ranking_responsaveis` (antecedência
+  média e % no prazo por responsável de seção).

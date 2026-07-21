@@ -36,6 +36,9 @@ def index():
         truncado=todos and (len(vencidos) >= LIM_TODOS or len(avisos) >= LIM_TODOS),
         lim_todos=LIM_TODOS,
         hoje=v._hoje(),
+        rk_reincidencia=v.ranking_reincidencia(),
+        rk_fornecedores=v.ranking_fornecedores(),
+        rk_responsaveis=v.ranking_responsaveis(),
     )
 
 
@@ -51,6 +54,19 @@ def api_aviso():
         valor_promocional=d.get("valor_promocional"), obs=d.get("obs", ""),
         usuario=_usuario(),
     )
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@vencidos_bp.route("/api/aviso/<id_aviso>/editar", methods=["POST"])
+def api_edit_aviso(id_aviso):
+    d = request.get_json() or {}
+    ok, msg = v.editar_aviso(
+        id_aviso, produto=d.get("produto", ""), quantidade=d.get("quantidade", 0),
+        data_vencimento=d.get("data_vencimento", ""), codigo_barras=d.get("codigo_barras", ""),
+        fornecedor=d.get("fornecedor", ""), responsavel=d.get("responsavel", ""),
+        custo=d.get("custo"), venda=d.get("venda"),
+        valor_promocional=d.get("valor_promocional"), obs=d.get("obs", ""),
+        usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
 
 

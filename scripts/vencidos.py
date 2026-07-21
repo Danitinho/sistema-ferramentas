@@ -217,23 +217,40 @@ def _auditar(conn, entidade, entidade_id, acao, detalhe="", usuario=None):
 
 
 # ── Enriquecimento (campos derivados) ─────────────────────────────────────────
+# Faixas de urgência do aviso (pela distância até o vencimento):
+#   vencido < 0 · crítico ≤7d · atenção 8–30d · programado 31–90d · antecipado >90d
+URGENCIA_LABEL = {
+    "resolvido":  "resolvido",
+    "vencido":    "vencido",
+    "critico":    "crítico",
+    "atencao":    "atenção",
+    "programado": "programado",
+    "antecipado": "antecipado",
+}
+
+
 def _enriquecer_aviso(a):
     dias_venc = _dias_ate(a["data_vencimento"])
     dias_antec = _dias_entre(a["criado_em"], a["data_vencimento"])
     if a["resolvido_em"]:
         status = "resolvido"
     elif dias_venc is None:
-        status = "no_prazo"
+        status = "programado"
     elif dias_venc < 0:
         status = "vencido"
+    elif dias_venc <= 7:
+        status = "critico"
     elif dias_venc <= 30:
-        status = "vence_breve"
+        status = "atencao"
+    elif dias_venc <= 90:
+        status = "programado"
     else:
-        status = "no_prazo"
+        status = "antecipado"
     a["dias_para_vencer"] = dias_venc
     a["dias_antecedencia"] = dias_antec
     a["no_prazo"] = (dias_antec is not None and dias_antec >= DIAS_MINIMO)
     a["status"] = status
+    a["status_label"] = URGENCIA_LABEL.get(status, status)
     a["promocao"] = a["valor_promocional"] is not None
     a["data_venc_fmt"] = _fmt_dia(a["data_vencimento"])
     a["criado_fmt"] = _fmt_dt(a["criado_em"])
@@ -286,6 +303,69 @@ def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
         conn.close()
 
 
+# ── Risco de sobra (cruzamento com o módulo de relatórios de venda) ──────────
+def _riscos_para(avisos):
+    """Para cada aviso ativo com código de barras, estima o risco de sobrar
+    estoque no vencimento usando o ritmo de venda (vendas.db do módulo de
+    relatórios). Enriquecimento em LOTE (uma consulta) e tolerante a falha:
+    se o banco de vendas não existir/estiver fora, ninguém quebra."""
+    alvo = [a for a in avisos
+            if a.get("status") not in ("resolvido",) and (a.get("codigo_barras") or "").strip()]
+    if not alvo:
+        return
+    try:
+        from scripts import relatorios_vendas
+        if not os.path.exists(relatorios_vendas.BANCO):
+            return
+        conn = sqlite3.connect(f"file:{relatorios_vendas.BANCO}?mode=ro", uri=True)
+        try:
+            conn.row_factory = sqlite3.Row
+            meses = [r[0] for r in conn.execute(
+                "SELECT mes FROM relatorios ORDER BY mes DESC LIMIT 3")]
+            if not meses:
+                return
+            # vendas.db guarda códigos com zeros à esquerda — casa pelas duas formas
+            candidatos = {}
+            for a in alvo:
+                cb = a["codigo_barras"].strip()
+                for forma in (cb, cb.zfill(14)):
+                    candidatos.setdefault(forma, cb)
+            marks = ",".join("?" * len(candidatos))
+            mmarks = ",".join("?" * len(meses))
+            somas = {}
+            for r in conn.execute(
+                f"SELECT codigo_barras, SUM(qtd) FROM vendas "
+                f"WHERE codigo_barras IN ({marks}) AND mes IN ({mmarks}) "
+                f"GROUP BY codigo_barras", (*candidatos.keys(), *meses)):
+                cb_orig = candidatos.get(r[0])
+                if cb_orig:
+                    somas[cb_orig] = somas.get(cb_orig, 0) + (r[1] or 0)
+        finally:
+            conn.close()
+    except Exception:
+        return  # módulo de vendas indisponível — segue sem risco
+
+    n_meses = len(meses)
+    for a in alvo:
+        total = somas.get(a["codigo_barras"].strip())
+        if total is None:
+            continue  # produto sem venda registrada — sem estimativa
+        media = total / n_meses
+        dias = a.get("dias_para_vencer")
+        if dias is None or dias < 0:
+            continue
+        esperada = media * dias / 30
+        sobra = max(0.0, (a["quantidade"] or 0) - esperada)
+        pct = (sobra / a["quantidade"] * 100) if a["quantidade"] else 0
+        a["risco"] = {
+            "media_mensal": round(media, 1),
+            "venda_esperada": round(esperada, 1),
+            "sobra": round(sobra, 1),
+            "valor_sobra": round(sobra * (a["custo"] or 0), 2),
+            "nivel": "alto" if pct >= 50 else ("medio" if pct >= 20 else "baixo"),
+        }
+
+
 def meses_disponiveis():
     """União dos meses presentes: registro dos vencidos (criado_em) e vencimento
     dos avisos (data_vencimento), do mais recente ao mais antigo."""
@@ -329,6 +409,7 @@ def listar_avisos(mes=None, status=None, busca=None, incluir_resolvidos=True, li
             if busca.lower() not in alvo:
                 continue
         saida.append(a)
+    _riscos_para(saida)   # estima sobra pelo ritmo de venda (tolerante a falha)
     return saida
 
 
@@ -342,6 +423,45 @@ def excluir_aviso(id_aviso, usuario=None):
             conn.commit()
             return True, "Aviso removido."
         return False, "Aviso não encontrado."
+    finally:
+        conn.close()
+
+
+def editar_aviso(id_aviso, produto, quantidade, data_vencimento, codigo_barras=None,
+                 fornecedor=None, responsavel=None, custo=None, venda=None,
+                 valor_promocional=None, obs=None, usuario=None):
+    """Atualiza um aviso ativo (quantidade restante, promoção, datas...).
+    Preserva `criado_em` — a antecedência continua medida do aviso original.
+    Aviso resolvido não se edita (já virou histórico)."""
+    produto = (produto or "").strip()
+    if not produto:
+        return False, "Informe o produto."
+    qtd = _parse_qtd(quantidade)
+    if qtd is None:
+        return False, "Quantidade inválida."
+    dv = _norm_dia(data_vencimento)
+    if not dv:
+        return False, "Informe a data de vencimento."
+    conn = _conn()
+    try:
+        a = conn.execute("SELECT * FROM avisos WHERE id=? AND excluido_em IS NULL",
+                         (id_aviso,)).fetchone()
+        if not a:
+            return False, "Aviso não encontrado."
+        if a["resolvido_em"]:
+            return False, "Este aviso já foi resolvido por um vencido — não pode ser editado."
+        conn.execute(
+            "UPDATE avisos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
+            "responsavel=?, data_vencimento=?, custo=?, venda=?, valor_promocional=?, obs=? "
+            "WHERE id=?",
+            (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
+             (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
+             _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
+             (obs or "").strip(), id_aviso))
+        _auditar(conn, "aviso", id_aviso, "editar",
+                 f"{produto} · {qtd:g} un · vence {_fmt_dia(dv)}", usuario)
+        conn.commit()
+        return True, "Aviso atualizado."
     finally:
         conn.close()
 
@@ -458,13 +578,15 @@ def listar_vencidos(mes=None, baixa=None, avisado=None, busca=None, limite=5000)
     # vencidos paginam pelo mês de REGISTRO (criado_em) — filtro por range, no SQL
     conn = _conn()
     try:
-        sql = "SELECT * FROM vencidos WHERE excluido_em IS NULL"
+        sql = ("SELECT v.*, a.quantidade AS aviso_qtd FROM vencidos v "
+               "LEFT JOIN avisos a ON a.id = v.aviso_id "
+               "WHERE v.excluido_em IS NULL")
         params = []
         if mes:
             ini, fim = _limites_mes(mes)
-            sql += " AND criado_em >= ? AND criado_em < ?"
+            sql += " AND v.criado_em >= ? AND v.criado_em < ?"
             params += [ini, fim]
-        sql += " ORDER BY (baixa_status='baixado'), criado_em DESC"
+        sql += " ORDER BY (v.baixa_status='baixado'), v.criado_em DESC"
         if limite:
             sql += f" LIMIT {int(limite)}"
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -473,6 +595,15 @@ def listar_vencidos(mes=None, baixa=None, avisado=None, busca=None, limite=5000)
     saida = []
     for v in rows:
         _enriquecer_vencido(v)
+        # vínculo com quantidades: quanto do estoque avisado NÃO virou perda
+        if v["foi_avisado"] and v.get("aviso_qtd"):
+            aproveitadas = max(0.0, round(v["aviso_qtd"] - (v["quantidade"] or 0), 3))
+            v["vinculo"] = {
+                "avisadas": v["aviso_qtd"],
+                "perdidas": v["quantidade"],
+                "aproveitadas": aproveitadas,
+                "pct_aproveitado": round(aproveitadas * 100 / v["aviso_qtd"]) if v["aviso_qtd"] else 0,
+            }
         if baixa and v["baixa_status"] != baixa:
             continue
         if avisado == "sim" and not v["foi_avisado"]:
@@ -565,6 +696,11 @@ def resumo(mes=None):
             avisos_vencendo = conn.execute(
                 "SELECT COUNT(*) FROM avisos WHERE excluido_em IS NULL AND resolvido_em IS NULL "
                 "AND data_vencimento <= ?", (limite30,)).fetchone()[0]
+        # críticos: vencem em ≤7 dias (ou já venceram) e seguem na vigília — sempre global
+        limite7 = (date.today() + timedelta(days=7)).isoformat()
+        avisos_criticos = conn.execute(
+            "SELECT COUNT(*) FROM avisos WHERE excluido_em IS NULL AND resolvido_em IS NULL "
+            "AND data_vencimento <= ?", (limite7,)).fetchone()[0]
     finally:
         conn.close()
 
@@ -577,5 +713,76 @@ def resumo(mes=None):
         "pct_avisado": pct_avisado,
         "pendentes_baixa": pendentes_baixa,
         "avisos_vencendo": avisos_vencendo,
+        "avisos_criticos": avisos_criticos,
         "mes": mes,
     }
+
+
+# ── Análise (janela dos últimos 6 meses) ─────────────────────────────────────
+_JANELA_DIAS = 183
+
+
+def _corte_janela():
+    return (date.today() - timedelta(days=_JANELA_DIAS)).isoformat()
+
+
+def ranking_reincidencia(limite=10):
+    """Produtos que mais viraram perda nos últimos 6 meses (reincidência =
+    provável problema de compra). Agrupa por código de barras; sem código,
+    pelo nome."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT COALESCE(NULLIF(codigo_barras,''), produto) AS chave, "
+            "MAX(produto) AS produto, MAX(fornecedor) AS fornecedor, "
+            "COUNT(*) AS vezes, SUM(quantidade) AS qtd, "
+            "SUM(quantidade * COALESCE(custo,0)) AS valor "
+            "FROM vencidos WHERE excluido_em IS NULL AND criado_em >= ? "
+            "GROUP BY chave HAVING COUNT(*) >= 2 "
+            "ORDER BY vezes DESC, valor DESC LIMIT ?",
+            (_corte_janela(), limite)).fetchall()
+    finally:
+        conn.close()
+    return [{"produto": r["produto"], "fornecedor": r["fornecedor"] or "",
+             "vezes": r["vezes"], "qtd": round(r["qtd"] or 0, 1),
+             "valor": round(r["valor"] or 0, 2)} for r in rows]
+
+
+def ranking_fornecedores(limite=10):
+    """Fornecedores com maior perda (custo) nos últimos 6 meses."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT fornecedor, COUNT(*) AS itens, SUM(quantidade) AS qtd, "
+            "SUM(quantidade * COALESCE(custo,0)) AS valor "
+            "FROM vencidos WHERE excluido_em IS NULL AND criado_em >= ? "
+            "AND fornecedor <> '' GROUP BY fornecedor "
+            "ORDER BY valor DESC, itens DESC LIMIT ?",
+            (_corte_janela(), limite)).fetchall()
+    finally:
+        conn.close()
+    return [{"fornecedor": r["fornecedor"], "itens": r["itens"],
+             "qtd": round(r["qtd"] or 0, 1), "valor": round(r["valor"] or 0, 2)}
+            for r in rows]
+
+
+def ranking_responsaveis(limite=10):
+    """Antecedência média de aviso por responsável de seção (últimos 6 meses):
+    quem avisa com folga e quem avisa em cima da hora."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT responsavel, COUNT(*) AS avisos, "
+            "AVG(julianday(data_vencimento) - julianday(substr(criado_em,1,10))) AS antec, "
+            "SUM(CASE WHEN julianday(data_vencimento) - julianday(substr(criado_em,1,10)) >= ? "
+            "THEN 1 ELSE 0 END) AS no_prazo "
+            "FROM avisos WHERE excluido_em IS NULL AND criado_em >= ? "
+            "AND responsavel <> '' GROUP BY responsavel "
+            "ORDER BY avisos DESC LIMIT ?",
+            (DIAS_MINIMO, _corte_janela(), limite)).fetchall()
+    finally:
+        conn.close()
+    return [{"responsavel": r["responsavel"], "avisos": r["avisos"],
+             "antecedencia_media": round(r["antec"] or 0),
+             "pct_no_prazo": round((r["no_prazo"] or 0) * 100 / r["avisos"]) if r["avisos"] else 0}
+            for r in rows]

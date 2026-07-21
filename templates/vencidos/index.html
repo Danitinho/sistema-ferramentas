@@ -30,6 +30,21 @@
   .acc { font-size: 11px; font-weight: 650; margin-top: 5px; display: inline-flex; align-items: center; gap: 5px; }
   .acc-ok { color: var(--success); }
   .acc-bad { color: var(--danger); }
+  .acc-warn { color: var(--warning); }
+  /* análise */
+  .ana-grid { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; }
+  @media (min-width: 900px) { .ana-grid { grid-template-columns: 1fr 1fr 1fr; } }
+  .rk-row { display: flex; align-items: center; gap: 11px; padding: 11px 16px;
+    border-bottom: 1px solid var(--line); }
+  .rk-row:last-child { border-bottom: none; }
+  .rk-pos { width: 24px; height: 24px; border-radius: 7px; background: var(--surface-3);
+    color: var(--muted); font-size: 11px; font-weight: 750; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; }
+  .rk-info { flex: 1; min-width: 0; }
+  .rk-t { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rk-s { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .rk-val { text-align: right; flex-shrink: 0; font-size: 14px; font-weight: 750; }
+  .rk-sub { display: block; font-size: 10.5px; color: var(--muted); font-weight: 600; }
   .p-neutro { background: var(--surface-3); color: var(--muted); }
   .p-neutro::before { background: var(--muted); }
   .chip-promo { font-size: 9.5px; font-weight: 750; padding: 2px 8px; border-radius: 100px;
@@ -79,6 +94,10 @@
     <div class="stat-v num">{{ resumo.pendentes_baixa }}</div>
     <div class="stat-l">Baixas pendentes</div>
   </div>
+  <div class="stat-card {% if resumo.avisos_criticos %}s-danger{% else %}s-success{% endif %}">
+    <div class="stat-v num" {% if resumo.avisos_criticos %}style="color:var(--danger)"{% endif %}>{{ resumo.avisos_criticos }}</div>
+    <div class="stat-l">Vencem em ≤7 dias</div>
+  </div>
   <div class="stat-card {% if resumo.avisos_vencendo %}s-amber{% endif %}">
     <div class="stat-v num">{{ resumo.avisos_vencendo }}</div>
     <div class="stat-l">{% if mes_atual %}Avisos vencendo no mês{% else %}Avisos vencendo ≤30d{% endif %}</div>
@@ -90,6 +109,7 @@
   <div class="seg">
     <button class="ativo" id="tab-venc" onclick="mostrarAba('vencidos')">Vencidos <span class="n">({{ vencidos | length }})</span></button>
     <button id="tab-avi" onclick="mostrarAba('avisos')">Avisos <span class="n">({{ avisos | selectattr('status','ne','resolvido')|list|length }})</span></button>
+    <button id="tab-ana" onclick="mostrarAba('analise')">Análise</button>
   </div>
 </div>
 
@@ -132,6 +152,13 @@
           <br>registrado em <span class="num">{{ x.criado_fmt }}</span>
           {% if x.baixa_status == 'baixado' %} · baixa <span class="num">{{ x.baixa_fmt }}</span>{% if x.baixa_ref %} · {{ x.baixa_ref }}{% endif %}{% endif %}
           {% if x.obs %} · {{ x.obs }}{% endif %}
+          {% if x.vinculo %}
+          <br><span class="acc {% if x.vinculo.pct_aproveitado > 0 %}acc-ok{% else %}acc-warn{% endif %}">
+            ↔ avisadas <span class="num">{{ '%g'|format(x.vinculo.avisadas) }}</span> ·
+            perdidas <span class="num">{{ '%g'|format(x.vinculo.perdidas) }}</span>
+            {% if x.vinculo.aproveitadas > 0 %} · <b>{{ '%g'|format(x.vinculo.aproveitadas) }} aproveitadas ({{ x.vinculo.pct_aproveitado }}%)</b>{% endif %}
+          </span>
+          {% endif %}
         </div>
       </div>
       <div class="item-right">
@@ -166,9 +193,11 @@
     </div>
     <div class="fseg" id="filtro-astatus">
       <button class="on" data-f="">Todos</button>
-      <button data-f="vence_breve">Vence ≤30d</button>
       <button data-f="vencido">Vencidos</button>
-      <button data-f="no_prazo">No prazo</button>
+      <button data-f="critico">≤7d</button>
+      <button data-f="atencao">8–30d</button>
+      <button data-f="programado">31–90d</button>
+      <button data-f="antecipado">Antecipado</button>
     </div>
   </div>
 
@@ -182,8 +211,10 @@
           {{ a.produto }}
           {% if a.status == 'resolvido' %}<span class="pill p-neutro">resolvido</span>
           {% elif a.status == 'vencido' %}<span class="pill p-open">vencido</span>
-          {% elif a.status == 'vence_breve' %}<span class="pill p-part">vence em {{ a.dias_para_vencer }}d</span>
-          {% else %}<span class="pill p-quit">no prazo</span>{% endif %}
+          {% elif a.status == 'critico' %}<span class="pill p-open">crítico · {{ a.dias_para_vencer }}d</span>
+          {% elif a.status == 'atencao' %}<span class="pill p-part">vence em {{ a.dias_para_vencer }}d</span>
+          {% elif a.status == 'antecipado' %}<span class="pill p-neutro">antecipado · {{ a.dias_para_vencer }}d</span>
+          {% else %}<span class="pill p-quit">programado</span>{% endif %}
           {% if a.promocao %}<span class="chip-promo">promoção</span>{% endif %}
         </div>
         <div class="item-sub">
@@ -198,6 +229,14 @@
             {% if a.no_prazo %}✓ avisado no prazo ({{ a.dias_antecedencia }}d de antecedência)
             {% else %}✕ fora do prazo ({{ a.dias_antecedencia }}d de antecedência){% endif %}
           </span>{% endif %}
+          {% if a.risco %}
+          <br><span class="acc {% if a.risco.nivel == 'alto' %}acc-bad{% elif a.risco.nivel == 'medio' %}acc-warn{% else %}acc-ok{% endif %}">
+            📉 vende ~<span class="num">{{ a.risco.media_mensal }}</span>/mês →
+            sobra estimada ~<span class="num">{{ a.risco.sobra }}</span> un
+            {% if a.risco.valor_sobra %}(<span class="num">{{ a.risco.valor_sobra | brl }}</span> em custo){% endif %}
+            · risco {{ a.risco.nivel }}
+          </span>
+          {% endif %}
         </div>
       </div>
       <div class="item-right">
@@ -211,12 +250,77 @@
         <button class="btn-lixo" onclick="excluir('aviso','{{ a.id }}')" title="Excluir aviso">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+        {% if a.status != 'resolvido' %}
+        <button class="btn btn-secondary btn-sm" onclick="abrirEditarAviso('{{ a.id }}')">Editar</button>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
     {% else %}
     <div class="empty-state">Nenhum aviso registrado.</div>
     {% endif %}
+  </div>
+</section>
+
+<!-- ══ ABA ANÁLISE ══ -->
+<section id="sec-analise" class="full" style="display:none">
+  <div class="ana-grid">
+    <div class="card card-flush">
+      <div class="card-head"><span class="ttl">Produtos reincidentes</span>
+        <span class="hint">2+ ocorrências · últimos 6 meses</span></div>
+      {% if rk_reincidencia %}
+      {% for r in rk_reincidencia %}
+      <div class="rk-row">
+        <span class="rk-pos num">{{ loop.index }}</span>
+        <div class="rk-info">
+          <div class="rk-t">{{ r.produto }}</div>
+          <div class="rk-s">{% if r.fornecedor %}{{ r.fornecedor }} · {% endif %}<span class="num">{{ '%g'|format(r.qtd) }}</span> un perdidas</div>
+        </div>
+        <div class="rk-val">
+          <span class="num" style="color:var(--danger)">{{ r.vezes }}×</span>
+          <span class="rk-sub num">{{ r.valor | brl }}</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty-state">Nenhum produto reincidente no período.</div>{% endif %}
+    </div>
+
+    <div class="card card-flush">
+      <div class="card-head"><span class="ttl">Perda por fornecedor</span>
+        <span class="hint">custo · últimos 6 meses</span></div>
+      {% if rk_fornecedores %}
+      {% for r in rk_fornecedores %}
+      <div class="rk-row">
+        <span class="rk-pos num">{{ loop.index }}</span>
+        <div class="rk-info">
+          <div class="rk-t">{{ r.fornecedor }}</div>
+          <div class="rk-s"><span class="num">{{ r.itens }}</span> registro(s) · <span class="num">{{ '%g'|format(r.qtd) }}</span> un</div>
+        </div>
+        <div class="rk-val"><span class="num" style="color:var(--danger)">{{ r.valor | brl }}</span></div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty-state">Sem fornecedores com perda registrada (preencha o fornecedor nos vencidos).</div>{% endif %}
+    </div>
+
+    <div class="card card-flush">
+      <div class="card-head"><span class="ttl">Antecedência por responsável</span>
+        <span class="hint">avisos · últimos 6 meses</span></div>
+      {% if rk_responsaveis %}
+      {% for r in rk_responsaveis %}
+      <div class="rk-row">
+        <span class="rk-pos num">{{ loop.index }}</span>
+        <div class="rk-info">
+          <div class="rk-t">{{ r.responsavel }}</div>
+          <div class="rk-s"><span class="num">{{ r.avisos }}</span> aviso(s)</div>
+        </div>
+        <div class="rk-val">
+          <span class="num" style="color:{% if r.antecedencia_media >= 30 %}var(--success){% else %}var(--danger){% endif %}">{{ r.antecedencia_media }}d</span>
+          <span class="rk-sub num">{{ r.pct_no_prazo }}% no prazo</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty-state">Nenhum aviso com responsável no período.</div>{% endif %}
+    </div>
   </div>
 </section>
 
@@ -265,17 +369,18 @@
 <!-- Modal: Registrar Aviso -->
 <div class="modal-overlay" id="modal-aviso" onclick="fecharSeFundo(event,'modal-aviso')">
   <div class="modal" role="dialog" aria-modal="true">
-    <div class="modal-head"><div class="modal-title">Registrar aviso de vencimento</div>
+    <div class="modal-head"><div class="modal-title" id="av-titulo">Registrar aviso de vencimento</div>
       <button class="modal-close" onclick="fecharModal('modal-aviso')">&times;</button></div>
     <div class="modal-body">
       <label>Produto <em>*</em></label>
       <input type="text" id="av-produto" placeholder="Nome do produto">
       <div class="two-col" style="margin-top:14px">
         <div><label>Código de barras</label>
-          <input type="text" id="av-barras" class="num" inputmode="numeric"></div>
+          <input type="text" id="av-barras" class="num" inputmode="numeric" oninput="checarAvisoDup()"></div>
         <div><label>Quantidade <em>*</em></label>
           <input type="number" id="av-qtd" placeholder="0" min="0" step="0.001" inputmode="decimal"></div>
       </div>
+      <div class="alertx chk-banner" id="av-dup"></div>
       <label>Data de vencimento <em>*</em></label>
       <input type="date" id="av-venc">
       <div class="two-col" style="margin-top:14px">
@@ -296,7 +401,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-aviso')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarAviso()">Registrar aviso</button>
+      <button class="btn btn-primary" id="av-salvar" onclick="salvarAviso()">Registrar aviso</button>
     </div>
   </div>
 </div>
@@ -331,6 +436,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const VENCIDOS = {{ vencidos | tojson }};
+const AVISOS = {{ avisos | tojson }};
 let _baixaId = null, _baixaTipo = "perda";
 const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devolução" };
 
@@ -342,11 +448,12 @@ function irParaMes(mes) {
 
 // ── Abas ──
 function mostrarAba(qual) {
-  const v = qual === "vencidos";
-  $("sec-vencidos").style.display = v ? "" : "none";
-  $("sec-avisos").style.display   = v ? "none" : "";
-  $("tab-venc").classList.toggle("ativo", v);
-  $("tab-avi").classList.toggle("ativo", !v);
+  $("sec-vencidos").style.display = qual === "vencidos" ? "" : "none";
+  $("sec-avisos").style.display   = qual === "avisos"   ? "" : "none";
+  $("sec-analise").style.display  = qual === "analise"  ? "" : "none";
+  $("tab-venc").classList.toggle("ativo", qual === "vencidos");
+  $("tab-avi").classList.toggle("ativo",  qual === "avisos");
+  $("tab-ana").classList.toggle("ativo",  qual === "analise");
 }
 
 // ── Filtros client-side ──
@@ -476,12 +583,59 @@ async function salvarVencido() {
   else { $("msg-ve-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
-// ── Registrar aviso ──
+// ── Registrar / editar aviso ──
+let _modoAviso = "novo";   // 'novo' | 'editar'
+let _editAvisoId = null;
+
 function abrirAviso() {
+  _modoAviso = "novo"; _editAvisoId = null;
   ["av-produto","av-barras","av-qtd","av-venc","av-forn","av-resp","av-custo","av-venda","av-promo"].forEach(id => $(id).value = "");
+  $("av-dup").className = "alertx chk-banner"; $("av-dup").innerHTML = "";
+  $("av-titulo").textContent = "Registrar aviso de vencimento";
+  $("av-salvar").textContent = "Registrar aviso";
   $("msg-av").classList.remove("show");
   abrirModal("modal-aviso");
 }
+
+function abrirEditarAviso(id) {
+  const a = AVISOS.find(x => x.id === id);
+  if (!a) return;
+  _modoAviso = "editar"; _editAvisoId = id;
+  $("av-produto").value = a.produto || "";
+  $("av-barras").value = a.codigo_barras || "";
+  $("av-qtd").value = a.quantidade;
+  $("av-venc").value = a.data_vencimento || "";
+  $("av-forn").value = a.fornecedor || "";
+  $("av-resp").value = a.responsavel || "";
+  $("av-custo").value = (a.custo != null ? a.custo : "");
+  $("av-venda").value = (a.venda != null ? a.venda : "");
+  $("av-promo").value = (a.valor_promocional != null ? a.valor_promocional : "");
+  $("av-dup").className = "alertx chk-banner"; $("av-dup").innerHTML = "";
+  $("av-titulo").textContent = "Editar aviso";
+  $("av-salvar").textContent = "Salvar";
+  $("msg-av").classList.remove("show");
+  abrirModal("modal-aviso");
+}
+
+// alerta de aviso duplicado (mesmo código já na vigília) — só no cadastro
+let _dupTimer = null;
+function checarAvisoDup() {
+  if (_modoAviso === "editar") return;
+  clearTimeout(_dupTimer);
+  const cb = $("av-barras").value.trim();
+  const banner = $("av-dup");
+  if (!cb) { banner.classList.remove("show"); return; }
+  _dupTimer = setTimeout(async () => {
+    const r = await postJSON("/vencidos/api/checar-aviso", { codigo_barras: cb });
+    if (r.avisado) {
+      banner.innerHTML = `<span style="color:var(--warning);font-weight:700">⚠ Já existe aviso ativo</span>&nbsp;deste código (${r.produto} · vence ${r.data_venc_fmt}). Prefira <b>editar</b> o aviso existente em vez de duplicar.`;
+      banner.classList.add("show");
+    } else {
+      banner.classList.remove("show");
+    }
+  }, 350);
+}
+
 async function salvarAviso() {
   const msg = $("msg-av"); msg.classList.remove("show");
   const body = {
@@ -492,6 +646,12 @@ async function salvarAviso() {
   };
   if (!body.produto || !parseFloat(body.quantidade) || !body.data_vencimento) {
     $("msg-av-txt").textContent = "Informe produto, quantidade e data de vencimento."; msg.classList.add("show"); return;
+  }
+  if (_modoAviso === "editar") {
+    const r = await postJSON(`/vencidos/api/aviso/${_editAvisoId}/editar`, body);
+    if (r.ok) location.reload();   // mantém o mês atual
+    else { $("msg-av-txt").textContent = r.msg; msg.classList.add("show"); }
+    return;
   }
   const r = await postJSON("/vencidos/api/aviso", body);
   if (r.ok) location.href = "/vencidos/";   // volta p/ todos os meses
