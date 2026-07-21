@@ -1,6 +1,6 @@
 """
 scripts/vencidos_routes.py
-Blueprint do módulo de produtos vencidos / perdas (/vencidos).
+Blueprint do módulo de vencidos (/vencidos): avisos, vencidos e baixa.
 """
 from flask import Blueprint, render_template, request, jsonify, session
 from scripts import vencidos as v
@@ -14,32 +14,71 @@ def _usuario():
 
 @vencidos_bp.route("/")
 def index():
-    inicio = request.args.get("inicio", "")
-    fim    = request.args.get("fim", "")
-    motivo = request.args.get("motivo", "")
     return render_template(
         "vencidos/index.html",
-        registros=v.listar(inicio, fim, motivo),
-        resumo=v.resumo(inicio, fim, motivo),
-        motivos=v.MOTIVOS,
-        filtro={"inicio": inicio, "fim": fim, "motivo": motivo},
+        resumo=v.resumo(),
+        vencidos=v.listar_vencidos(),
+        avisos=v.listar_avisos(),
+        tipos_baixa=v.TIPOS_BAIXA,
         hoje=v._hoje(),
     )
 
 
-@vencidos_bp.route("/api/registrar", methods=["POST"])
-def api_registrar():
+# ── API — Avisos ──────────────────────────────────────────────────────────────
+@vencidos_bp.route("/api/aviso", methods=["POST"])
+def api_aviso():
     d = request.get_json() or {}
-    ok, msg = v.registrar(
-        produto=d.get("produto", ""), quantidade=d.get("quantidade", 0),
-        motivo=d.get("motivo", ""), codigo_barras=d.get("codigo_barras", ""),
-        valor_unit=d.get("valor_unit"), data=d.get("data"),
+    ok, msg = v.registrar_aviso(
+        produto=d.get("produto", ""), codigo_barras=d.get("codigo_barras", ""),
+        quantidade=d.get("quantidade", 0), fornecedor=d.get("fornecedor", ""),
+        responsavel=d.get("responsavel", ""), data_vencimento=d.get("data_vencimento", ""),
+        custo=d.get("custo"), venda=d.get("venda"),
+        valor_promocional=d.get("valor_promocional"), obs=d.get("obs", ""),
+        usuario=_usuario(),
+    )
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@vencidos_bp.route("/api/aviso/<id_aviso>", methods=["DELETE"])
+def api_del_aviso(id_aviso):
+    ok, msg = v.excluir_aviso(id_aviso, usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+# ── API — Vencidos ────────────────────────────────────────────────────────────
+@vencidos_bp.route("/api/checar-aviso", methods=["POST"])
+def api_checar_aviso():
+    d = request.get_json() or {}
+    return jsonify(v.checar_aviso(d.get("codigo_barras", "")))
+
+
+@vencidos_bp.route("/api/vencido", methods=["POST"])
+def api_vencido():
+    d = request.get_json() or {}
+    ok, msg = v.registrar_vencido(
+        produto=d.get("produto", ""), codigo_barras=d.get("codigo_barras", ""),
+        quantidade=d.get("quantidade", 0), fornecedor=d.get("fornecedor", ""),
+        custo=d.get("custo"), responsavel_entrega=d.get("responsavel_entrega", ""),
         obs=d.get("obs", ""), usuario=_usuario(),
     )
     return jsonify({"ok": ok, "msg": msg})
 
 
-@vencidos_bp.route("/api/<id_registro>", methods=["DELETE"])
-def api_excluir(id_registro):
-    ok, msg = v.excluir(id_registro, usuario=_usuario())
+@vencidos_bp.route("/api/vencido/<id_vencido>/baixa", methods=["POST"])
+def api_baixa(id_vencido):
+    d = request.get_json() or {}
+    ok, msg = v.dar_baixa(id_vencido, d.get("tipo", ""), d.get("referencia", ""),
+                          usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@vencidos_bp.route("/api/vencido/<id_vencido>/reabrir", methods=["POST"])
+def api_reabrir(id_vencido):
+    ok, msg = v.reabrir_baixa(id_vencido, usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@vencidos_bp.route("/api/vencido/<id_vencido>", methods=["DELETE"])
+def api_del_vencido(id_vencido):
+    ok, msg = v.excluir_vencido(id_vencido, usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})

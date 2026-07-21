@@ -1,15 +1,23 @@
 """
 scripts/vencidos.py
 ===================
-Registro interno de produtos vencidos / perdas.
-Persiste em dados/vencidos.db (SQLite).
+Controle de vencidos em dois estágios + baixa.
 
-Nasce já no padrão de confiabilidade do sistema:
-  • Datas em ISO (ordenação correta) + `data_fmt` para exibição.
-  • Exclusão LÓGICA (soft-delete): nada some do banco.
-  • Toda ação vai para a tabela `auditoria`, com autor (`usuario`).
+Fluxo do negócio:
+  1. AVISO  — antes de vencer, o responsável pela seção avisa (≥30 dias) e o
+     cadastro registra: produto, código de barras, quantidade, fornecedor,
+     responsável (quem avisou), data de vencimento, custo, venda e valor
+     promocional (se for pra promoção).
+  2. VENCIDO — a mercadoria vencida chega ao escritório e o cadastro registra o
+     básico: produto, código, quantidade, fornecedor, custo, responsável pela
+     entrega e SE foi avisado (o sistema detecta sozinho pelo código de barras).
+  3. BAIXA  — botão que confirma a baixa no sistema, como perda (nota de perda)
+     ou devolução (fornecedor + nº da NF).
 
-Camada de lógica: NÃO importa Flask.
+O sistema registra data/hora e autor de cada ação, cruza aviso × vencido
+automaticamente e vigia a regra dos 30 dias (sinaliza, não bloqueia).
+
+Persiste em dados/vencidos.db (SQLite). Camada de lógica: NÃO importa Flask.
 """
 import os
 import re
@@ -21,7 +29,10 @@ BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DADOS_DIR = os.path.join(BASE_DIR, "dados")
 BANCO     = os.path.join(DADOS_DIR, "vencidos.db")
 
-MOTIVOS = ["vencido", "avaria", "quebra", "consumo interno", "outro"]
+_EPS = 0.005
+DIAS_MINIMO = 30  # antecedência mínima do aviso
+
+TIPOS_BAIXA = {"perda": "Perda", "devolucao": "Devolução ao fornecedor"}
 
 
 def _conn():
@@ -29,18 +40,55 @@ def _conn():
     conn = sqlite3.connect(BANCO)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
+    _init_schema(conn)
+    return conn
+
+
+def _init_schema(conn):
+    # Legado: a versão anterior do módulo usava uma tabela `vencidos` com coluna
+    # `motivo`. Se existir e estiver vazia, recria no esquema novo.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(vencidos)")}
+    if cols and "motivo" in cols and "baixa_status" not in cols:
+        if conn.execute("SELECT COUNT(*) FROM vencidos").fetchone()[0] == 0:
+            conn.execute("DROP TABLE vencidos")
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS vencidos (
+        CREATE TABLE IF NOT EXISTS avisos (
             id            TEXT PRIMARY KEY,
-            data          TEXT NOT NULL,      -- data da ocorrência (AAAA-MM-DD)
             produto       TEXT NOT NULL,
             codigo_barras TEXT,
             quantidade    REAL NOT NULL,
-            motivo        TEXT NOT NULL,
-            valor_unit    REAL,
-            valor_total   REAL NOT NULL DEFAULT 0,
+            fornecedor    TEXT,
+            responsavel   TEXT,               -- quem avisou (responsável da seção)
+            data_vencimento TEXT NOT NULL,     -- AAAA-MM-DD
+            custo         REAL,
+            venda         REAL,
+            valor_promocional REAL,
             obs           TEXT,
+            registrado_por TEXT,
             criado_em     TEXT NOT NULL,
+            resolvido_em  TEXT,
+            resolvido_vencido_id TEXT,
+            excluido_em   TEXT,
+            excluido_por  TEXT
+        );
+        CREATE TABLE IF NOT EXISTS vencidos (
+            id            TEXT PRIMARY KEY,
+            produto       TEXT NOT NULL,
+            codigo_barras TEXT,
+            quantidade    REAL NOT NULL,
+            fornecedor    TEXT,
+            custo         REAL,
+            responsavel_entrega TEXT,          -- funcionário que trouxe
+            foi_avisado   INTEGER NOT NULL DEFAULT 0,
+            aviso_id      TEXT,
+            obs           TEXT,
+            registrado_por TEXT,
+            criado_em     TEXT NOT NULL,
+            baixa_status  TEXT NOT NULL DEFAULT 'pendente',   -- pendente | baixado
+            baixa_tipo    TEXT,                -- perda | devolucao
+            baixa_ref     TEXT,                -- nº nota de perda / nº NF devolução
+            baixa_em      TEXT,
+            baixa_por     TEXT,
             excluido_em   TEXT,
             excluido_por  TEXT
         );
@@ -53,11 +101,12 @@ def _conn():
             acao        TEXT NOT NULL,
             detalhe     TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_venc_data   ON vencidos(data);
-        CREATE INDEX IF NOT EXISTS idx_venc_barras ON vencidos(codigo_barras);
+        CREATE INDEX IF NOT EXISTS idx_aviso_barras ON avisos(codigo_barras);
+        CREATE INDEX IF NOT EXISTS idx_aviso_venc   ON avisos(data_vencimento);
+        CREATE INDEX IF NOT EXISTS idx_venc_barras  ON vencidos(codigo_barras);
+        CREATE INDEX IF NOT EXISTS idx_venc_criado  ON vencidos(criado_em);
     """)
     conn.commit()
-    return conn
 
 
 # ── Utilitários ───────────────────────────────────────────────────────────────
@@ -77,11 +126,10 @@ _DATA_ISO = re.compile(r'^(\d{4})-(\d{2})-(\d{2})$')
 _DATA_BR  = re.compile(r'^(\d{2})/(\d{2})/(\d{4})$')
 
 
-def _normaliza_data(s):
-    """Aceita 'AAAA-MM-DD' ou 'DD/MM/AAAA' e devolve ISO; None se vazio/ inválido."""
+def _norm_dia(s):
     if not s:
         return None
-    s = s.strip()
+    s = str(s).strip()
     if _DATA_ISO.match(s):
         return s
     m = _DATA_BR.match(s)
@@ -91,14 +139,35 @@ def _normaliza_data(s):
     return None
 
 
-def _fmt_data(s):
-    if not s:
-        return ""
-    m = _DATA_ISO.match(s)
-    if m:
-        y, mo, d = m.groups()
-        return f"{d}/{mo}/{y}"
-    return s
+def _fmt_dia(s):
+    m = _DATA_ISO.match(s or "")
+    if not m:
+        return s or ""
+    y, mo, d = m.groups()
+    return f"{d}/{mo}/{y}"
+
+
+def _fmt_dt(s):
+    """'2026-07-20 14:30:00' → '20/07/2026 14:30'."""
+    m = re.match(r'^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})', s or "")
+    if not m:
+        return s or ""
+    y, mo, d, h, mi = m.groups()
+    return f"{d}/{mo}/{y} {h}:{mi}"
+
+
+def _dias_ate(data_iso):
+    try:
+        return (date.fromisoformat(data_iso) - date.today()).days
+    except (TypeError, ValueError):
+        return None
+
+
+def _dias_entre(inicio_iso, fim_iso):
+    try:
+        return (date.fromisoformat(fim_iso) - date.fromisoformat((inicio_iso or "")[:10])).days
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_qtd(v):
@@ -110,108 +179,308 @@ def _parse_qtd(v):
 
 
 def _parse_valor_opcional(v):
-    if v in (None, "", "0", 0):
+    if v in (None, "", "N", "n"):
         return None
     try:
         val = round(float(str(v).replace(",", ".")), 2)
-        return val if val > 0 else None
+        return val if val >= 0 else None
     except (TypeError, ValueError):
         return None
 
 
-def _auditar(conn, entidade_id, acao, detalhe="", usuario=None):
+def _auditar(conn, entidade, entidade_id, acao, detalhe="", usuario=None):
     conn.execute(
         "INSERT INTO auditoria (quando, usuario, entidade, entidade_id, acao, detalhe) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (_agora(), usuario, "vencido", entidade_id, acao, detalhe),
+        (_agora(), usuario, entidade, str(entidade_id) if entidade_id else None, acao, detalhe),
     )
 
 
-# ── Operações ─────────────────────────────────────────────────────────────────
-def registrar(produto, quantidade, motivo, codigo_barras="", valor_unit=None,
-              data=None, obs="", usuario=None):
+# ── Enriquecimento (campos derivados) ─────────────────────────────────────────
+def _enriquecer_aviso(a):
+    dias_venc = _dias_ate(a["data_vencimento"])
+    dias_antec = _dias_entre(a["criado_em"], a["data_vencimento"])
+    if a["resolvido_em"]:
+        status = "resolvido"
+    elif dias_venc is None:
+        status = "no_prazo"
+    elif dias_venc < 0:
+        status = "vencido"
+    elif dias_venc <= 30:
+        status = "vence_breve"
+    else:
+        status = "no_prazo"
+    a["dias_para_vencer"] = dias_venc
+    a["dias_antecedencia"] = dias_antec
+    a["no_prazo"] = (dias_antec is not None and dias_antec >= DIAS_MINIMO)
+    a["status"] = status
+    a["promocao"] = a["valor_promocional"] is not None
+    a["data_venc_fmt"] = _fmt_dia(a["data_vencimento"])
+    a["criado_fmt"] = _fmt_dt(a["criado_em"])
+    return a
+
+
+def _enriquecer_vencido(v):
+    v["foi_avisado"] = bool(v["foi_avisado"])
+    v["valor_perdido"] = round((v["quantidade"] or 0) * (v["custo"] or 0), 2)
+    v["criado_fmt"] = _fmt_dt(v["criado_em"])
+    v["baixa_fmt"] = _fmt_dt(v["baixa_em"]) if v["baixa_em"] else ""
+    v["baixa_tipo_label"] = TIPOS_BAIXA.get(v["baixa_tipo"], v["baixa_tipo"] or "")
+    return v
+
+
+# ── Avisos ────────────────────────────────────────────────────────────────────
+def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
+                    data_vencimento, custo=None, venda=None, valor_promocional=None,
+                    obs="", usuario=None):
     produto = (produto or "").strip()
     if not produto:
         return False, "Informe o produto."
     qtd = _parse_qtd(quantidade)
     if qtd is None:
         return False, "Quantidade inválida."
-    motivo = (motivo or "").strip().lower()
-    if motivo not in MOTIVOS:
-        return False, "Motivo inválido."
-    data_iso = _normaliza_data(data) or _hoje()
-    vu = _parse_valor_opcional(valor_unit)
-    valor_total = round(qtd * vu, 2) if vu else 0.0
+    dv = _norm_dia(data_vencimento)
+    if not dv:
+        return False, "Informe a data de vencimento."
+    conn = _conn()
+    try:
+        aid = _uid()
+        conn.execute(
+            "INSERT INTO avisos (id, produto, codigo_barras, quantidade, fornecedor, "
+            "responsavel, data_vencimento, custo, venda, valor_promocional, obs, "
+            "registrado_por, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (aid, produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
+             (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
+             _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
+             (obs or "").strip(), usuario, _agora()),
+        )
+        _auditar(conn, "aviso", aid, "criar", f"{produto} · vence {_fmt_dia(dv)}", usuario)
+        conn.commit()
+        dias = _dias_entre(_hoje(), dv)
+        aviso_atraso = dias is not None and dias < DIAS_MINIMO
+        msg = f"Aviso de '{produto}' registrado."
+        if aviso_atraso:
+            msg += f" Atenção: avisado com {dias} dia(s) — abaixo dos {DIAS_MINIMO} do prazo."
+        return True, msg
+    finally:
+        conn.close()
 
+
+def listar_avisos(status=None, busca=None, incluir_resolvidos=True):
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM avisos WHERE excluido_em IS NULL "
+            "ORDER BY data_vencimento ASC, criado_em DESC").fetchall()]
+    finally:
+        conn.close()
+    saida = []
+    for a in rows:
+        _enriquecer_aviso(a)
+        if not incluir_resolvidos and a["status"] == "resolvido":
+            continue
+        if status and a["status"] != status:
+            continue
+        if busca:
+            alvo = f"{a['produto']} {a['codigo_barras']} {a['fornecedor']} {a['responsavel']}".lower()
+            if busca.lower() not in alvo:
+                continue
+        saida.append(a)
+    return saida
+
+
+def excluir_aviso(id_aviso, usuario=None):
+    conn = _conn()
+    try:
+        r = conn.execute("UPDATE avisos SET excluido_em=?, excluido_por=? "
+                         "WHERE id=? AND excluido_em IS NULL", (_agora(), usuario, id_aviso))
+        if r.rowcount:
+            _auditar(conn, "aviso", id_aviso, "excluir", "", usuario)
+            conn.commit()
+            return True, "Aviso removido."
+        return False, "Aviso não encontrado."
+    finally:
+        conn.close()
+
+
+def buscar_aviso_ativo_por_barras(codigo_barras):
+    """Aviso ativo (não resolvido, não excluído) do mesmo código de barras, mais
+    próximo de vencer. Retorna dict enriquecido ou None."""
+    cb = (codigo_barras or "").strip()
+    if not cb:
+        return None
+    conn = _conn()
+    try:
+        r = conn.execute(
+            "SELECT * FROM avisos WHERE codigo_barras = ? AND excluido_em IS NULL "
+            "AND resolvido_em IS NULL ORDER BY data_vencimento ASC LIMIT 1", (cb,)).fetchone()
+    finally:
+        conn.close()
+    return _enriquecer_aviso(dict(r)) if r else None
+
+
+def checar_aviso(codigo_barras):
+    """Para a checagem ao vivo no formulário do vencido."""
+    a = buscar_aviso_ativo_por_barras(codigo_barras)
+    if not a:
+        return {"avisado": False}
+    return {
+        "avisado": True, "aviso_id": a["id"], "produto": a["produto"],
+        "data_venc_fmt": a["data_venc_fmt"], "dias_antecedencia": a["dias_antecedencia"],
+        "no_prazo": a["no_prazo"], "responsavel": a["responsavel"],
+        "quantidade": a["quantidade"], "fornecedor": a["fornecedor"], "custo": a["custo"],
+    }
+
+
+# ── Vencidos ──────────────────────────────────────────────────────────────────
+def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
+                      responsavel_entrega, obs="", usuario=None):
+    produto = (produto or "").strip()
+    if not produto:
+        return False, "Informe o produto."
+    qtd = _parse_qtd(quantidade)
+    if qtd is None:
+        return False, "Quantidade inválida."
+    cb = (codigo_barras or "").strip()
+    aviso = buscar_aviso_ativo_por_barras(cb)
+    foi_avisado = 1 if aviso else 0
     conn = _conn()
     try:
         vid = _uid()
         conn.execute(
-            "INSERT INTO vencidos (id, data, produto, codigo_barras, quantidade, motivo, "
-            "valor_unit, valor_total, obs, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (vid, data_iso, produto, (codigo_barras or "").strip(), qtd, motivo,
-             vu, valor_total, (obs or "").strip(), _agora()),
+            "INSERT INTO vencidos (id, produto, codigo_barras, quantidade, fornecedor, "
+            "custo, responsavel_entrega, foi_avisado, aviso_id, obs, registrado_por, "
+            "criado_em, baixa_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pendente')",
+            (vid, produto, cb, qtd, (fornecedor or "").strip(),
+             _parse_valor_opcional(custo), (responsavel_entrega or "").strip(),
+             foi_avisado, aviso["id"] if aviso else None, (obs or "").strip(),
+             usuario, _agora()),
         )
-        _auditar(conn, vid, "criar",
-                 f"{produto} · {qtd:g} · {motivo}"
-                 + (f" · R$ {valor_total:.2f}" if valor_total else ""), usuario)
+        # resolve o aviso correspondente (vincula e tira da vigília)
+        if aviso:
+            conn.execute("UPDATE avisos SET resolvido_em=?, resolvido_vencido_id=? WHERE id=?",
+                         (_agora(), vid, aviso["id"]))
+            _auditar(conn, "aviso", aviso["id"], "resolver", f"vencido {vid}", usuario)
+        _auditar(conn, "vencido", vid, "criar",
+                 f"{produto} · {qtd:g} un · {'avisado' if foi_avisado else 'SEM aviso'}", usuario)
         conn.commit()
-        return True, f"Registro de '{produto}' salvo."
+        if foi_avisado:
+            return True, f"Vencido '{produto}' registrado — avisado em {aviso['data_venc_fmt']}."
+        return True, f"Vencido '{produto}' registrado — SEM aviso prévio."
     finally:
         conn.close()
 
 
-def listar(inicio=None, fim=None, motivo=None, limite=500):
-    ini = _normaliza_data(inicio)
-    fim_ = _normaliza_data(fim)
+def listar_vencidos(baixa=None, avisado=None, busca=None):
     conn = _conn()
     try:
-        sql = "SELECT * FROM vencidos WHERE excluido_em IS NULL"
-        params = []
-        if ini:
-            sql += " AND data >= ?"; params.append(ini)
-        if fim_:
-            sql += " AND data <= ?"; params.append(fim_)
-        if motivo and motivo in MOTIVOS:
-            sql += " AND motivo = ?"; params.append(motivo)
-        sql += " ORDER BY data DESC, criado_em DESC LIMIT ?"
-        params.append(limite)
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-        for v in rows:
-            v["data_fmt"] = _fmt_data(v["data"])
-        return rows
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM vencidos WHERE excluido_em IS NULL "
+            "ORDER BY (baixa_status='baixado'), criado_em DESC").fetchall()]
+    finally:
+        conn.close()
+    saida = []
+    for v in rows:
+        _enriquecer_vencido(v)
+        if baixa and v["baixa_status"] != baixa:
+            continue
+        if avisado == "sim" and not v["foi_avisado"]:
+            continue
+        if avisado == "nao" and v["foi_avisado"]:
+            continue
+        if busca:
+            alvo = f"{v['produto']} {v['codigo_barras']} {v['fornecedor']} {v['responsavel_entrega']}".lower()
+            if busca.lower() not in alvo:
+                continue
+        saida.append(v)
+    return saida
+
+
+def dar_baixa(id_vencido, tipo, referencia="", usuario=None):
+    if tipo not in TIPOS_BAIXA:
+        return False, "Tipo de baixa inválido."
+    conn = _conn()
+    try:
+        v = conn.execute("SELECT * FROM vencidos WHERE id=? AND excluido_em IS NULL",
+                         (id_vencido,)).fetchone()
+        if not v:
+            return False, "Vencido não encontrado."
+        if v["baixa_status"] == "baixado":
+            return False, "Este vencido já teve baixa."
+        conn.execute(
+            "UPDATE vencidos SET baixa_status='baixado', baixa_tipo=?, baixa_ref=?, "
+            "baixa_em=?, baixa_por=? WHERE id=?",
+            (tipo, (referencia or "").strip(), _agora(), usuario, id_vencido))
+        _auditar(conn, "vencido", id_vencido, "baixa",
+                 f"{TIPOS_BAIXA[tipo]}" + (f" · {referencia}" if referencia else ""), usuario)
+        conn.commit()
+        return True, "Baixa confirmada."
     finally:
         conn.close()
 
 
-def excluir(id_registro, usuario=None):
+def reabrir_baixa(id_vencido, usuario=None):
     conn = _conn()
     try:
         r = conn.execute(
-            "UPDATE vencidos SET excluido_em = ?, excluido_por = ? "
-            "WHERE id = ? AND excluido_em IS NULL", (_agora(), usuario, id_registro))
+            "UPDATE vencidos SET baixa_status='pendente', baixa_tipo=NULL, baixa_ref=NULL, "
+            "baixa_em=NULL, baixa_por=NULL WHERE id=? AND excluido_em IS NULL AND baixa_status='baixado'",
+            (id_vencido,))
         if r.rowcount:
-            _auditar(conn, id_registro, "excluir", "", usuario)
+            _auditar(conn, "vencido", id_vencido, "reabrir", "", usuario)
             conn.commit()
-            return True, "Registro removido."
-        return False, "Registro não encontrado."
+            return True, "Baixa reaberta."
+        return False, "Vencido não encontrado ou sem baixa."
     finally:
         conn.close()
 
 
-def resumo(inicio=None, fim=None, motivo=None):
-    itens = listar(inicio, fim, motivo, limite=100000)
-    total_valor = round(sum(v["valor_total"] or 0 for v in itens), 2)
-    total_qtd   = round(sum(v["quantidade"] or 0 for v in itens), 3)
-    por_motivo = {}
-    for v in itens:
-        m = por_motivo.setdefault(v["motivo"], {"itens": 0, "quantidade": 0.0, "valor": 0.0})
-        m["itens"] += 1
-        m["quantidade"] = round(m["quantidade"] + (v["quantidade"] or 0), 3)
-        m["valor"] = round(m["valor"] + (v["valor_total"] or 0), 2)
+def excluir_vencido(id_vencido, usuario=None):
+    conn = _conn()
+    try:
+        r = conn.execute("UPDATE vencidos SET excluido_em=?, excluido_por=? "
+                         "WHERE id=? AND excluido_em IS NULL", (_agora(), usuario, id_vencido))
+        if r.rowcount:
+            _auditar(conn, "vencido", id_vencido, "excluir", "", usuario)
+            conn.commit()
+            return True, "Vencido removido."
+        return False, "Vencido não encontrado."
+    finally:
+        conn.close()
+
+
+# ── Painel ────────────────────────────────────────────────────────────────────
+def resumo():
+    conn = _conn()
+    try:
+        vrows = conn.execute(
+            "SELECT quantidade, custo, foi_avisado, baixa_status FROM vencidos "
+            "WHERE excluido_em IS NULL").fetchall()
+        arows = conn.execute(
+            "SELECT data_vencimento, resolvido_em FROM avisos WHERE excluido_em IS NULL").fetchall()
+    finally:
+        conn.close()
+
+    total_v = len(vrows)
+    valor = round(sum((r["quantidade"] or 0) * (r["custo"] or 0) for r in vrows), 2)
+    avisados = sum(1 for r in vrows if r["foi_avisado"])
+    pendentes_baixa = sum(1 for r in vrows if r["baixa_status"] != "baixado")
+    pct_avisado = round(avisados * 100 / total_v) if total_v else 0
+
+    vencendo, avisos_ativos = 0, 0
+    for r in arows:
+        if r["resolvido_em"]:
+            continue
+        avisos_ativos += 1
+        dias = _dias_ate(r["data_vencimento"])
+        if dias is not None and dias <= 30:
+            vencendo += 1
     return {
-        "total_registros": len(itens),
-        "total_quantidade": total_qtd,
-        "total_valor": total_valor,
-        "por_motivo": por_motivo,
+        "total_vencidos": total_v,
+        "valor_perdido": valor,
+        "avisados": avisados,
+        "pct_avisado": pct_avisado,
+        "pendentes_baixa": pendentes_baixa,
+        "avisos_ativos": avisos_ativos,
+        "avisos_vencendo": vencendo,
     }

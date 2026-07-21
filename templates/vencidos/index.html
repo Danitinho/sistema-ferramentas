@@ -1,141 +1,301 @@
 {% extends "base.html" %}
-{% block title %}Produtos vencidos — Registro interno{% endblock %}
-{% block header_title %}Produtos vencidos{% endblock %}
+{% block title %}Controle de vencidos{% endblock %}
+{% block header_title %}Controle de vencidos{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
 
 {% block header_actions %}
-<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-reg')">+ Registrar produto</button>
+<button class="btn btn-secondary btn-sm" onclick="abrirAviso()">+ Aviso</button>
+<button class="btn btn-primary btn-sm" onclick="abrirVencido()">+ Vencido</button>
 {% endblock %}
 
 {% block extra_head %}
 <style>
-  .grid-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 16px; }
-  .filtros { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-  .filtros .campo { flex: 1; min-width: 130px; }
-  .filtros .campo label { margin-top: 0; }
-  .filtros .btn { margin-top: 0; width: auto; }
-  .reg { display: flex; align-items: flex-start; gap: 11px; padding: 13px 18px;
+  .painel { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 11px; margin-bottom: 16px; }
+  .tabs { margin-bottom: 14px; max-width: 420px; }
+  .tabs .seg button .n { opacity: .6; font-weight: 600; }
+
+  .item-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px;
     border-bottom: 1px solid var(--line); transition: background .12s; }
-  .reg:hover { background: var(--surface-2); }
-  .reg:last-child { border-bottom: none; }
-  .reg-info { flex: 1; min-width: 0; }
-  .reg-titulo { font-size: 13.5px; font-weight: 650; display: flex; align-items: center;
-    gap: 8px; flex-wrap: wrap; }
-  .reg-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .reg-valor { font-size: 14px; font-weight: 700; white-space: nowrap;
-    flex-shrink: 0; color: var(--danger); }
-  .mtv { font-size: 9.5px; padding: 2px 8px; border-radius: 7px; font-weight: 750;
-    text-transform: uppercase; letter-spacing: .05em; }
-  .mtv-vencido { background: var(--danger-bg);  color: var(--danger); }
-  .mtv-avaria  { background: var(--warning-bg); color: var(--warning); }
-  .mtv-quebra  { background: var(--surface-3);  color: var(--ink-2); }
-  .mtv-consumo { background: var(--success-bg); color: var(--success); }
-  .mtv-outro   { background: var(--surface-3);  color: var(--muted); }
+  .item-row:hover { background: var(--surface-2); }
+  .item-row:last-child { border-bottom: none; }
+  .item-info { flex: 1; min-width: 0; }
+  .item-t { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .item-sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .item-right { text-align: right; flex-shrink: 0; white-space: nowrap; }
+  .item-val { font-size: 15px; font-weight: 750; }
+  .item-val .l { display: block; font-size: 10px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; margin-top: 1px; }
+  .item-acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; flex-shrink: 0; }
+  .acc { font-size: 11px; font-weight: 650; margin-top: 5px; display: inline-flex; align-items: center; gap: 5px; }
+  .acc-ok { color: var(--success); }
+  .acc-bad { color: var(--danger); }
+  .p-neutro { background: var(--surface-3); color: var(--muted); }
+  .p-neutro::before { background: var(--muted); }
+  .chip-promo { font-size: 9.5px; font-weight: 750; padding: 2px 8px; border-radius: 100px;
+    background: var(--warning-bg); color: var(--warning); text-transform: uppercase; letter-spacing: .05em; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .filtros .search { flex: 1; min-width: 160px; }
+  .chk-banner { margin-top: 12px; display: none; }
+  .chk-banner.show { display: flex; }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- Resumo -->
-<div class="grid-stats">
+<!-- Painel -->
+<div class="painel full">
+  <div class="stat-card s-danger">
+    <div class="stat-v num" style="color:var(--danger)">{{ resumo.valor_perdido | brl }}</div>
+    <div class="stat-l">Valor perdido (custo)</div>
+  </div>
   <div class="stat-card">
-    <div class="stat-v num">{{ resumo.total_registros }}</div>
-    <div class="stat-l">Registros</div>
+    <div class="stat-v num">{{ resumo.total_vencidos }}</div>
+    <div class="stat-l">Vencidos</div>
   </div>
   <div class="stat-card s-amber">
-    <div class="stat-v num">{{ '%g' | format(resumo.total_quantidade) }}</div>
-    <div class="stat-l">Itens (qtd)</div>
+    <div class="stat-v num">{{ resumo.pct_avisado }}%</div>
+    <div class="stat-l">Foram avisados</div>
   </div>
-  <div class="stat-card s-danger">
-    <div class="stat-v num" style="color:var(--danger)">{{ resumo.total_valor | brl }}</div>
-    <div class="stat-l">Valor perdido</div>
+  <div class="stat-card {% if resumo.pendentes_baixa %}s-amber{% else %}s-success{% endif %}">
+    <div class="stat-v num">{{ resumo.pendentes_baixa }}</div>
+    <div class="stat-l">Baixas pendentes</div>
+  </div>
+  <div class="stat-card {% if resumo.avisos_vencendo %}s-amber{% endif %}">
+    <div class="stat-v num">{{ resumo.avisos_vencendo }}</div>
+    <div class="stat-l">Avisos vencendo ≤30d</div>
   </div>
 </div>
 
-<!-- Filtros -->
-<div class="card">
-  <form class="filtros" method="get" action="/vencidos">
-    <div class="campo"><label>De</label>
-      <input type="date" name="inicio" value="{{ filtro.inicio }}"></div>
-    <div class="campo"><label>Até</label>
-      <input type="date" name="fim" value="{{ filtro.fim }}"></div>
-    <div class="campo"><label>Motivo</label>
-      <select name="motivo">
-        <option value="">Todos</option>
-        {% for m in motivos %}
-        <option value="{{ m }}" {% if filtro.motivo == m %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
+<!-- Abas -->
+<div class="tabs full">
+  <div class="seg">
+    <button class="ativo" id="tab-venc" onclick="mostrarAba('vencidos')">Vencidos <span class="n">({{ vencidos | length }})</span></button>
+    <button id="tab-avi" onclick="mostrarAba('avisos')">Avisos <span class="n">({{ avisos | selectattr('status','ne','resolvido')|list|length }})</span></button>
+  </div>
+</div>
+
+<!-- ══ ABA VENCIDOS ══ -->
+<section id="sec-vencidos" class="full">
+  <div class="filtros">
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="busca-v" placeholder="Buscar por produto, código, fornecedor…" autocomplete="off">
     </div>
-    <button class="btn btn-secondary" type="submit">Filtrar</button>
-  </form>
-</div>
-
-<!-- Lista -->
-<div class="card card-flush">
-  <div class="card-head">
-    <span class="ttl">Lançamentos</span>
-    <span class="hint">{{ registros | length }} no período</span>
+    <div class="fseg" id="filtro-baixa">
+      <button class="on" data-f="">Todos</button>
+      <button data-f="pendente">Pendentes</button>
+      <button data-f="baixado">Baixados</button>
+    </div>
+    <div class="fseg" id="filtro-avisado">
+      <button class="on" data-f="">Avisado?</button>
+      <button data-f="sim">Sim</button>
+      <button data-f="nao">Não</button>
+    </div>
   </div>
-  {% if registros %}
-  {% for r in registros %}
-  <div class="reg">
-    <div class="reg-info">
-      <div class="reg-titulo">
-        {{ r.produto }}
-        <span class="mtv mtv-{{ r.motivo.split(' ')[0] }}">{{ r.motivo }}</span>
+
+  <div class="card card-flush">
+    {% if vencidos %}
+    {% for x in vencidos %}
+    <div class="item-row" data-baixa="{{ x.baixa_status }}" data-avisado="{{ 'sim' if x.foi_avisado else 'nao' }}"
+         data-busca="{{ (x.produto ~ ' ' ~ (x.codigo_barras or '') ~ ' ' ~ (x.fornecedor or '') ~ ' ' ~ (x.responsavel_entrega or '')) | lower }}">
+      <div class="item-info">
+        <div class="item-t">
+          {{ x.produto }}
+          {% if x.foi_avisado %}<span class="pill p-quit">avisado</span>
+          {% else %}<span class="pill p-open">sem aviso</span>{% endif %}
+          {% if x.baixa_status == 'baixado' %}<span class="pill p-neutro">baixado · {{ x.baixa_tipo_label }}</span>
+          {% else %}<span class="pill p-part">baixa pendente</span>{% endif %}
+        </div>
+        <div class="item-sub">
+          <span class="num">{{ x.codigo_barras or '—' }}</span> · {{ '%g'|format(x.quantidade) }} un
+          {% if x.fornecedor %} · {{ x.fornecedor }}{% endif %}
+          {% if x.responsavel_entrega %} · entregue por {{ x.responsavel_entrega }}{% endif %}
+          <br>registrado em <span class="num">{{ x.criado_fmt }}</span>
+          {% if x.baixa_status == 'baixado' %} · baixa <span class="num">{{ x.baixa_fmt }}</span>{% if x.baixa_ref %} · {{ x.baixa_ref }}{% endif %}{% endif %}
+          {% if x.obs %} · {{ x.obs }}{% endif %}
+        </div>
       </div>
-      <div class="reg-sub num">
-        {{ r.data_fmt }} · {{ '%g' | format(r.quantidade) }} un
-        {% if r.codigo_barras %} · cód {{ r.codigo_barras }}{% endif %}
-        {% if r.obs %} · {{ r.obs }}{% endif %}
+      <div class="item-right">
+        <div class="item-val num" style="color:var(--danger)">{{ x.valor_perdido | brl }}</div>
+        <span class="item-val l">custo perdido</span>
+      </div>
+      <div class="item-acts">
+        <button class="btn-lixo" onclick="excluir('vencido','{{ x.id }}')" title="Excluir">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        {% if x.baixa_status != 'baixado' %}
+        <button class="btn btn-primary btn-sm" onclick="abrirBaixa('{{ x.id }}','{{ x.produto | e }}')">Dar baixa</button>
+        {% else %}
+        <button class="btn btn-secondary btn-sm" onclick="reabrir('{{ x.id }}')">Reabrir</button>
+        {% endif %}
       </div>
     </div>
-    {% if r.valor_total %}<div class="reg-valor num">{{ r.valor_total | brl }}</div>{% endif %}
-    <button class="btn-lixo" onclick="excluir('{{ r.id }}')" title="Excluir">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">Nenhum vencido registrado.</div>
+    {% endif %}
   </div>
-  {% endfor %}
-  {% else %}
-  <div class="empty-state">Nenhum registro no período.</div>
-  {% endif %}
-</div>
+</section>
 
-<!-- Modal registrar -->
-<div class="modal-overlay" id="modal-reg" onclick="fecharSeFundo(event,'modal-reg')">
+<!-- ══ ABA AVISOS ══ -->
+<section id="sec-avisos" class="full" style="display:none">
+  <div class="filtros">
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="busca-a" placeholder="Buscar por produto, código, fornecedor…" autocomplete="off">
+    </div>
+    <div class="fseg" id="filtro-astatus">
+      <button class="on" data-f="">Todos</button>
+      <button data-f="vence_breve">Vence ≤30d</button>
+      <button data-f="vencido">Vencidos</button>
+      <button data-f="no_prazo">No prazo</button>
+    </div>
+  </div>
+
+  <div class="card card-flush">
+    {% if avisos %}
+    {% for a in avisos %}
+    <div class="item-row" data-status="{{ a.status }}"
+         data-busca="{{ (a.produto ~ ' ' ~ (a.codigo_barras or '') ~ ' ' ~ (a.fornecedor or '') ~ ' ' ~ (a.responsavel or '')) | lower }}">
+      <div class="item-info">
+        <div class="item-t">
+          {{ a.produto }}
+          {% if a.status == 'resolvido' %}<span class="pill p-neutro">resolvido</span>
+          {% elif a.status == 'vencido' %}<span class="pill p-open">vencido</span>
+          {% elif a.status == 'vence_breve' %}<span class="pill p-part">vence em {{ a.dias_para_vencer }}d</span>
+          {% else %}<span class="pill p-quit">no prazo</span>{% endif %}
+          {% if a.promocao %}<span class="chip-promo">promoção</span>{% endif %}
+        </div>
+        <div class="item-sub">
+          <span class="num">{{ a.codigo_barras or '—' }}</span> · {{ '%g'|format(a.quantidade) }} un
+          {% if a.fornecedor %} · {{ a.fornecedor }}{% endif %}
+          {% if a.responsavel %} · avisado por {{ a.responsavel }}{% endif %}
+          {% if a.custo is not none %} · custo {{ a.custo | brl }}{% endif %}
+          {% if a.venda is not none %} · venda {{ a.venda | brl }}{% endif %}
+          {% if a.valor_promocional is not none %} · promo {{ a.valor_promocional | brl }}{% endif %}
+          {% if a.status != 'resolvido' %}
+          <br><span class="acc {% if a.no_prazo %}acc-ok{% else %}acc-bad{% endif %}">
+            {% if a.no_prazo %}✓ avisado no prazo ({{ a.dias_antecedencia }}d de antecedência)
+            {% else %}✕ fora do prazo ({{ a.dias_antecedencia }}d de antecedência){% endif %}
+          </span>{% endif %}
+        </div>
+      </div>
+      <div class="item-right">
+        <div class="item-val num">{{ a.data_venc_fmt }}</div>
+        <span class="item-val l">
+          {% if a.dias_para_vencer is not none and a.dias_para_vencer >= 0 %}faltam {{ a.dias_para_vencer }}d
+          {% elif a.dias_para_vencer is not none %}venceu há {{ -a.dias_para_vencer }}d{% else %}vencimento{% endif %}
+        </span>
+      </div>
+      <div class="item-acts">
+        <button class="btn-lixo" onclick="excluir('aviso','{{ a.id }}')" title="Excluir aviso">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">Nenhum aviso registrado.</div>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Modal: Registrar Vencido -->
+<div class="modal-overlay" id="modal-vencido" onclick="fecharSeFundo(event,'modal-vencido')">
   <div class="modal" role="dialog" aria-modal="true">
-    <div class="modal-head"><div class="modal-title">Registrar produto vencido / perda</div>
-      <button class="modal-close" onclick="fecharModal('modal-reg')">&times;</button></div>
+    <div class="modal-head"><div class="modal-title">Registrar vencido no escritório</div>
+      <button class="modal-close" onclick="fecharModal('modal-vencido')">&times;</button></div>
     <div class="modal-body">
+      <label>Código de barras</label>
+      <input type="text" id="ve-barras" class="num" inputmode="numeric" placeholder="Bipe ou digite — o sistema checa o aviso" oninput="checarAviso()">
+      <div class="alertx chk-banner" id="chk-aviso"></div>
       <label>Produto <em>*</em></label>
-      <input type="text" id="f-produto" placeholder="Ex.: Iogurte morango 170g">
+      <input type="text" id="ve-produto" placeholder="Nome do produto">
       <div class="two-col" style="margin-top:14px">
         <div><label>Quantidade <em>*</em></label>
-          <input type="number" id="f-qtd" placeholder="0" min="0" step="0.001" inputmode="decimal"></div>
-        <div><label>Motivo <em>*</em></label>
-          <select id="f-motivo">
-            {% for m in motivos %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
-          </select></div>
-      </div>
-      <div class="two-col" style="margin-top:14px">
-        <div><label>Código de barras</label>
-          <input type="text" id="f-barras" class="num" inputmode="numeric"></div>
+          <input type="number" id="ve-qtd" placeholder="0" min="0" step="0.001" inputmode="decimal"></div>
         <div><label>Custo unitário</label>
           <div class="ingrp"><span class="pre">R$</span>
-            <input type="number" id="f-vunit" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div></div>
+            <input type="number" id="ve-custo" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div></div>
       </div>
-      <label>Data da ocorrência</label>
-      <input type="date" id="f-data" value="{{ hoje }}">
+      <label>Fornecedor</label>
+      <input type="text" id="ve-forn" placeholder="Nome do fornecedor">
+      <label>Responsável pela entrega</label>
+      <input type="text" id="ve-resp" placeholder="Funcionário que trouxe o produto">
       <label>Observação</label>
-      <input type="text" id="f-obs" placeholder="Lote, setor…">
-      <div class="result-box error" id="msg-reg" style="margin-top:12px">
-        <div class="result-value error" id="msg-reg-txt"></div>
+      <input type="text" id="ve-obs" placeholder="Lote, setor…">
+      <div class="result-box error" id="msg-ve" style="margin-top:12px">
+        <div class="result-value error" id="msg-ve-txt"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="fecharModal('modal-reg')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvar()">Registrar</button>
+      <button class="btn btn-secondary" onclick="fecharModal('modal-vencido')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarVencido()">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Registrar Aviso -->
+<div class="modal-overlay" id="modal-aviso" onclick="fecharSeFundo(event,'modal-aviso')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Registrar aviso de vencimento</div>
+      <button class="modal-close" onclick="fecharModal('modal-aviso')">&times;</button></div>
+    <div class="modal-body">
+      <label>Produto <em>*</em></label>
+      <input type="text" id="av-produto" placeholder="Nome do produto">
+      <div class="two-col" style="margin-top:14px">
+        <div><label>Código de barras</label>
+          <input type="text" id="av-barras" class="num" inputmode="numeric"></div>
+        <div><label>Quantidade <em>*</em></label>
+          <input type="number" id="av-qtd" placeholder="0" min="0" step="0.001" inputmode="decimal"></div>
+      </div>
+      <label>Data de vencimento <em>*</em></label>
+      <input type="date" id="av-venc">
+      <div class="two-col" style="margin-top:14px">
+        <div><label>Fornecedor</label><input type="text" id="av-forn"></div>
+        <div><label>Responsável (quem avisou)</label><input type="text" id="av-resp"></div>
+      </div>
+      <div class="two-col" style="margin-top:14px">
+        <div><label>Custo</label>
+          <div class="ingrp"><span class="pre">R$</span><input type="number" id="av-custo" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div></div>
+        <div><label>Venda</label>
+          <div class="ingrp"><span class="pre">R$</span><input type="number" id="av-venda" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div></div>
+      </div>
+      <label>Valor promocional <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(se for pra promoção)</span></label>
+      <div class="ingrp"><span class="pre">R$</span><input type="number" id="av-promo" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
+      <div class="result-box error" id="msg-av" style="margin-top:12px">
+        <div class="result-value error" id="msg-av-txt"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-aviso')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarAviso()">Registrar aviso</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Confirmar Baixa -->
+<div class="modal-overlay" id="modal-baixa" onclick="fecharSeFundo(event,'modal-baixa')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Confirmar baixa no sistema</div>
+      <button class="modal-close" onclick="fecharModal('modal-baixa')">&times;</button></div>
+    <div class="modal-body">
+      <div id="baixa-info" style="font-size:13px;color:var(--muted);margin-bottom:14px"></div>
+      <label>Como foi dada a baixa?</label>
+      <div class="seg" id="baixa-tipos" style="margin-bottom:4px">
+        <button class="ativo" data-t="perda" onclick="selecionarBaixa('perda')">Nota de perda</button>
+        <button data-t="devolucao" onclick="selecionarBaixa('devolucao')">Devolução</button>
+      </div>
+      <label id="baixa-ref-label">Nº da nota de perda</label>
+      <input type="text" id="baixa-ref" placeholder="Ex.: NP-100">
+      <div class="result-box error" id="msg-baixa" style="margin-top:12px">
+        <div class="result-value error" id="msg-baixa-txt"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-baixa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarBaixa()">Confirmar baixa</button>
     </div>
   </div>
 </div>
@@ -144,27 +304,153 @@
 {% block extra_scripts %}
 <script>
 const $ = id => document.getElementById(id);
-// pré-preenche a data de hoje se o template não injetou
-if (!$("f-data").value) $("f-data").value = new Date().toISOString().slice(0, 10);
+let _baixaId = null, _baixaTipo = "perda";
+const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devolução" };
 
-async function salvar() {
-  const msg = $("msg-reg"); msg.classList.remove("show");
+// ── Abas ──
+function mostrarAba(qual) {
+  const v = qual === "vencidos";
+  $("sec-vencidos").style.display = v ? "" : "none";
+  $("sec-avisos").style.display   = v ? "none" : "";
+  $("tab-venc").classList.toggle("ativo", v);
+  $("tab-avi").classList.toggle("ativo", !v);
+}
+
+// ── Filtros client-side ──
+function ligarFiltros(secId, mapa, seletorLinha) {
+  const sec = $(secId);
+  const estado = {};
+  Object.keys(mapa).forEach(k => estado[k] = "");
+  function aplicar() {
+    sec.querySelectorAll(seletorLinha).forEach(row => {
+      let ok = true;
+      for (const [attr, val] of Object.entries(estado)) {
+        if (attr === "busca") { if (val && !(row.dataset.busca || "").includes(val)) ok = false; }
+        else if (val && row.dataset[attr] !== val) ok = false;
+      }
+      row.style.display = ok ? "" : "none";
+    });
+  }
+  for (const [k, cfg] of Object.entries(mapa)) {
+    if (cfg.tipo === "busca") {
+      $(cfg.el).addEventListener("input", e => { estado[k] = e.target.value.trim().toLowerCase(); aplicar(); });
+    } else {
+      $(cfg.el).querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+        $(cfg.el).querySelectorAll("button").forEach(x => x.classList.remove("on"));
+        b.classList.add("on"); estado[k] = b.dataset.f; aplicar();
+      }));
+    }
+  }
+}
+ligarFiltros("sec-vencidos",
+  { busca:{tipo:"busca",el:"busca-v"}, baixa:{el:"filtro-baixa"}, avisado:{el:"filtro-avisado"} },
+  ".item-row");
+ligarFiltros("sec-avisos",
+  { busca:{tipo:"busca",el:"busca-a"}, status:{el:"filtro-astatus"} },
+  ".item-row");
+
+// ── Registrar vencido (com checagem de aviso ao vivo) ──
+function abrirVencido() {
+  ["ve-barras","ve-produto","ve-qtd","ve-custo","ve-forn","ve-resp","ve-obs"].forEach(id => $(id).value = "");
+  $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
+  $("msg-ve").classList.remove("show");
+  abrirModal("modal-vencido");
+}
+let _chkTimer = null;
+function checarAviso() {
+  clearTimeout(_chkTimer);
+  const cb = $("ve-barras").value.trim();
+  const banner = $("chk-aviso");
+  if (!cb) { banner.classList.remove("show"); return; }
+  _chkTimer = setTimeout(async () => {
+    const r = await postJSON("/vencidos/api/checar-aviso", { codigo_barras: cb });
+    if (r.avisado) {
+      banner.style.background = "var(--success-bg)";
+      banner.style.borderColor = "color-mix(in srgb, var(--success) 35%, transparent)";
+      banner.style.color = "var(--ink-2)";
+      const prazo = r.no_prazo ? `${r.dias_antecedencia}d de antecedência` : `só ${r.dias_antecedencia}d — fora do prazo`;
+      banner.innerHTML = `<span style="color:var(--success);font-weight:700">✓ Produto avisado</span>&nbsp;— vence ${r.data_venc_fmt} · ${prazo}${r.responsavel ? ' · por ' + r.responsavel : ''}.`;
+      banner.classList.add("show");
+      // pré-preenche o que estiver vazio
+      if (!$("ve-produto").value && r.produto) $("ve-produto").value = r.produto;
+      if (!$("ve-forn").value && r.fornecedor) $("ve-forn").value = r.fornecedor;
+      if (!$("ve-custo").value && r.custo != null) $("ve-custo").value = r.custo;
+      if (!$("ve-qtd").value && r.quantidade != null) $("ve-qtd").value = r.quantidade;
+    } else {
+      banner.style.background = "var(--danger-bg)";
+      banner.style.borderColor = "color-mix(in srgb, var(--danger) 35%, transparent)";
+      banner.style.color = "var(--ink-2)";
+      banner.innerHTML = `<span style="color:var(--danger);font-weight:700">✕ Sem aviso prévio</span>&nbsp;para este código de barras.`;
+      banner.classList.add("show");
+    }
+  }, 350);
+}
+async function salvarVencido() {
+  const msg = $("msg-ve"); msg.classList.remove("show");
   const body = {
-    produto: $("f-produto").value.trim(), quantidade: $("f-qtd").value,
-    motivo: $("f-motivo").value, codigo_barras: $("f-barras").value.trim(),
-    valor_unit: $("f-vunit").value, data: $("f-data").value, obs: $("f-obs").value.trim(),
+    produto: $("ve-produto").value.trim(), codigo_barras: $("ve-barras").value.trim(),
+    quantidade: $("ve-qtd").value, custo: $("ve-custo").value,
+    fornecedor: $("ve-forn").value.trim(), responsavel_entrega: $("ve-resp").value.trim(),
+    obs: $("ve-obs").value.trim(),
   };
   if (!body.produto || !parseFloat(body.quantidade)) {
-    $("msg-reg-txt").textContent = "Informe produto e quantidade.";
-    msg.classList.add("show"); return;
+    $("msg-ve-txt").textContent = "Informe produto e quantidade."; msg.classList.add("show"); return;
   }
-  const r = await postJSON("/vencidos/api/registrar", body);
+  const r = await postJSON("/vencidos/api/vencido", body);
   if (r.ok) location.reload();
-  else { $("msg-reg-txt").textContent = r.msg; msg.classList.add("show"); }
+  else { $("msg-ve-txt").textContent = r.msg; msg.classList.add("show"); }
 }
-async function excluir(id) {
-  if (!confirm("Excluir este registro?")) return;
-  await fetch("/vencidos/api/" + id, { method: "DELETE" });
+
+// ── Registrar aviso ──
+function abrirAviso() {
+  ["av-produto","av-barras","av-qtd","av-venc","av-forn","av-resp","av-custo","av-venda","av-promo"].forEach(id => $(id).value = "");
+  $("msg-av").classList.remove("show");
+  abrirModal("modal-aviso");
+}
+async function salvarAviso() {
+  const msg = $("msg-av"); msg.classList.remove("show");
+  const body = {
+    produto: $("av-produto").value.trim(), codigo_barras: $("av-barras").value.trim(),
+    quantidade: $("av-qtd").value, data_vencimento: $("av-venc").value,
+    fornecedor: $("av-forn").value.trim(), responsavel: $("av-resp").value.trim(),
+    custo: $("av-custo").value, venda: $("av-venda").value, valor_promocional: $("av-promo").value,
+  };
+  if (!body.produto || !parseFloat(body.quantidade) || !body.data_vencimento) {
+    $("msg-av-txt").textContent = "Informe produto, quantidade e data de vencimento."; msg.classList.add("show"); return;
+  }
+  const r = await postJSON("/vencidos/api/aviso", body);
+  if (r.ok) location.reload();
+  else { $("msg-av-txt").textContent = r.msg; msg.classList.add("show"); }
+}
+
+// ── Baixa ──
+function abrirBaixa(id, produto) {
+  _baixaId = id;
+  $("baixa-info").innerHTML = `Vencido: <b>${produto}</b>`;
+  selecionarBaixa("perda"); $("baixa-ref").value = "";
+  $("msg-baixa").classList.remove("show");
+  abrirModal("modal-baixa");
+}
+function selecionarBaixa(t) {
+  _baixaTipo = t;
+  document.querySelectorAll("#baixa-tipos button").forEach(b => b.classList.toggle("ativo", b.dataset.t === t));
+  $("baixa-ref-label").textContent = REF_LABEL[t];
+}
+async function confirmarBaixa() {
+  const msg = $("msg-baixa"); msg.classList.remove("show");
+  const r = await postJSON(`/vencidos/api/vencido/${_baixaId}/baixa`,
+    { tipo: _baixaTipo, referencia: $("baixa-ref").value.trim() });
+  if (r.ok) location.reload();
+  else { $("msg-baixa-txt").textContent = r.msg; msg.classList.add("show"); }
+}
+async function reabrir(id) {
+  if (!confirm("Reabrir a baixa deste vencido?")) return;
+  const r = await postJSON(`/vencidos/api/vencido/${id}/reabrir`, {});
+  if (r.ok) location.reload(); else alert(r.msg);
+}
+async function excluir(tipo, id) {
+  if (!confirm(`Excluir este ${tipo}?`)) return;
+  await fetch(`/vencidos/api/${tipo}/${id}`, { method: "DELETE" });
   location.reload();
 }
 </script>

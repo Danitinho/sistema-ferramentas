@@ -15,7 +15,7 @@ templates e mensagens são em português; mantenha esse padrão.
 
 Ferramentas atuais, agrupadas por setor:
 - **Cadastro:** calculadora de preço, placas de oferta, placas hortifruti,
-  relatórios de venda, **produtos vencidos** (registro interno de perdas).
+  relatórios de venda, **controle de vencidos** (avisos → vencidos → baixa).
 - **Loja:** lote e vencimento.
 - **Financeiro:** débitos, pagamentos e alocações (acompanhamento de quitação
   NF-a-NF).
@@ -478,7 +478,23 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
 - Restauração (`/sistema/backup`) salva o estado atual em `_pre_restauracao/`
   antes de sobrescrever, então também é reversível.
 
-### Produtos vencidos (`scripts/vencidos.py` + `vencidos_routes.py`)
-- Registro interno de perdas em `dados/vencidos.db`. Motivos em `vencidos.MOTIVOS`.
-  Filtro por período/motivo, resumo com total de valor perdido. Segue as
-  convenções de confiabilidade (ISO, soft-delete, auditoria).
+### Controle de vencidos (`scripts/vencidos.py` + `vencidos_routes.py`)
+Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
+- **`avisos`** — aviso prévio (a seção deve avisar ≥30 dias antes; `DIAS_MINIMO`).
+  Campos: produto, código de barras, quantidade, fornecedor, responsável (quem
+  avisou), data de vencimento, custo, venda, valor promocional. Status derivado
+  (no_prazo / vence_breve ≤30d / vencido / resolvido) + `no_prazo?` (antecedência
+  ≥30d = a seção cumpriu a regra). Regra dos 30 dias **sinaliza, não bloqueia**.
+- **`vencidos`** — o produto vencido no escritório. Ao registrar, o sistema
+  **cruza pelo código de barras** com um aviso ativo (`buscar_aviso_ativo_por_barras`):
+  se achar, `foi_avisado=1`, vincula (`aviso_id`) e **resolve** o aviso (sai da
+  vigília). Campos de baixa: `baixa_status` (pendente|baixado), `baixa_tipo`
+  (`perda`|`devolucao` — `TIPOS_BAIXA`), `baixa_ref`, `baixa_em/por`.
+- API: `checar-aviso` alimenta a **checagem ao vivo** no formulário (mostra ✓/✗
+  enquanto se digita o código de barras e pré-preenche produto/fornecedor/custo).
+  Rotas: `/api/aviso`, `/api/vencido`, `/api/checar-aviso`,
+  `/api/vencido/<id>/baixa`, `/reabrir` (+ DELETEs).
+- Tela `/vencidos`: painel (valor perdido, % avisado, baixas pendentes, avisos
+  vencendo ≤30d) + abas Vencidos/Avisos. Segue as convenções (ISO, soft-delete,
+  auditoria). A versão antiga (registro simples com `motivo`) foi substituída;
+  o `vencidos.db` legado (vazio) é recriado no boot.
