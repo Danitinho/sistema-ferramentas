@@ -388,6 +388,14 @@ def _nf_duplicada(conn, tabela, cnpj, nf):
     ).fetchone() is not None
 
 
+def _nf_debito_duplicada_outro(conn, cnpj, nf, id_atual):
+    """Como _nf_duplicada, mas ignora o próprio débito (para edição)."""
+    return conn.execute(
+        "SELECT 1 FROM debitos WHERE cnpj = ? AND nf_numero = ? "
+        "AND excluido_em IS NULL AND id <> ?", (cnpj, nf, id_atual),
+    ).fetchone() is not None
+
+
 def _ref_bonificacao_duplicada(conn, cnpj, referencia):
     """Barra NF de bonificação repetida (só bonificação tem nº único de NF)."""
     return conn.execute(
@@ -618,6 +626,70 @@ def excluir_debito(id_debito, usuario=None):
         _auditar(conn, "debito", id_debito, "excluir", "", usuario)
         conn.commit()
         return True, "Débito removido."
+    finally:
+        conn.close()
+
+
+def editar_debito(id_debito, valor_total=None, nf_numero=None, produto=None,
+                  quantidade=None, valor_unit=None, obs=None,
+                  periodo_tipo=None, periodo_inicio=None, periodo_fim=None, usuario=None):
+    """Corrige as informações de um débito (dentro do mesmo tipo). Preserva o
+    registro, as alocações e o histórico. O status é derivado — reajusta sozinho."""
+    per = _parse_periodo(periodo_tipo, periodo_inicio, periodo_fim)
+    if per is None:
+        return False, "Informe o período a que o débito se refere."
+    if per is False:
+        return False, "Período inválido."
+    p_tipo, p_ini, p_fim = per
+    conn = _conn()
+    try:
+        d = conn.execute("SELECT * FROM debitos WHERE id = ? AND excluido_em IS NULL",
+                         (id_debito,)).fetchone()
+        if not d:
+            return False, "Débito não encontrado."
+        cnpj = d["cnpj"]
+        valor_pago = round(d["valor_pago"] or 0, 2)
+
+        if d["tipo"] == "vencimento":
+            nf = (nf_numero or "").strip()
+            if not nf:
+                return False, "Número da NF é obrigatório."
+            if _nf_debito_duplicada_outro(conn, cnpj, nf, id_debito):
+                return False, f"Já existe outro débito com a NF {nf} para esta empresa."
+            novo_valor = _parse_valor(valor_total)
+            if novo_valor is None:
+                return False, "Valor inválido."
+            campos = {"nf_numero": nf, "valor_total": novo_valor}
+            resumo = f"vencimento NF {nf} · R$ {novo_valor:.2f}"
+        else:  # rebaxa
+            prod = (produto or "").strip()
+            if not prod:
+                return False, "Nome do produto é obrigatório."
+            try:
+                qtd   = float(str(quantidade).replace(",", "."))
+                v_uni = float(str(valor_unit).replace(",", "."))
+                if qtd <= 0 or v_uni <= 0:
+                    raise ValueError
+                novo_valor = round(qtd * v_uni, 2)
+            except (TypeError, ValueError):
+                return False, "Quantidade ou valor unitário inválido."
+            campos = {"produto": prod, "quantidade": qtd, "valor_unit": v_uni,
+                      "valor_total": novo_valor}
+            resumo = f"rebaxa {prod} · R$ {novo_valor:.2f}"
+
+        if novo_valor + _EPS < valor_pago:
+            return False, (f"O novo valor R$ {novo_valor:.2f} é menor que o já pago "
+                           f"R$ {valor_pago:.2f}. Desfaça pagamentos antes de reduzir.")
+
+        campos.update({"obs": (obs or "").strip(), "periodo_tipo": p_tipo,
+                       "periodo_inicio": p_ini, "periodo_fim": p_fim})
+        sets = ", ".join(f"{k} = ?" for k in campos)
+        conn.execute(f"UPDATE debitos SET {sets} WHERE id = ?",
+                     (*campos.values(), id_debito))
+        _auditar(conn, "debito", id_debito, "editar",
+                 f"{resumo} · {_periodo_label(p_tipo, p_ini, p_fim)}", usuario)
+        conn.commit()
+        return True, "Débito atualizado."
     finally:
         conn.close()
 

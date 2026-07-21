@@ -81,6 +81,20 @@ def api_add_rebaxa():
     return jsonify({"ok": ok, "msg": msg})
 
 
+@debitos_bp.route("/api/debito/<id_debito>/editar", methods=["POST"])
+def api_edit_debito(id_debito):
+    d = request.get_json() or {}
+    ok, msg = db.editar_debito(
+        id_debito,
+        valor_total=d.get("valor_total"), nf_numero=d.get("nf_numero"),
+        produto=d.get("produto"), quantidade=d.get("quantidade"),
+        valor_unit=d.get("valor_unit"), obs=d.get("obs", ""),
+        periodo_tipo=d.get("periodo_tipo"), periodo_inicio=d.get("periodo_inicio"),
+        periodo_fim=d.get("periodo_fim"), usuario=_usuario(),
+    )
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @debitos_bp.route("/api/debito/<id_debito>", methods=["DELETE"])
 def api_del_debito(id_debito):
     ok, msg = db.excluir_debito(id_debito, usuario=_usuario())

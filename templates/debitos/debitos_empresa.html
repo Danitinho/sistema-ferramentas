@@ -7,7 +7,7 @@
 
 {% block header_actions %}
 <button class="btn btn-secondary btn-sm" onclick="abrirCreditoAvulso()">+ Crédito avulso</button>
-<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-debito')">+ Débito</button>
+<button class="btn btn-primary btn-sm" onclick="abrirNovoDebito()">+ Débito</button>
 {% endblock %}
 
 {% block extra_head %}
@@ -92,7 +92,8 @@
     color: var(--amber); border-radius: 9px; padding: 9px; font-size: 12.5px; font-weight: 650;
     cursor: pointer; font-family: var(--sans); transition: background .12s, border-color .12s; }
   .deb-add:hover { background: var(--warning-bg); border-color: var(--amber-btn); }
-  .deb-del { position: static; }
+  .deb-acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .deb-edit:hover { color: var(--amber); background: var(--warning-bg); }
 </style>
 {% endblock %}
 
@@ -209,9 +210,14 @@
         <div class="t num" style="color:var(--danger)">{{ d.valor_total | brl }}</div>
         {% if d.saldo > 0 and d.valor_pago > 0 %}<div class="s num">falta {{ d.saldo | brl }}</div>{% endif %}
       </div>
-      <button class="btn-lixo deb-del" onclick="excluir('debito','{{ d.id }}')" title="Excluir débito">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+      <div class="deb-acts">
+        <button class="btn-lixo" onclick="excluir('debito','{{ d.id }}')" title="Excluir débito">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="btn-lixo deb-edit" onclick="abrirEditarDebito('{{ d.id }}')" title="Editar débito">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+        </button>
+      </div>
     </div>
     {% if d.status == 'parcial' %}
     <div class="deb-prog"><i style="width:{{ ((d.valor_pago * 100 / d.valor_total) | int) if d.valor_total > 0 else 0 }}%"></i></div>
@@ -247,10 +253,10 @@
 <!-- Modal: Registrar Débito -->
 <div class="modal-overlay" id="modal-debito" onclick="fecharSeFundo(event,'modal-debito')">
   <div class="modal" role="dialog" aria-modal="true">
-    <div class="modal-head"><div class="modal-title">Registrar débito</div>
+    <div class="modal-head"><div class="modal-title" id="debito-tit">Registrar débito</div>
       <button class="modal-close" onclick="fecharModal('modal-debito')">&times;</button></div>
     <div class="modal-body">
-      <div class="seg" style="margin-bottom:16px">
+      <div class="seg" id="debito-tipo-seg" style="margin-bottom:16px">
         <button class="ativo" id="btn-venc" onclick="selecionarTipo('vencimento')">Vencimento</button>
         <button id="btn-reb" onclick="selecionarTipo('rebaxa')">Rebaixa de preço</button>
       </div>
@@ -304,7 +310,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-debito')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarDebito()">Registrar</button>
+      <button class="btn btn-primary" id="debito-salvar" onclick="salvarDebito()">Registrar</button>
     </div>
   </div>
 </div>
@@ -413,6 +419,9 @@ document.querySelectorAll("#filtro-status button").forEach(b => {
 });
 
 // ── Débito ──
+let _modoDebito = "novo";   // 'novo' | 'editar'
+let _editId = null;
+
 function selecionarTipo(tipo) {
   _tipo = tipo;
   $("btn-venc").classList.toggle("ativo", tipo === "vencimento");
@@ -420,6 +429,51 @@ function selecionarTipo(tipo) {
   $("campos-vencimento").style.display = tipo === "vencimento" ? "" : "none";
   $("campos-rebaxa").style.display     = tipo === "rebaxa"     ? "" : "none";
   $("msg-debito").classList.remove("show");
+}
+
+function abrirNovoDebito() {
+  _modoDebito = "novo"; _editId = null;
+  $("debito-tipo-seg").style.display = "";
+  selecionarTipo("vencimento");
+  ["v-nf","v-valor","v-obs","r-produto","r-qtd","r-vunit","r-obs","p-mes","p-ini","p-fim"]
+    .forEach(id => $(id).value = "");
+  $("preview-total").textContent = "Total: R$ 0,00";
+  selecionarPeriodo("mes");
+  $("debito-tit").textContent = "Registrar débito";
+  $("debito-salvar").textContent = "Registrar";
+  $("msg-debito").classList.remove("show");
+  abrirModal("modal-debito");
+}
+
+function abrirEditarDebito(id) {
+  const d = DEBITOS.find(x => x.id === id);
+  if (!d) return;
+  _modoDebito = "editar"; _editId = id;
+  $("debito-tipo-seg").style.display = "none";   // tipo é fixo na edição
+  selecionarTipo(d.tipo);
+  if (d.tipo === "vencimento") {
+    $("v-nf").value = d.nf_numero || "";
+    $("v-valor").value = d.valor_total;
+    $("v-obs").value = d.obs || "";
+  } else {
+    $("r-produto").value = d.produto || "";
+    $("r-qtd").value = d.quantidade;
+    $("r-vunit").value = d.valor_unit;
+    $("r-obs").value = d.obs || "";
+    atualizarPreview();
+  }
+  if (d.periodo_tipo === "intervalo") {
+    selecionarPeriodo("intervalo");
+    $("p-ini").value = d.periodo_inicio || "";
+    $("p-fim").value = d.periodo_fim || "";
+  } else {
+    selecionarPeriodo("mes");
+    $("p-mes").value = (d.periodo_inicio || "").slice(0, 7);
+  }
+  $("debito-tit").textContent = "Editar débito";
+  $("debito-salvar").textContent = "Salvar";
+  $("msg-debito").classList.remove("show");
+  abrirModal("modal-debito");
 }
 function atualizarPreview() {
   const q = parseFloat($("r-qtd").value) || 0, v = parseFloat($("r-vunit").value) || 0;
@@ -453,6 +507,13 @@ async function salvarDebito() {
   const per = _coletarPeriodo(msg);
   if (!per) return;
   Object.assign(body, per);
+
+  if (_modoDebito === "editar") {
+    const r = await postJSON(`/debitos/api/debito/${_editId}/editar`, body);
+    if (r.ok) location.reload();   // mantém o filtro de mês atual
+    else { $("msg-debito-txt").textContent = r.msg; msg.classList.add("show"); }
+    return;
+  }
   const r = await postJSON(url, body);
   // volta para a visão de todos os meses para o novo débito aparecer
   if (r.ok) location.href = "/debitos/empresa/" + encodeURIComponent(CNPJ);

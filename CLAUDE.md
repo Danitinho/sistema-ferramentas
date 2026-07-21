@@ -203,9 +203,14 @@ os meses presentes; `?mes=sem` traz débitos antigos sem período. Débitos anti
 recebem as colunas por migração (ficam sem período).
 
 API JSON em `/debitos/api/...`: `debito/vencimento`, `debito/rebaxa`,
-`pagamento` (aceita `tipo`, `referencia`, `debito_id`), `alocar`, `alocar/auto`,
-`desalocar` (+ DELETEs). `/api/bonificacao` segue como **alias legado** de
-`/api/pagamento` (mapeia `nf_numero`→`referencia`, `tipo=bonificacao`).
+`debito/<id>/editar` (corrige NF/valor/produto/descrição/período dentro do mesmo
+tipo; barra NF duplicada de outro débito e valor abaixo do já pago; ação `editar`
+na auditoria), `pagamento` (aceita `tipo`, `referencia`, `debito_id`), `alocar`,
+`alocar/auto`, `desalocar` (+ DELETEs). `/api/bonificacao` segue como **alias
+legado** de `/api/pagamento` (mapeia `nf_numero`→`referencia`, `tipo=bonificacao`).
+Na tela, cada bloco de débito tem os botões **excluir** e **editar** empilhados;
+a edição reaproveita o modal de cadastro em modo `editar` (tipo fixo, campos
+pré-preenchidos).
 > **Atenção:** a rota é `POST /debitos/api/debito/rebaxa` (grafia "rebaxa", sem
 > "i"). É um typo que o frontend já consome — **não "corrija" sem atualizar o
 > JS correspondente**, senão quebra.
