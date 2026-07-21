@@ -144,6 +144,7 @@
         </button>
         {% if x.baixa_status != 'baixado' %}
         <button class="btn btn-primary btn-sm" onclick="abrirBaixa('{{ x.id }}','{{ x.produto | e }}')">Dar baixa</button>
+        <button class="btn btn-secondary btn-sm" onclick="abrirEditarVencido('{{ x.id }}')">Editar</button>
         {% else %}
         <button class="btn btn-secondary btn-sm" onclick="reabrir('{{ x.id }}')">Reabrir</button>
         {% endif %}
@@ -222,12 +223,19 @@
 <!-- Modal: Registrar Vencido -->
 <div class="modal-overlay" id="modal-vencido" onclick="fecharSeFundo(event,'modal-vencido')">
   <div class="modal" role="dialog" aria-modal="true">
-    <div class="modal-head"><div class="modal-title">Registrar vencido no escritório</div>
+    <div class="modal-head"><div class="modal-title" id="ve-titulo">Registrar vencido no escritório</div>
       <button class="modal-close" onclick="fecharModal('modal-vencido')">&times;</button></div>
     <div class="modal-body">
       <label>Código de barras</label>
       <input type="text" id="ve-barras" class="num" inputmode="numeric" placeholder="Bipe ou digite — o sistema checa o aviso" oninput="checarAviso()">
       <div class="alertx chk-banner" id="chk-aviso"></div>
+      <div id="ve-avisado-bloco" style="display:none">
+        <label>Foi avisado?</label>
+        <div class="seg" id="ve-avisado-seg">
+          <button type="button" data-a="1" onclick="selecionarAvisado(1)">Sim</button>
+          <button type="button" class="ativo" data-a="0" onclick="selecionarAvisado(0)">Não</button>
+        </div>
+      </div>
       <label>Produto <em>*</em></label>
       <input type="text" id="ve-produto" placeholder="Nome do produto">
       <div class="two-col" style="margin-top:14px">
@@ -249,7 +257,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-vencido')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarVencido()">Registrar</button>
+      <button class="btn btn-primary" id="ve-salvar" onclick="salvarVencido()">Registrar</button>
     </div>
   </div>
 </div>
@@ -322,6 +330,7 @@
 {% block extra_scripts %}
 <script>
 const $ = id => document.getElementById(id);
+const VENCIDOS = {{ vencidos | tojson }};
 let _baixaId = null, _baixaTipo = "perda";
 const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devolução" };
 
@@ -373,15 +382,50 @@ ligarFiltros("sec-avisos",
   { busca:{tipo:"busca",el:"busca-a"}, status:{el:"filtro-astatus"} },
   ".item-row");
 
-// ── Registrar vencido (com checagem de aviso ao vivo) ──
+// ── Registrar / editar vencido ──
+let _modoVenc = "novo";   // 'novo' | 'editar'
+let _editVencId = null;
+let _veAvisado = 0;
+
+function selecionarAvisado(a) {
+  _veAvisado = a;
+  document.querySelectorAll("#ve-avisado-seg button").forEach(b => b.classList.toggle("ativo", +b.dataset.a === a));
+}
+
 function abrirVencido() {
+  _modoVenc = "novo"; _editVencId = null;
   ["ve-barras","ve-produto","ve-qtd","ve-custo","ve-forn","ve-resp","ve-obs"].forEach(id => $(id).value = "");
   $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
+  $("ve-avisado-bloco").style.display = "none";   // no cadastro, o aviso é detectado sozinho
+  $("ve-titulo").textContent = "Registrar vencido no escritório";
+  $("ve-salvar").textContent = "Registrar";
   $("msg-ve").classList.remove("show");
   abrirModal("modal-vencido");
 }
+
+function abrirEditarVencido(id) {
+  const v = VENCIDOS.find(x => x.id === id);
+  if (!v) return;
+  _modoVenc = "editar"; _editVencId = id;
+  $("ve-barras").value = v.codigo_barras || "";
+  $("ve-produto").value = v.produto || "";
+  $("ve-qtd").value = v.quantidade;
+  $("ve-custo").value = (v.custo != null ? v.custo : "");
+  $("ve-forn").value = v.fornecedor || "";
+  $("ve-resp").value = v.responsavel_entrega || "";
+  $("ve-obs").value = v.obs || "";
+  $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
+  $("ve-avisado-bloco").style.display = "";        // na edição, você controla manualmente
+  selecionarAvisado(v.foi_avisado ? 1 : 0);
+  $("ve-titulo").textContent = "Editar vencido";
+  $("ve-salvar").textContent = "Salvar";
+  $("msg-ve").classList.remove("show");
+  abrirModal("modal-vencido");
+}
+
 let _chkTimer = null;
 function checarAviso() {
+  if (_modoVenc === "editar") return;   // na edição não mexe no 'foi avisado' automaticamente
   clearTimeout(_chkTimer);
   const cb = $("ve-barras").value.trim();
   const banner = $("chk-aviso");
@@ -419,6 +463,13 @@ async function salvarVencido() {
   };
   if (!body.produto || !parseFloat(body.quantidade)) {
     $("msg-ve-txt").textContent = "Informe produto e quantidade."; msg.classList.add("show"); return;
+  }
+  if (_modoVenc === "editar") {
+    body.foi_avisado = _veAvisado;
+    const r = await postJSON(`/vencidos/api/vencido/${_editVencId}/editar`, body);
+    if (r.ok) location.reload();   // mantém o mês atual
+    else { $("msg-ve-txt").textContent = r.msg; msg.classList.add("show"); }
+    return;
   }
   const r = await postJSON("/vencidos/api/vencido", body);
   if (r.ok) location.href = "/vencidos/";   // volta p/ todos os meses

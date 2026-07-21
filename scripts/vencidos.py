@@ -414,6 +414,46 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
         conn.close()
 
 
+def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, fornecedor=None,
+                   custo=None, responsavel_entrega=None, foi_avisado=None, obs=None, usuario=None):
+    """Corrige um vencido — inclusive o 'foi avisado?' manualmente. Só permitido
+    se NÃO estiver baixado (o usuário deve reabrir a baixa antes de editar)."""
+    produto = (produto or "").strip()
+    if not produto:
+        return False, "Informe o produto."
+    qtd = _parse_qtd(quantidade)
+    if qtd is None:
+        return False, "Quantidade inválida."
+    fa = 1 if str(foi_avisado).strip().lower() in ("1", "true", "sim", "s") else 0
+    conn = _conn()
+    try:
+        v = conn.execute("SELECT * FROM vencidos WHERE id = ? AND excluido_em IS NULL",
+                         (id_vencido,)).fetchone()
+        if not v:
+            return False, "Vencido não encontrado."
+        if v["baixa_status"] == "baixado":
+            return False, "Este vencido está baixado. Reabra a baixa para poder editar."
+        novo_aviso_id = v["aviso_id"]
+        # se passou a 'não avisado' e havia aviso vinculado, devolve o aviso à vigília
+        if fa == 0 and v["aviso_id"]:
+            conn.execute("UPDATE avisos SET resolvido_em = NULL, resolvido_vencido_id = NULL WHERE id = ?",
+                         (v["aviso_id"],))
+            _auditar(conn, "aviso", v["aviso_id"], "reabrir", "vencido desvinculado na edição", usuario)
+            novo_aviso_id = None
+        conn.execute(
+            "UPDATE vencidos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
+            "custo=?, responsavel_entrega=?, foi_avisado=?, aviso_id=?, obs=? WHERE id=?",
+            (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
+             _parse_valor_opcional(custo), (responsavel_entrega or "").strip(),
+             fa, novo_aviso_id, (obs or "").strip(), id_vencido))
+        _auditar(conn, "vencido", id_vencido, "editar",
+                 f"{produto} · {qtd:g} un · {'avisado' if fa else 'sem aviso'}", usuario)
+        conn.commit()
+        return True, "Vencido atualizado."
+    finally:
+        conn.close()
+
+
 def listar_vencidos(mes=None, baixa=None, avisado=None, busca=None, limite=5000):
     # vencidos paginam pelo mês de REGISTRO (criado_em) — filtro por range, no SQL
     conn = _conn()

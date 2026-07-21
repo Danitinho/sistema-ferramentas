@@ -79,6 +79,17 @@ def api_vencido():
     return jsonify({"ok": ok, "msg": msg})
 
 
+@vencidos_bp.route("/api/vencido/<id_vencido>/editar", methods=["POST"])
+def api_edit_vencido(id_vencido):
+    d = request.get_json() or {}
+    ok, msg = v.editar_vencido(
+        id_vencido, produto=d.get("produto", ""), quantidade=d.get("quantidade", 0),
+        codigo_barras=d.get("codigo_barras", ""), fornecedor=d.get("fornecedor", ""),
+        custo=d.get("custo"), responsavel_entrega=d.get("responsavel_entrega", ""),
+        foi_avisado=d.get("foi_avisado"), obs=d.get("obs", ""), usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @vencidos_bp.route("/api/vencido/<id_vencido>/baixa", methods=["POST"])
 def api_baixa(id_vencido):
     d = request.get_json() or {}
