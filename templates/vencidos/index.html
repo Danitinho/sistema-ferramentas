@@ -56,6 +56,10 @@
   .mes-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
   .mes-bar .mes-sel { width: auto; min-width: 190px; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
   .mes-bar .escopo { font-size: 12.5px; color: var(--muted); }
+  .ord-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .ord-wrap .ord-lbl { font-size: 12px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted); }
+  .ord-wrap .ord-sel { width: auto; min-width: 150px; font-weight: 600; font-size: 13.5px; padding: 8px 12px; }
 </style>
 {% endblock %}
 
@@ -130,6 +134,15 @@
       <button data-f="sim">Sim</button>
       <button data-f="nao">Não</button>
     </div>
+    <div class="ord-wrap">
+      <span class="ord-lbl">Ordenar</span>
+      <select class="ord-sel" id="sel-ordem" onchange="irParaOrdem(this.value)"
+              title="Critério de ordenação (baixas pendentes ficam sempre no topo)">
+        <option value="modificacao" {% if ordem_atual == 'modificacao' %}selected{% endif %}>Modificação (recentes)</option>
+        <option value="data" {% if ordem_atual == 'data' %}selected{% endif %}>Data de registro</option>
+        <option value="valor" {% if ordem_atual == 'valor' %}selected{% endif %}>Maior valor</option>
+      </select>
+    </div>
   </div>
 
   <div class="card card-flush">
@@ -150,6 +163,7 @@
           {% if x.fornecedor %} · {{ x.fornecedor }}{% endif %}
           {% if x.responsavel_entrega %} · entregue por {{ x.responsavel_entrega }}{% endif %}
           <br>registrado em <span class="num">{{ x.criado_fmt }}</span>
+          {% if x.editado %} · editado em <span class="num">{{ x.atualizado_fmt }}</span>{% endif %}
           {% if x.baixa_status == 'baixado' %} · baixa <span class="num">{{ x.baixa_fmt }}</span>{% if x.baixa_ref %} · {{ x.baixa_ref }}{% endif %}{% endif %}
           {% if x.obs %} · {{ x.obs }}{% endif %}
           {% if x.vinculo %}
@@ -444,10 +458,20 @@ const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devo
 const pickVe = fornecedorPicker($("ve-forn"), { criar: true });
 const pickAv = fornecedorPicker($("av-forn"), { criar: true });
 
-// ── Paginação por mês (recarrega) ──
+// ── Paginação por mês (recarrega, preservando a ordenação) ──
 function irParaMes(mes) {
-  if (mes === "__todos") { location.href = "/vencidos/?mes="; return; }  // ?mes= vazio = todos
-  location.href = "/vencidos/" + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");
+  const p = new URLSearchParams(location.search);
+  if (mes === "__todos") p.set("mes", "");
+  else if (mes) p.set("mes", mes);
+  else p.delete("mes");
+  location.href = "/vencidos/?" + p.toString();
+}
+
+// ── Critério de ordenação (recarrega, preservando o mês) ──
+function irParaOrdem(ordem) {
+  const p = new URLSearchParams(location.search);
+  p.set("ordem", ordem);
+  location.href = "/vencidos/?" + p.toString();
 }
 
 // ── Abas ──

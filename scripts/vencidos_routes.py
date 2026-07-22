@@ -24,7 +24,10 @@ def index():
         mes = meses[0]["mes"] if meses else v._hoje()[:7]
     todos = (mes == "")
     limite = LIM_TODOS if todos else 5000
-    vencidos = v.listar_vencidos(mes=(None if todos else mes), limite=limite)
+    ordem = request.args.get("ordem", v.ORDEM_PADRAO)
+    if ordem not in v.ORDENS_VENCIDOS:
+        ordem = v.ORDEM_PADRAO
+    vencidos = v.listar_vencidos(mes=(None if todos else mes), limite=limite, ordem=ordem)
     avisos   = v.listar_avisos(mes=(None if todos else mes), limite=limite)
     return render_template(
         "vencidos/index.html",
@@ -33,6 +36,7 @@ def index():
         tipos_baixa=v.TIPOS_BAIXA,
         meses=meses,
         mes_atual=mes,
+        ordem_atual=ordem,
         truncado=todos and (len(vencidos) >= LIM_TODOS or len(avisos) >= LIM_TODOS),
         lim_todos=LIM_TODOS,
         hoje=v._hoje(),

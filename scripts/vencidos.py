@@ -123,6 +123,13 @@ def _init_schema(conn):
         cols_t = {r[1] for r in conn.execute(f"PRAGMA table_info({tabela})")}
         if "fornecedor_id" not in cols_t:
             conn.execute(f"ALTER TABLE {tabela} ADD COLUMN fornecedor_id TEXT")
+    # migração: data da última modificação (ordenação por "alterado recentemente").
+    # Backfill: usa a baixa (última ação conhecida) ou, na falta, o registro.
+    if "atualizado_em" not in {r[1] for r in conn.execute("PRAGMA table_info(vencidos)")}:
+        conn.execute("ALTER TABLE vencidos ADD COLUMN atualizado_em TEXT")
+        conn.execute("UPDATE vencidos SET atualizado_em = COALESCE(baixa_em, criado_em) "
+                     "WHERE atualizado_em IS NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_venc_atualizado ON vencidos(atualizado_em)")
     conn.commit()
     _backfill_fornecedor_id(conn)
 
@@ -297,6 +304,14 @@ def _enriquecer_vencido(v):
     v["foi_avisado"] = bool(v["foi_avisado"])
     v["valor_perdido"] = round((v["quantidade"] or 0) * (v["custo"] or 0), 2)
     v["criado_fmt"] = _fmt_dt(v["criado_em"])
+    atualizado = v.get("atualizado_em") or v["criado_em"]
+    v["atualizado_fmt"] = _fmt_dt(atualizado)
+    # "editado" só quando a última alteração não é o próprio registro nem a baixa
+    # (essas já aparecem na linha) — sinaliza uma edição manual do lançamento.
+    # Compara o timestamp completo (segundos): registro/baixa gravam o mesmo
+    # instante em atualizado_em, então diferença = edição avulsa.
+    v["editado"] = bool(atualizado[:19] != (v["criado_em"] or "")[:19]
+                        and atualizado[:19] != (v.get("baixa_em") or "")[:19])
     v["baixa_fmt"] = _fmt_dt(v["baixa_em"]) if v["baixa_em"] else ""
     v["baixa_tipo_label"] = TIPOS_BAIXA.get(v["baixa_tipo"], v["baixa_tipo"] or "")
     return v
@@ -572,14 +587,16 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
         vid = _uid()
         # sem seleção explícita, herda o vínculo de fornecedor do aviso casado
         fid = (fornecedor_id or "").strip() or (aviso.get("fornecedor_id") if aviso else None)
+        agora = _agora()
         conn.execute(
             "INSERT INTO vencidos (id, produto, codigo_barras, quantidade, fornecedor, "
             "fornecedor_id, custo, responsavel_entrega, foi_avisado, aviso_id, obs, "
-            "registrado_por, criado_em, baixa_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pendente')",
+            "registrado_por, criado_em, atualizado_em, baixa_status) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pendente')",
             (vid, produto, cb, qtd, (fornecedor or "").strip(), fid,
              _parse_valor_opcional(custo), (responsavel_entrega or "").strip(),
              foi_avisado, aviso["id"] if aviso else None, (obs or "").strip(),
-             usuario, _agora()),
+             usuario, agora, agora),
         )
         # resolve o aviso correspondente (vincula e tira da vigília)
         if aviso:
@@ -626,11 +643,11 @@ def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, forneced
         conn.execute(
             "UPDATE vencidos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
             "fornecedor_id=?, custo=?, responsavel_entrega=?, foi_avisado=?, aviso_id=?, "
-            "obs=? WHERE id=?",
+            "obs=?, atualizado_em=? WHERE id=?",
             (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
              (fornecedor_id or "").strip() or None,
              _parse_valor_opcional(custo), (responsavel_entrega or "").strip(),
-             fa, novo_aviso_id, (obs or "").strip(), id_vencido))
+             fa, novo_aviso_id, (obs or "").strip(), _agora(), id_vencido))
         _auditar(conn, "vencido", id_vencido, "editar",
                  f"{produto} · {qtd:g} un · {'avisado' if fa else 'sem aviso'}", usuario)
         conn.commit()
@@ -639,7 +656,18 @@ def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, forneced
         conn.close()
 
 
-def listar_vencidos(mes=None, baixa=None, avisado=None, busca=None, limite=5000):
+# Critérios de ordenação da lista de vencidos (o "baixa pendente no topo" é
+# sempre o 1º nível; estes controlam o desempate dentro de cada grupo).
+ORDENS_VENCIDOS = {
+    "modificacao": "COALESCE(v.atualizado_em, v.criado_em) DESC",   # padrão
+    "data":        "v.criado_em DESC",
+    "valor":       "(COALESCE(v.quantidade,0) * COALESCE(v.custo,0)) DESC, v.criado_em DESC",
+}
+ORDEM_PADRAO = "modificacao"
+
+
+def listar_vencidos(mes=None, baixa=None, avisado=None, busca=None, limite=5000,
+                    ordem=ORDEM_PADRAO):
     # vencidos paginam pelo mês de REGISTRO (criado_em) — filtro por range, no SQL
     conn = _conn()
     try:
@@ -651,7 +679,9 @@ def listar_vencidos(mes=None, baixa=None, avisado=None, busca=None, limite=5000)
             ini, fim = _limites_mes(mes)
             sql += " AND v.criado_em >= ? AND v.criado_em < ?"
             params += [ini, fim]
-        sql += " ORDER BY (v.baixa_status='baixado'), v.criado_em DESC"
+        # pendentes de baixa sempre no topo; o resto pelo critério escolhido
+        criterio = ORDENS_VENCIDOS.get(ordem, ORDENS_VENCIDOS[ORDEM_PADRAO])
+        sql += f" ORDER BY (v.baixa_status='baixado'), {criterio}"
         if limite:
             sql += f" LIMIT {int(limite)}"
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -694,10 +724,11 @@ def dar_baixa(id_vencido, tipo, referencia="", usuario=None):
             return False, "Vencido não encontrado."
         if v["baixa_status"] == "baixado":
             return False, "Este vencido já teve baixa."
+        agora = _agora()
         conn.execute(
             "UPDATE vencidos SET baixa_status='baixado', baixa_tipo=?, baixa_ref=?, "
-            "baixa_em=?, baixa_por=? WHERE id=?",
-            (tipo, (referencia or "").strip(), _agora(), usuario, id_vencido))
+            "baixa_em=?, baixa_por=?, atualizado_em=? WHERE id=?",
+            (tipo, (referencia or "").strip(), agora, usuario, agora, id_vencido))
         _auditar(conn, "vencido", id_vencido, "baixa",
                  f"{TIPOS_BAIXA[tipo]}" + (f" · {referencia}" if referencia else ""), usuario)
         conn.commit()
@@ -711,8 +742,9 @@ def reabrir_baixa(id_vencido, usuario=None):
     try:
         r = conn.execute(
             "UPDATE vencidos SET baixa_status='pendente', baixa_tipo=NULL, baixa_ref=NULL, "
-            "baixa_em=NULL, baixa_por=NULL WHERE id=? AND excluido_em IS NULL AND baixa_status='baixado'",
-            (id_vencido,))
+            "baixa_em=NULL, baixa_por=NULL, atualizado_em=? "
+            "WHERE id=? AND excluido_em IS NULL AND baixa_status='baixado'",
+            (_agora(), id_vencido))
         if r.rowcount:
             _auditar(conn, "vencido", id_vencido, "reabrir", "", usuario)
             conn.commit()
