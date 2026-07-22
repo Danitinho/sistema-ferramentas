@@ -397,6 +397,21 @@
     padding: 14px 18px; border-top: 1px solid var(--line); }
   .modal-footer .btn { margin-top: 0; width: auto; }
 
+  /* ── Seletor de fornecedor (buscar-ou-cadastrar) ──────────────────────── */
+  .fpick { position: relative; }
+  .fpick-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 260;
+    background: var(--surface); border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-pop);
+    max-height: 240px; overflow-y: auto; display: none; }
+  .fpick-menu.show { display: block; }
+  .fpick-item { padding: 10px 14px; cursor: pointer; font-size: 13.5px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .fpick-item:hover { background: var(--surface-2); }
+  .fpick-item .fp-cnpj { font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    white-space: nowrap; }
+  .fpick-novo { border-top: 1px solid var(--line); color: var(--amber); font-weight: 650; }
+  .fpick-vazio { padding: 10px 14px; font-size: 12.5px; color: var(--muted); }
+
   /* ── Diversos ─────────────────────────────────────────────────────────── */
   .empty-state { text-align: center; padding: 26px 0; color: var(--muted); font-size: 13.5px; }
   .spinner { width: 18px; height: 18px; border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
@@ -484,6 +499,82 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape")
     document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
 });
+
+// ── Seletor de fornecedor (buscar-ou-cadastrar) ─────────────────────────────
+// Transforma um <input type=text> num combobox do cadastro central
+// (/fornecedores/api/buscar). opts:
+//   criar: true        → oferece "+ Cadastrar «texto»" (cria só com nome e seleciona)
+//   aoSelecionar(f)    → callback ao escolher (f = {id, nome, cnpj} ou null)
+// Retorna { get(), getId(), set(f) }. Texto digitado sem selecionar é texto
+// livre (get() → null) — compatível com registros antigos.
+function fornecedorPicker(input, opts = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "fpick";
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  const menu = document.createElement("div");
+  menu.className = "fpick-menu";
+  wrap.appendChild(menu);
+  let sel = null, timer = null;
+
+  function marcar(f) {
+    sel = f || null;
+    if (sel) input.value = sel.nome;
+    if (opts.aoSelecionar) opts.aoSelecionar(sel);
+  }
+  function fechar() { menu.classList.remove("show"); }
+  function render(itens, q) {
+    menu.innerHTML = "";
+    itens.forEach(f => {
+      const el = document.createElement("div");
+      el.className = "fpick-item";
+      const nome = document.createElement("span"), cnpj = document.createElement("span");
+      nome.textContent = f.nome;
+      cnpj.className = "fp-cnpj"; cnpj.textContent = f.cnpj || "sem CNPJ";
+      el.append(nome, cnpj);
+      el.addEventListener("mousedown", e => { e.preventDefault(); marcar(f); fechar(); });
+      menu.appendChild(el);
+    });
+    if (!itens.length && !(opts.criar && q)) {
+      const el = document.createElement("div");
+      el.className = "fpick-vazio";
+      el.textContent = "Nenhum fornecedor encontrado.";
+      menu.appendChild(el);
+    }
+    if (opts.criar && q && !itens.some(f => f.nome.toLowerCase() === q.toLowerCase())) {
+      const el = document.createElement("div");
+      el.className = "fpick-item fpick-novo";
+      el.textContent = `+ Cadastrar "${q}"`;
+      el.addEventListener("mousedown", async e => {
+        e.preventDefault(); fechar();
+        const r = await postJSON("/fornecedores/api/criar", { nome: q });
+        marcar(r.fornecedor);   // nome duplicado devolve o existente — seleciona ele
+      });
+      menu.appendChild(el);
+    }
+    menu.classList.toggle("show", menu.children.length > 0);
+  }
+  async function buscar() {
+    const q = input.value.trim();
+    try {
+      const res = await fetch("/fornecedores/api/buscar?q=" + encodeURIComponent(q));
+      const r = await res.json();
+      render(r.fornecedores || [], q);
+    } catch (e) { fechar(); }
+  }
+  input.setAttribute("autocomplete", "off");
+  input.addEventListener("input", () => {
+    if (sel && input.value !== sel.nome) marcar(null);   // editou: volta a texto livre
+    clearTimeout(timer); timer = setTimeout(buscar, 250);
+  });
+  input.addEventListener("focus", buscar);
+  input.addEventListener("blur", () => setTimeout(fechar, 120));
+  return {
+    get: () => sel,
+    getId: () => (sel ? sel.id : null),
+    set: f => { sel = f || null; if (sel) input.value = sel.nome; },
+  };
+}
 
 // ── Upload drag-and-drop ────────────────────────────────────────────────────
 document.querySelectorAll(".upload-area").forEach(area => {

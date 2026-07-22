@@ -4,7 +4,7 @@
 {% block breadcrumb %}<a href="/">Menu principal</a> · Financeiro{% endblock %}
 
 {% block header_actions %}
-<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-empresa')">+ Nova empresa</button>
+<button class="btn btn-primary btn-sm" onclick="abrirEmpresa()">+ Nova empresa</button>
 {% endblock %}
 
 {% block extra_head %}
@@ -105,7 +105,7 @@
   {% else %}
   <div class="empty-state">
     Nenhuma empresa cadastrada.<br>
-    <button class="btn btn-primary btn-auto" style="margin-top:14px" onclick="abrirModal('modal-empresa')">Cadastrar primeira empresa</button>
+    <button class="btn btn-primary btn-auto" style="margin-top:14px" onclick="abrirEmpresa()">Cadastrar primeira empresa</button>
   </div>
   {% endif %}
 </div>
@@ -118,10 +118,14 @@
       <button class="modal-close" onclick="fecharModal('modal-empresa')">&times;</button>
     </div>
     <div class="modal-body">
+      <label>Empresa / fornecedor <em>*</em></label>
+      <input type="text" id="inp-razao" placeholder="Busque um fornecedor ou digite um nome novo">
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">
+        Se o fornecedor já existe (ex.: veio dos vencidos), selecione-o na lista e
+        confirme o CNPJ abaixo.
+      </div>
       <label>CNPJ <em>*</em></label>
       <input type="text" id="inp-cnpj" class="num" placeholder="00.000.000/0001-00">
-      <label>Razão social <em>*</em></label>
-      <input type="text" id="inp-razao" placeholder="Nome da empresa">
       <div class="result-box error" id="msg-empresa" style="margin-top:12px">
         <div class="result-value error" id="msg-empresa-txt"></div>
       </div>
@@ -138,22 +142,40 @@
 <script>
 const $ = id => document.getElementById(id);
 
+// Seletor do cadastro central: escolher um fornecedor existente preenche o
+// CNPJ dele (se tiver); texto livre = cadastrar fornecedor novo.
+const pickEmp = fornecedorPicker($("inp-razao"), {
+  aoSelecionar: f => { if (f && f.cnpj) $("inp-cnpj").value = f.cnpj; }
+});
+
+function abrirEmpresa() {
+  pickEmp.set(null);
+  $("inp-razao").value = ""; $("inp-cnpj").value = "";
+  $("msg-empresa").classList.remove("show");
+  abrirModal("modal-empresa");
+}
+
 async function salvarEmpresa() {
   const cnpj  = $("inp-cnpj").value.trim();
   const razao = $("inp-razao").value.trim();
   const msg   = $("msg-empresa");
   msg.classList.remove("show");
   if (!cnpj || !razao) {
-    $("msg-empresa-txt").textContent = "Preencha CNPJ e razão social.";
+    $("msg-empresa-txt").textContent = "Preencha o fornecedor e o CNPJ.";
     msg.classList.add("show"); return;
   }
-  const r = await postJSON("/debitos/api/empresa", { cnpj, razao_social: razao });
+  const sel = pickEmp.get();
+  // fornecedor existente → define/confirma o CNPJ dele; novo → cria com CNPJ.
+  const r = sel
+    ? await postJSON(`/fornecedores/api/${sel.id}/cnpj`, { cnpj })
+    : await postJSON("/fornecedores/api/criar", { nome: razao, cnpj });
   if (r.ok) { location.reload(); }
   else { $("msg-empresa-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
 async function excluirEmpresa(cnpj, nome) {
-  if (!confirm(`Excluir "${nome}" e todos os seus lançamentos?`)) return;
+  if (!confirm(`Excluir "${nome}" e todos os seus lançamentos de débitos?\n` +
+               `(O fornecedor continua existindo para o controle de vencidos.)`)) return;
   await fetch("/debitos/api/empresa/" + cnpj, { method: "DELETE" });   // CNPJ cru: contém '/'
   location.reload();
 }

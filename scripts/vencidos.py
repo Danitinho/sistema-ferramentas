@@ -118,7 +118,43 @@ def _init_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_venc_barras  ON vencidos(codigo_barras);
         CREATE INDEX IF NOT EXISTS idx_venc_criado  ON vencidos(criado_em);
     """)
+    # migração: vínculo com o cadastro central de fornecedores (fornecedores.db)
+    for tabela in ("avisos", "vencidos"):
+        cols_t = {r[1] for r in conn.execute(f"PRAGMA table_info({tabela})")}
+        if "fornecedor_id" not in cols_t:
+            conn.execute(f"ALTER TABLE {tabela} ADD COLUMN fornecedor_id TEXT")
     conn.commit()
+    _backfill_fornecedor_id(conn)
+
+
+_BACKFILL_FEITO = False   # roda uma vez por processo
+
+
+def _backfill_fornecedor_id(conn):
+    """Vincula registros antigos ao cadastro central, casando o texto do
+    fornecedor com o nome cadastrado (normalizado). Tolerante a falha: sem o
+    módulo/banco de fornecedores, ninguém quebra."""
+    global _BACKFILL_FEITO
+    if _BACKFILL_FEITO:
+        return
+    _BACKFILL_FEITO = True
+    try:
+        from scripts import fornecedores
+        mapa = fornecedores.mapa_nomes()
+        if not mapa:
+            return
+        for tabela in ("avisos", "vencidos"):
+            rows = conn.execute(
+                f"SELECT id, fornecedor FROM {tabela} WHERE fornecedor_id IS NULL "
+                "AND fornecedor IS NOT NULL AND TRIM(fornecedor) <> ''").fetchall()
+            for r in rows:
+                fid = mapa.get(fornecedores._norm_nome(r["fornecedor"]))
+                if fid:
+                    conn.execute(f"UPDATE {tabela} SET fornecedor_id=? WHERE id=?",
+                                 (fid, r["id"]))
+        conn.commit()
+    except Exception:
+        pass  # cadastro central indisponível — segue sem vínculo
 
 
 # ── Utilitários ───────────────────────────────────────────────────────────────
@@ -269,7 +305,7 @@ def _enriquecer_vencido(v):
 # ── Avisos ────────────────────────────────────────────────────────────────────
 def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
                     data_vencimento, custo=None, venda=None, valor_promocional=None,
-                    obs="", usuario=None):
+                    obs="", usuario=None, fornecedor_id=None):
     produto = (produto or "").strip()
     if not produto:
         return False, "Informe o produto."
@@ -284,9 +320,10 @@ def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
         aid = _uid()
         conn.execute(
             "INSERT INTO avisos (id, produto, codigo_barras, quantidade, fornecedor, "
-            "responsavel, data_vencimento, custo, venda, valor_promocional, obs, "
-            "registrado_por, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "fornecedor_id, responsavel, data_vencimento, custo, venda, valor_promocional, "
+            "obs, registrado_por, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (aid, produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
+             (fornecedor_id or "").strip() or None,
              (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
              _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
              (obs or "").strip(), usuario, _agora()),
@@ -429,7 +466,7 @@ def excluir_aviso(id_aviso, usuario=None):
 
 def editar_aviso(id_aviso, produto, quantidade, data_vencimento, codigo_barras=None,
                  fornecedor=None, responsavel=None, custo=None, venda=None,
-                 valor_promocional=None, obs=None, usuario=None):
+                 valor_promocional=None, obs=None, usuario=None, fornecedor_id=None):
     """Atualiza um aviso ativo (quantidade restante, promoção, datas...).
     Preserva `criado_em` — a antecedência continua medida do aviso original.
     Aviso resolvido não se edita (já virou histórico)."""
@@ -452,9 +489,10 @@ def editar_aviso(id_aviso, produto, quantidade, data_vencimento, codigo_barras=N
             return False, "Este aviso já foi resolvido por um vencido — não pode ser editado."
         conn.execute(
             "UPDATE avisos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
-            "responsavel=?, data_vencimento=?, custo=?, venda=?, valor_promocional=?, obs=? "
-            "WHERE id=?",
+            "fornecedor_id=?, responsavel=?, data_vencimento=?, custo=?, venda=?, "
+            "valor_promocional=?, obs=? WHERE id=?",
             (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
+             (fornecedor_id or "").strip() or None,
              (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
              _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
              (obs or "").strip(), id_aviso))
@@ -492,12 +530,13 @@ def checar_aviso(codigo_barras):
         "data_venc_fmt": a["data_venc_fmt"], "dias_antecedencia": a["dias_antecedencia"],
         "no_prazo": a["no_prazo"], "responsavel": a["responsavel"],
         "quantidade": a["quantidade"], "fornecedor": a["fornecedor"], "custo": a["custo"],
+        "fornecedor_id": a.get("fornecedor_id"),
     }
 
 
 # ── Vencidos ──────────────────────────────────────────────────────────────────
 def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
-                      responsavel_entrega, obs="", usuario=None):
+                      responsavel_entrega, obs="", usuario=None, fornecedor_id=None):
     produto = (produto or "").strip()
     if not produto:
         return False, "Informe o produto."
@@ -510,11 +549,13 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
     conn = _conn()
     try:
         vid = _uid()
+        # sem seleção explícita, herda o vínculo de fornecedor do aviso casado
+        fid = (fornecedor_id or "").strip() or (aviso.get("fornecedor_id") if aviso else None)
         conn.execute(
             "INSERT INTO vencidos (id, produto, codigo_barras, quantidade, fornecedor, "
-            "custo, responsavel_entrega, foi_avisado, aviso_id, obs, registrado_por, "
-            "criado_em, baixa_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pendente')",
-            (vid, produto, cb, qtd, (fornecedor or "").strip(),
+            "fornecedor_id, custo, responsavel_entrega, foi_avisado, aviso_id, obs, "
+            "registrado_por, criado_em, baixa_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pendente')",
+            (vid, produto, cb, qtd, (fornecedor or "").strip(), fid,
              _parse_valor_opcional(custo), (responsavel_entrega or "").strip(),
              foi_avisado, aviso["id"] if aviso else None, (obs or "").strip(),
              usuario, _agora()),
@@ -535,7 +576,8 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
 
 
 def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, fornecedor=None,
-                   custo=None, responsavel_entrega=None, foi_avisado=None, obs=None, usuario=None):
+                   custo=None, responsavel_entrega=None, foi_avisado=None, obs=None,
+                   usuario=None, fornecedor_id=None):
     """Corrige um vencido — inclusive o 'foi avisado?' manualmente. Só permitido
     se NÃO estiver baixado (o usuário deve reabrir a baixa antes de editar)."""
     produto = (produto or "").strip()
@@ -562,8 +604,10 @@ def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, forneced
             novo_aviso_id = None
         conn.execute(
             "UPDATE vencidos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
-            "custo=?, responsavel_entrega=?, foi_avisado=?, aviso_id=?, obs=? WHERE id=?",
+            "fornecedor_id=?, custo=?, responsavel_entrega=?, foi_avisado=?, aviso_id=?, "
+            "obs=? WHERE id=?",
             (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
+             (fornecedor_id or "").strip() or None,
              _parse_valor_opcional(custo), (responsavel_entrega or "").strip(),
              fa, novo_aviso_id, (obs or "").strip(), id_vencido))
         _auditar(conn, "vencido", id_vencido, "editar",

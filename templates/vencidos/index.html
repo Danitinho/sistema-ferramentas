@@ -350,7 +350,7 @@
             <input type="number" id="ve-custo" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div></div>
       </div>
       <label>Fornecedor</label>
-      <input type="text" id="ve-forn" placeholder="Nome do fornecedor">
+      <input type="text" id="ve-forn" placeholder="Busque ou cadastre o fornecedor">
       <label>Responsável pela entrega</label>
       <input type="text" id="ve-resp" placeholder="Funcionário que trouxe o produto">
       <label>Observação</label>
@@ -384,7 +384,7 @@
       <label>Data de vencimento <em>*</em></label>
       <input type="date" id="av-venc">
       <div class="two-col" style="margin-top:14px">
-        <div><label>Fornecedor</label><input type="text" id="av-forn"></div>
+        <div><label>Fornecedor</label><input type="text" id="av-forn" placeholder="Busque ou cadastre"></div>
         <div><label>Responsável (quem avisou)</label><input type="text" id="av-resp"></div>
       </div>
       <div class="two-col" style="margin-top:14px">
@@ -439,6 +439,10 @@ const VENCIDOS = {{ vencidos | tojson }};
 const AVISOS = {{ avisos | tojson }};
 let _baixaId = null, _baixaTipo = "perda";
 const REF_LABEL = { perda: "Nº da nota de perda", devolucao: "Nº da NF de devolução" };
+
+// Seletores do cadastro central de fornecedores (criação só com nome permitida)
+const pickVe = fornecedorPicker($("ve-forn"), { criar: true });
+const pickAv = fornecedorPicker($("av-forn"), { criar: true });
 
 // ── Paginação por mês (recarrega) ──
 function irParaMes(mes) {
@@ -502,6 +506,7 @@ function selecionarAvisado(a) {
 function abrirVencido() {
   _modoVenc = "novo"; _editVencId = null;
   ["ve-barras","ve-produto","ve-qtd","ve-custo","ve-forn","ve-resp","ve-obs"].forEach(id => $(id).value = "");
+  pickVe.set(null);
   $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
   $("ve-avisado-bloco").style.display = "none";   // no cadastro, o aviso é detectado sozinho
   $("ve-titulo").textContent = "Registrar vencido no escritório";
@@ -519,6 +524,7 @@ function abrirEditarVencido(id) {
   $("ve-qtd").value = v.quantidade;
   $("ve-custo").value = (v.custo != null ? v.custo : "");
   $("ve-forn").value = v.fornecedor || "";
+  pickVe.set(v.fornecedor_id ? { id: v.fornecedor_id, nome: v.fornecedor || "" } : null);
   $("ve-resp").value = v.responsavel_entrega || "";
   $("ve-obs").value = v.obs || "";
   $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
@@ -548,7 +554,10 @@ function checarAviso() {
       banner.classList.add("show");
       // pré-preenche o que estiver vazio
       if (!$("ve-produto").value && r.produto) $("ve-produto").value = r.produto;
-      if (!$("ve-forn").value && r.fornecedor) $("ve-forn").value = r.fornecedor;
+      if (!$("ve-forn").value && r.fornecedor) {
+        $("ve-forn").value = r.fornecedor;
+        pickVe.set(r.fornecedor_id ? { id: r.fornecedor_id, nome: r.fornecedor } : null);
+      }
       if (!$("ve-custo").value && r.custo != null) $("ve-custo").value = r.custo;
       if (!$("ve-qtd").value && r.quantidade != null) $("ve-qtd").value = r.quantidade;
     } else {
@@ -565,7 +574,8 @@ async function salvarVencido() {
   const body = {
     produto: $("ve-produto").value.trim(), codigo_barras: $("ve-barras").value.trim(),
     quantidade: $("ve-qtd").value, custo: $("ve-custo").value,
-    fornecedor: $("ve-forn").value.trim(), responsavel_entrega: $("ve-resp").value.trim(),
+    fornecedor: $("ve-forn").value.trim(), fornecedor_id: pickVe.getId(),
+    responsavel_entrega: $("ve-resp").value.trim(),
     obs: $("ve-obs").value.trim(),
   };
   if (!body.produto || !parseFloat(body.quantidade)) {
@@ -590,6 +600,7 @@ let _editAvisoId = null;
 function abrirAviso() {
   _modoAviso = "novo"; _editAvisoId = null;
   ["av-produto","av-barras","av-qtd","av-venc","av-forn","av-resp","av-custo","av-venda","av-promo"].forEach(id => $(id).value = "");
+  pickAv.set(null);
   $("av-dup").className = "alertx chk-banner"; $("av-dup").innerHTML = "";
   $("av-titulo").textContent = "Registrar aviso de vencimento";
   $("av-salvar").textContent = "Registrar aviso";
@@ -606,6 +617,7 @@ function abrirEditarAviso(id) {
   $("av-qtd").value = a.quantidade;
   $("av-venc").value = a.data_vencimento || "";
   $("av-forn").value = a.fornecedor || "";
+  pickAv.set(a.fornecedor_id ? { id: a.fornecedor_id, nome: a.fornecedor || "" } : null);
   $("av-resp").value = a.responsavel || "";
   $("av-custo").value = (a.custo != null ? a.custo : "");
   $("av-venda").value = (a.venda != null ? a.venda : "");
@@ -641,7 +653,8 @@ async function salvarAviso() {
   const body = {
     produto: $("av-produto").value.trim(), codigo_barras: $("av-barras").value.trim(),
     quantidade: $("av-qtd").value, data_vencimento: $("av-venc").value,
-    fornecedor: $("av-forn").value.trim(), responsavel: $("av-resp").value.trim(),
+    fornecedor: $("av-forn").value.trim(), fornecedor_id: pickAv.getId(),
+    responsavel: $("av-resp").value.trim(),
     custo: $("av-custo").value, venda: $("av-venda").value, valor_promocional: $("av-promo").value,
   };
   if (!body.produto || !parseFloat(body.quantidade) || !body.data_vencimento) {

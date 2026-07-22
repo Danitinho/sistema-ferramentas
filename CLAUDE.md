@@ -79,8 +79,10 @@ sistema_ferramentas_refatorado/
 │
 ├── scripts/               # CAMADA DE LÓGICA (sem Flask, exceto *_routes.py)
 │   ├── __init__.py
-│   ├── debitos.py             # lógica + persistência (Excel) de débitos
+│   ├── debitos.py             # lógica + persistência (SQLite) de débitos
 │   ├── debitos_routes.py      # Blueprint /debitos
+│   ├── fornecedores.py        # cadastro central de fornecedores (seção 14)
+│   ├── fornecedores_routes.py # Blueprint /fornecedores (APIs do seletor)
 │   ├── gerador_layouts.py     # motor de layouts de placas (Pillow)
 │   ├── gera_imagem.py         # geração de imagem de oferta (modelo antigo)
 │   ├── gera_imagem_v2.py      # geração de imagem de oferta (modelo novo)
@@ -142,6 +144,7 @@ MODULOS = [
     ("scripts.layouts_routes",    "layouts_bp"),     # /layouts
     ("scripts.relatorios_routes", "relatorios_bp"),  # /relatorios
     ("scripts.vencidos_routes",   "vencidos_bp"),     # /vencidos
+    ("scripts.fornecedores_routes", "fornecedores_bp"), # /fornecedores (APIs)
     ("scripts.backup_routes",     "backup_bp"),       # /sistema/backup
 ]
 ```
@@ -226,6 +229,7 @@ Não há um banco único. Cada módulo persiste de um jeito:
 | Módulo            | Onde                          | Formato |
 |-------------------|-------------------------------|---------|
 | Débitos/pagamentos/alocações | `dados/debitos.db` | SQLite |
+| Fornecedores (cadastro central) | `dados/fornecedores.db` | SQLite |
 | Produtos vencidos | `dados/vencidos.db`           | SQLite |
 | Usuários + SECRET_KEY | `dados/sistema.db` + `dados/secret.key` | SQLite + arquivo |
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
@@ -340,7 +344,8 @@ Todo template começa com:
 {% block extra_scripts %}<script>...</script>{% endblock %}
 ```
 Helpers globais já disponíveis em `base.html`: `postJSON(url, data)`,
-`brl(valor)` (moeda BRL) e o drag-and-drop automático de `.upload-area`.
+`brl(valor)` (moeda BRL), o drag-and-drop automático de `.upload-area` e o
+seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 14).
 
 ### Outras regras de UI
 - **Ícones:** SVG **inline** (não emoji, não CDN). Decisão intencional: os
@@ -512,3 +517,38 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
 - **Análise** (janela 6 meses): `ranking_reincidencia` (2+ ocorrências),
   `ranking_fornecedores` (perda por custo), `ranking_responsaveis` (antecedência
   média e % no prazo por responsável de seção).
+
+---
+
+## 14. Cadastro central de fornecedores (`/fornecedores`)
+
+`scripts/fornecedores.py` + `fornecedores_routes.py` + `dados/fornecedores.db`.
+É a **fonte da verdade** da entidade que débitos chama de "empresa" e vencidos
+chama de "fornecedor". Não tem página própria — só APIs que alimentam o
+**seletor buscar-ou-cadastrar** (`fornecedorPicker` no `base.html`, CSS `.fpick`).
+
+- `fornecedores(id PK, cnpj UNIQUE (pode ser NULL), nome, ...)` + auditoria,
+  soft-delete. CNPJ armazenado **como digitado** (compatível com as chaves de
+  débitos); duplicidade comparada **só pelos dígitos** (`_cnpj_digitos`).
+- **Fornecedor sem CNPJ pode existir** (criado pelo vencidos só com nome). O
+  CNPJ vira obrigatório só para entrar em débitos.
+- **Invariante:** fornecedor com CNPJ ⇔ linha em `empresas` no debitos.db (as
+  FKs de débitos apontam para `empresas`, que continua local; a sincronização é
+  feita pela camada de rotas — `_garantir_empresa` em `fornecedores_routes.py`
+  chama `debitos.adicionar_empresa` ao criar/definir CNPJ). Excluir empresa em
+  débitos **não** exclui o fornecedor do cadastro central.
+- **Semeadura** (uma vez por processo, idempotente, tolerante a falha): importa
+  as `empresas` do debitos.db e os nomes distintos de fornecedor do vencidos.db
+  (leituras read-only). Compara com TODAS as linhas (inclusive excluídas) para
+  não ressuscitar fornecedor removido de propósito.
+- **Vencidos**: `avisos`/`vencidos` ganharam `fornecedor_id` (migração +
+  backfill por nome normalizado, uma vez por processo). O nome (`fornecedor`)
+  segue **denormalizado** para exibição/rankings; o vencido sem seleção
+  explícita **herda** o `fornecedor_id` do aviso casado por código de barras.
+- APIs: `GET /api/buscar?q=` (nome ou dígitos de CNPJ) ·
+  `POST /api/criar {nome, cnpj?}` · `POST /api/<id>/cnpj` · `POST /api/<id>/nome`.
+  Respostas `{"ok", "msg", "fornecedor"}` — em duplicata, `fornecedor` traz o
+  existente (o picker seleciona ele).
+- A lista de empresas em `/debitos` mostra **todas as com CNPJ** (=`empresas`
+  ativas); o modal "+ Nova empresa" usa o seletor (fornecedor existente sem
+  CNPJ → pede o CNPJ; inexistente → cria com nome+CNPJ).

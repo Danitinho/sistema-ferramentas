@@ -49,6 +49,7 @@ def api_aviso():
     ok, msg = v.registrar_aviso(
         produto=d.get("produto", ""), codigo_barras=d.get("codigo_barras", ""),
         quantidade=d.get("quantidade", 0), fornecedor=d.get("fornecedor", ""),
+        fornecedor_id=d.get("fornecedor_id"),
         responsavel=d.get("responsavel", ""), data_vencimento=d.get("data_vencimento", ""),
         custo=d.get("custo"), venda=d.get("venda"),
         valor_promocional=d.get("valor_promocional"), obs=d.get("obs", ""),
@@ -63,7 +64,8 @@ def api_edit_aviso(id_aviso):
     ok, msg = v.editar_aviso(
         id_aviso, produto=d.get("produto", ""), quantidade=d.get("quantidade", 0),
         data_vencimento=d.get("data_vencimento", ""), codigo_barras=d.get("codigo_barras", ""),
-        fornecedor=d.get("fornecedor", ""), responsavel=d.get("responsavel", ""),
+        fornecedor=d.get("fornecedor", ""), fornecedor_id=d.get("fornecedor_id"),
+        responsavel=d.get("responsavel", ""),
         custo=d.get("custo"), venda=d.get("venda"),
         valor_promocional=d.get("valor_promocional"), obs=d.get("obs", ""),
         usuario=_usuario())
@@ -89,6 +91,7 @@ def api_vencido():
     ok, msg = v.registrar_vencido(
         produto=d.get("produto", ""), codigo_barras=d.get("codigo_barras", ""),
         quantidade=d.get("quantidade", 0), fornecedor=d.get("fornecedor", ""),
+        fornecedor_id=d.get("fornecedor_id"),
         custo=d.get("custo"), responsavel_entrega=d.get("responsavel_entrega", ""),
         obs=d.get("obs", ""), usuario=_usuario(),
     )
@@ -101,6 +104,7 @@ def api_edit_vencido(id_vencido):
     ok, msg = v.editar_vencido(
         id_vencido, produto=d.get("produto", ""), quantidade=d.get("quantidade", 0),
         codigo_barras=d.get("codigo_barras", ""), fornecedor=d.get("fornecedor", ""),
+        fornecedor_id=d.get("fornecedor_id"),
         custo=d.get("custo"), responsavel_entrega=d.get("responsavel_entrega", ""),
         foi_avisado=d.get("foi_avisado"), obs=d.get("obs", ""), usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
