@@ -40,6 +40,8 @@
   .empresa-chev { color: var(--line-2); flex-shrink: 0; transition: color .12s, transform .12s; }
   .empresa-row:hover .empresa-chev { color: var(--amber); transform: translateX(2px); }
 
+  .icon-btn.ed-emp:hover { background: var(--surface-3); color: var(--amber); }
+
   @media (max-width: 560px) {
     .empresa-nome { font-size: 16px; }
     .saldo-tag .v { font-size: 18px; }
@@ -95,6 +97,11 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
       </span>
     </a>
+    <button class="icon-btn ed-emp" onclick="abrirEditarEmpresa('{{ e.cnpj }}', '{{ e.razao_social }}')" title="Editar nome/CNPJ">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+      </svg>
+    </button>
     <button class="btn-lixo" onclick="excluirEmpresa('{{ e.cnpj }}', '{{ e.razao_social }}')" title="Excluir empresa">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
         <path d="M2 4h11M5.5 4V2.5h4V4M4 4l.8 9h6.4l.8-9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -108,6 +115,33 @@
     <button class="btn btn-primary btn-auto" style="margin-top:14px" onclick="abrirEmpresa()">Cadastrar primeira empresa</button>
   </div>
   {% endif %}
+</div>
+
+<!-- Modal: Editar Empresa (razão social / CNPJ — reflete no cadastro central) -->
+<div class="modal-overlay" id="modal-editar-empresa" onclick="fecharSeFundo(event,'modal-editar-empresa')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title">Editar empresa</div>
+      <button class="modal-close" onclick="fecharModal('modal-editar-empresa')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label>Razão social <em>*</em></label>
+      <input type="text" id="ed-nome">
+      <label>CNPJ <em>*</em></label>
+      <input type="text" id="ed-cnpj" class="num">
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">
+        Trocar o CNPJ migra todos os lançamentos para a chave nova. O nome novo
+        também vale para o controle de vencidos.
+      </div>
+      <div class="result-box error" id="msg-ed" style="margin-top:12px">
+        <div class="result-value error" id="msg-ed-txt"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-editar-empresa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEdicaoEmpresa()">Salvar</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: Nova Empresa -->
@@ -171,6 +205,47 @@ async function salvarEmpresa() {
     : await postJSON("/fornecedores/api/criar", { nome: razao, cnpj });
   if (r.ok) { location.reload(); }
   else { $("msg-empresa-txt").textContent = r.msg; msg.classList.add("show"); }
+}
+
+// ── Editar empresa (nome/CNPJ) — muda o cadastro central, que sincroniza tudo ──
+let _editEmpFornId = null;
+
+async function abrirEditarEmpresa(cnpj, nome) {
+  $("ed-nome").value = nome;
+  $("ed-cnpj").value = cnpj;
+  $("msg-ed").classList.remove("show");
+  _editEmpFornId = null;
+  // localiza o fornecedor no cadastro central pelo CNPJ (compara só dígitos)
+  const dig = s => (s || "").replace(/\D/g, "");
+  try {
+    const res = await fetch("/fornecedores/api/buscar?q=" + encodeURIComponent(cnpj));
+    const j = await res.json();
+    const alvo = (j.fornecedores || []).find(f => dig(f.cnpj) === dig(cnpj));
+    if (alvo) _editEmpFornId = alvo.id;
+  } catch (e) {}
+  if (!_editEmpFornId) {
+    $("msg-ed-txt").textContent = "Empresa não encontrada no cadastro central de fornecedores.";
+    $("msg-ed").classList.add("show");
+  }
+  abrirModal("modal-editar-empresa");
+}
+
+async function salvarEdicaoEmpresa() {
+  const nome = $("ed-nome").value.trim();
+  const cnpj = $("ed-cnpj").value.trim();
+  const msg  = $("msg-ed");
+  msg.classList.remove("show");
+  if (!_editEmpFornId) {
+    $("msg-ed-txt").textContent = "Empresa não encontrada no cadastro central de fornecedores.";
+    msg.classList.add("show"); return;
+  }
+  if (!nome || !cnpj) {
+    $("msg-ed-txt").textContent = "Preencha razão social e CNPJ.";
+    msg.classList.add("show"); return;
+  }
+  const r = await postJSON(`/fornecedores/api/${_editEmpFornId}/editar`, { nome, cnpj });
+  if (r.ok) { location.reload(); }
+  else { $("msg-ed-txt").textContent = r.msg; msg.classList.add("show"); }
 }
 
 async function excluirEmpresa(cnpj, nome) {

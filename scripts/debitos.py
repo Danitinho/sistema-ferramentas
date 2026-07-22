@@ -455,6 +455,39 @@ def adicionar_empresa(cnpj, razao_social, usuario=None):
         conn.close()
 
 
+def editar_empresa(cnpj, novo_cnpj=None, nova_razao=None, usuario=None):
+    """Altera razão social e/ou CNPJ de uma empresa. Mudança de CNPJ migra os
+    débitos e pagamentos para a chave nova (o CNPJ é a PK e a FK de tudo aqui),
+    preservando lançamentos, alocações e histórico."""
+    conn = _conn()
+    try:
+        emp = conn.execute("SELECT * FROM empresas WHERE cnpj = ? AND excluido_em IS NULL",
+                           (cnpj,)).fetchone()
+        if not emp:
+            return False, "Empresa não encontrada."
+        novo_cnpj = (novo_cnpj or "").strip() or cnpj
+        nova_razao = (nova_razao or "").strip() or emp["razao_social"]
+        if novo_cnpj != cnpj:
+            if conn.execute("SELECT 1 FROM empresas WHERE cnpj = ?", (novo_cnpj,)).fetchone():
+                return False, "Já existe empresa com este CNPJ."
+            # a FK debitos/pagamentos -> empresas(cnpj) não tem ON UPDATE CASCADE;
+            # desliga a checagem só nesta conexão para trocar a chave em bloco
+            # (precisa ser antes de qualquer DML — fora de transação aberta).
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("UPDATE empresas   SET cnpj = ? WHERE cnpj = ?", (novo_cnpj, cnpj))
+            conn.execute("UPDATE debitos    SET cnpj = ? WHERE cnpj = ?", (novo_cnpj, cnpj))
+            conn.execute("UPDATE pagamentos SET cnpj = ? WHERE cnpj = ?", (novo_cnpj, cnpj))
+        if nova_razao != emp["razao_social"]:
+            conn.execute("UPDATE empresas SET razao_social = ? WHERE cnpj = ?",
+                         (nova_razao, novo_cnpj))
+        _auditar(conn, "empresa", novo_cnpj, "editar",
+                 f"{emp['razao_social']} ({cnpj}) -> {nova_razao} ({novo_cnpj})", usuario)
+        conn.commit()
+        return True, "Empresa atualizada."
+    finally:
+        conn.close()
+
+
 def excluir_empresa(cnpj, usuario=None):
     conn = _conn()
     try:

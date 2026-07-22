@@ -17,12 +17,32 @@ def _usuario():
     return session.get("usuario")
 
 
-def _garantir_empresa(cnpj, nome):
-    """Projeção local no módulo de débitos ('CNPJ já cadastrado' é ok).
-    Falha de débitos não impede o cadastro do fornecedor."""
+def _sincronizar_empresa(antes, depois):
+    """Reflete a mudança do fornecedor na projeção `empresas` de débitos:
+    cria a empresa quando o fornecedor ganha CNPJ, renomeia e/ou migra a chave
+    quando CNPJ/razão social mudam. `antes` pode ser None (fornecedor novo).
+    Falha de débitos não impede a mudança no cadastro central."""
+    if not depois or not depois.get("cnpj"):
+        return
     try:
         from scripts import debitos
-        debitos.adicionar_empresa(cnpj, nome, usuario=_usuario())
+        cnpj_antigo = (antes or {}).get("cnpj")
+        if cnpj_antigo and debitos.buscar_empresa(cnpj_antigo):
+            debitos.editar_empresa(cnpj_antigo, novo_cnpj=depois["cnpj"],
+                                   nova_razao=depois["nome"], usuario=_usuario())
+        else:
+            debitos.adicionar_empresa(depois["cnpj"], depois["nome"], usuario=_usuario())
+    except Exception:
+        pass
+
+
+def _sincronizar_vencidos(antes, depois):
+    """Propaga o nome novo para as linhas de avisos/vencidos vinculadas."""
+    if not antes or not depois or antes.get("nome") == depois.get("nome"):
+        return
+    try:
+        from scripts import vencidos
+        vencidos.renomear_fornecedor(depois["id"], depois["nome"], usuario=_usuario())
     except Exception:
         pass
 
@@ -37,22 +57,53 @@ def api_buscar():
 def api_criar():
     d = request.get_json() or {}
     ok, msg, f = fr.criar(d.get("nome", ""), cnpj=d.get("cnpj"), usuario=_usuario())
-    if ok and f and f.get("cnpj"):
-        _garantir_empresa(f["cnpj"], f["nome"])
+    if ok:
+        _sincronizar_empresa(None, f)
     return jsonify({"ok": ok, "msg": msg, "fornecedor": f})
 
 
 @fornecedores_bp.route("/api/<id_forn>/cnpj", methods=["POST"])
 def api_definir_cnpj(id_forn):
     d = request.get_json() or {}
+    antes = fr.buscar(id_forn)
     ok, msg, f = fr.definir_cnpj(id_forn, d.get("cnpj", ""), usuario=_usuario())
-    if ok and f:
-        _garantir_empresa(f["cnpj"], f["nome"])
+    if ok:
+        _sincronizar_empresa(antes, f)
     return jsonify({"ok": ok, "msg": msg, "fornecedor": f})
 
 
 @fornecedores_bp.route("/api/<id_forn>/nome", methods=["POST"])
 def api_editar_nome(id_forn):
     d = request.get_json() or {}
+    antes = fr.buscar(id_forn)
     ok, msg, f = fr.editar_nome(id_forn, d.get("nome", ""), usuario=_usuario())
+    if ok:
+        _sincronizar_empresa(antes, f)
+        _sincronizar_vencidos(antes, f)
     return jsonify({"ok": ok, "msg": msg, "fornecedor": f})
+
+
+@fornecedores_bp.route("/api/<id_forn>/editar", methods=["POST"])
+def api_editar(id_forn):
+    """Edita nome e/ou CNPJ num passo só (troca de razão social / CNPJ da
+    empresa). Sincroniza débitos (migra a chave se o CNPJ mudou) e vencidos."""
+    d = request.get_json() or {}
+    antes = fr.buscar(id_forn)
+    if not antes:
+        return jsonify({"ok": False, "msg": "Fornecedor não encontrado."})
+    nome = (d.get("nome") or "").strip()
+    cnpj = (d.get("cnpj") or "").strip()
+    if (not nome or nome == antes["nome"]) and (not cnpj or cnpj == (antes["cnpj"] or "")):
+        return jsonify({"ok": True, "msg": "Nada a alterar.", "fornecedor": antes})
+    if nome and nome != antes["nome"]:
+        ok, msg, _f = fr.editar_nome(id_forn, nome, usuario=_usuario())
+        if not ok:
+            return jsonify({"ok": False, "msg": msg})
+    if cnpj and cnpj != (antes["cnpj"] or ""):
+        ok, msg, _f = fr.definir_cnpj(id_forn, cnpj, usuario=_usuario())
+        if not ok:
+            return jsonify({"ok": False, "msg": msg})
+    depois = fr.buscar(id_forn)
+    _sincronizar_empresa(antes, depois)
+    _sincronizar_vencidos(antes, depois)
+    return jsonify({"ok": True, "msg": "Fornecedor atualizado.", "fornecedor": depois})

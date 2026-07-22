@@ -546,9 +546,18 @@ chama de "fornecedor". Não tem página própria — só APIs que alimentam o
   segue **denormalizado** para exibição/rankings; o vencido sem seleção
   explícita **herda** o `fornecedor_id` do aviso casado por código de barras.
 - APIs: `GET /api/buscar?q=` (nome ou dígitos de CNPJ) ·
-  `POST /api/criar {nome, cnpj?}` · `POST /api/<id>/cnpj` · `POST /api/<id>/nome`.
+  `POST /api/criar {nome, cnpj?}` · `POST /api/<id>/cnpj` · `POST /api/<id>/nome`
+  · `POST /api/<id>/editar {nome, cnpj}` (troca de razão social e/ou CNPJ).
   Respostas `{"ok", "msg", "fornecedor"}` — em duplicata, `fornecedor` traz o
   existente (o picker seleciona ele).
+- **Edição (razão social / CNPJ)**: botão de lápis na linha da empresa em
+  `/debitos` abre o modal que chama `/api/<id>/editar`. A sincronização
+  (`_sincronizar_empresa`/`_sincronizar_vencidos` em `fornecedores_routes.py`):
+  CNPJ novo → `debitos.editar_empresa` **migra a chave** (empresas + debitos +
+  pagamentos, com `PRAGMA foreign_keys=OFF` pontual, pois a FK não tem ON
+  UPDATE CASCADE); nome novo → renomeia a empresa e propaga o nome
+  denormalizado nos avisos/vencidos vinculados (`vencidos.renomear_fornecedor`).
+  Duplicidade de CNPJ barrada pelos dígitos; reformatar o mesmo CNPJ é ok.
 - A lista de empresas em `/debitos` mostra **todas as com CNPJ** (=`empresas`
   ativas); o modal "+ Nova empresa" usa o seletor (fornecedor existente sem
   CNPJ → pede o CNPJ; inexistente → cria com nome+CNPJ).

@@ -504,6 +504,27 @@ def editar_aviso(id_aviso, produto, quantidade, data_vencimento, codigo_barras=N
         conn.close()
 
 
+def renomear_fornecedor(fornecedor_id, novo_nome, usuario=None):
+    """Atualiza o nome denormalizado nas linhas vinculadas ao cadastro central
+    (chamado pela camada de rotas de fornecedores quando o nome muda)."""
+    novo_nome = (novo_nome or "").strip()
+    if not fornecedor_id or not novo_nome:
+        return
+    conn = _conn()
+    try:
+        n = 0
+        for tabela in ("avisos", "vencidos"):
+            r = conn.execute(f"UPDATE {tabela} SET fornecedor = ? WHERE fornecedor_id = ?",
+                             (novo_nome, fornecedor_id))
+            n += r.rowcount
+        if n:
+            _auditar(conn, "fornecedor", fornecedor_id, "renomear",
+                     f"{novo_nome} ({n} linha(s))", usuario)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def buscar_aviso_ativo_por_barras(codigo_barras):
     """Aviso ativo (não resolvido, não excluído) do mesmo código de barras, mais
     próximo de vencer. Retorna dict enriquecido ou None."""
