@@ -308,20 +308,29 @@ movido (fica na entrada para inspeção).
 Todo o visual mora em `templates/base.html`. **Mudar a paleta lá reskinna o
 sistema inteiro**, pois todos os templates estendem `base.html`.
 
-### Paleta atual — "Carbono & Âmbar" (tema escuro padrão + claro)
-Definida em CSS variables no `:root` de `base.html`. O tema **escuro é o
-padrão**; o claro é ativado por `html[data-theme="claro"]` (switch no header,
+### Paleta atual — "Corporativo Navy" (tema claro padrão + escuro)
+Definida em CSS variables no `:root` de `base.html`. O tema **claro é o
+padrão**; o escuro é ativado por `html[data-theme="escuro"]` (switch no header,
 persistido em `localStorage.tema`, aplicado antes do paint por um script
-inline no `<head>`).
+inline no `<head>`). Referência visual: mockup aprovado em
+https://claude.ai/code/artifact/cef0d907-2727-4fbb-9720-f17610705803
 - Superfícies: `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--line`, `--line-2`.
 - Texto: `--ink`, `--ink-2`, `--muted`.
-- Marca: `--amber` (acento de texto/ícone — muda por tema p/ contraste),
-  `--amber-btn` (fundo de botão primário), `--amber-ink` (texto sobre âmbar),
-  `--amber-2` (hover), `--glow` (sombra/foco).
-- Semânticas: `--success`, `--warning`, `--danger` (+ versões `-bg`).
-- Tipos: `--sans` (texto) e `--mono` (números, NF, códigos — use a classe `.num`).
-- Aliases legados mantidos (`--brand`, `--accent`, `--graphite`, `--gray`,
-  `--gray-light`, `--border`...) mapeados para os tokens novos.
+- Marca: `--brand` (navy #1F3A5F, fundo de botão primário) + `--brand-2` (hover),
+  `--accent` (azul de texto/ícone/link) + `--accent-2`/`--accent-soft`,
+  `--on-brand` (texto sobre navy), `--glow` (anel de foco).
+- Barra superior: `--appbar`/`--appbar-ink`/`--appbar-muted` — navy nos DOIS
+  temas (âncora da identidade); o markup usa `.appbar-top-wrap` (largura total).
+- Semânticas: `--success`, `--warning`, `--danger` (+ versões `-bg`) —
+  dessaturadas de propósito; o âmbar agora é SÓ warning, não é mais a marca.
+- Tipos: `--sans` = Segoe UI (nativa do Windows da loja) e `--mono` = Consolas
+  (números, NF, códigos — use a classe `.num`). Corpo 16px (legibilidade).
+- Forma: `--radius` 6px / `--radius-sm` 4px; bordas de 1px no lugar de
+  sombras/brilhos; rótulos de card/tabela em caixa alta espaçada.
+- Aliases mantidos por compatibilidade: `--amber`→`--accent`,
+  `--amber-btn`→`--brand`, `--amber-ink`→`--on-brand`, `--amber-2`→`--accent-2`
+  (+ os legados `--graphite`, `--gray`, `--border`...). Template antigo que usa
+  âmbar vira azul sozinho — em código novo, use os nomes novos.
 **Use sempre as variáveis, nunca hex cravado** — um hex claro cravado quebra o
 tema escuro (e vice-versa). Ambos os temas precisam funcionar em toda tela nova.
 
@@ -354,7 +363,7 @@ seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 
   linha já usado em `index.html`.
 - A busca do menu filtra os cards no cliente via `data-nome` em cada `.tool-card`.
 - Componentes prontos no `base.html`: `.card` (+ `.card-flush`/`.card-head`/
-  `.card-body`), `.btn` (`.btn-primary` = âmbar, `.btn-secondary`, `.btn-danger`,
+  `.card-body`), `.btn` (`.btn-primary` = navy, `.btn-secondary`, `.btn-danger`,
   `.btn-sm`), `.pill` (status `p-aberto`/`p-parcial`/`p-quitado`), `.tag`,
   `.chip`, `.stat-card` (`s-danger`/`s-success`/`s-amber`), `.alertx`, `.seg`
   (seletor segmentado), `.fseg` + `.search` (filtros/busca), `.ingrp` (campo com

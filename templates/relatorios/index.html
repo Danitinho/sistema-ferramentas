@@ -333,10 +333,10 @@ function criarGrafico(idx) {
   const rotulos = _consulta.rotulos;
   const meses   = _consulta.meses;
   const qtds    = meses.map(m => ln.qtds[m] ?? 0);
-  const cInk    = corTema("--ink")      || "#F3F1EC";
-  const cMuted  = corTema("--muted")    || "#7C7C88";
-  const cLine   = corTema("--line")     || "#26262F";
-  const cAmber  = corTema("--amber-btn")|| "#F5A524";
+  const cInk    = corTema("--ink")      || "#1B2430";
+  const cMuted  = corTema("--muted")    || "#545E6C";
+  const cLine   = corTema("--line")     || "#DDE1E7";
+  const cAmber  = corTema("--amber-btn")|| "#1F3A5F";
 
   _graficos[idx] = new Chart($(`canvas-${idx}`), {
     type: "bar",
