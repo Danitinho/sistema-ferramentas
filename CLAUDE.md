@@ -368,7 +368,11 @@ seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 
   `.chip`, `.stat-card` (`s-danger`/`s-success`/`s-amber`), `.alertx`, `.seg`
   (seletor segmentado), `.fseg` + `.search` (filtros/busca), `.ingrp` (campo com
   prefixo R$), o **modal global** (`.modal-overlay`/`.modal` + helpers JS
-  `abrirModal`/`fecharModal`/`fecharSeFundo`), o livro-razão (`.ledger`,
+  `abrirModal`/`fecharModal`/`fecharSeFundo` — o fundo só fecha se o clique
+  **começou** no fundo (`window._pressAlvo`, evita perder o formulário ao
+  arrastar seleção para fora) e **Esc com campo focado não fecha**, só tira o
+  foco (protege digitação e leitores de código de barras com sufixo ESC); o
+  módulo de relatórios tem handlers próprios com a mesma regra), o livro-razão (`.ledger`,
   `.lg-head`/`.lg-row`), `.metric`, `.result-box`, `.upload-area`, `.badge`,
   `.spinner`, `.btn-lixo`, `.icon-btn`, `.empty-state`. Reutilize antes de criar novos.
 - O header some numa tela ao sobrescrever `{% block header %}{% endblock %}`

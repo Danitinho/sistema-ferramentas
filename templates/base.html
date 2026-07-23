@@ -505,10 +505,20 @@ function brl(valor) {
 // ── Modais (helpers globais) ────────────────────────────────────────────────
 function abrirModal(id)  { document.getElementById(id).classList.add("show"); }
 function fecharModal(id) { document.getElementById(id).classList.remove("show"); }
-function fecharSeFundo(e, id) { if (e.target.id === id) fecharModal(id); }
+// Fechar pelo fundo só quando o clique COMEÇOU no fundo. Sem isso, selecionar
+// texto num campo e soltar o mouse fora do modal dispara o click no overlay
+// (ancestral comum de mousedown/mouseup) e fecha o formulário preenchido.
+document.addEventListener("pointerdown", e => { window._pressAlvo = e.target; });
+function fecharSeFundo(e, id) {
+  if (e.target.id === id && window._pressAlvo === e.target) fecharModal(id);
+}
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape")
-    document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
+  if (e.key !== "Escape") return;
+  // Esc vindo de um campo não fecha (protege o formulário digitado e evita
+  // leitores de código de barras configurados com ESC no sufixo da leitura).
+  const t = document.activeElement;
+  if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) { t.blur(); return; }
+  document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
 });
 
 // ── Seletor de fornecedor (buscar-ou-cadastrar) ─────────────────────────────

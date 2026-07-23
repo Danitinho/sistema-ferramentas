@@ -166,8 +166,16 @@ const _graficos = {};
 // ── Modal ────────────────────────────────────────────────────────────────────
 function abrirModal() { $("modal-proc").classList.add("show"); }
 function fecharModal() { $("modal-proc").classList.remove("show"); }
-function fecharModalSeFundo(e) { if (e.target.id === "modal-proc") fecharModal(); }
-document.addEventListener("keydown", e => { if (e.key === "Escape") fecharModal(); });
+// mesmo comportamento do base.html: só fecha se o clique COMEÇOU no fundo
+function fecharModalSeFundo(e) {
+  if (e.target.id === "modal-proc" && window._pressAlvo === e.target) fecharModal();
+}
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const t = document.activeElement;
+  if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+  fecharModal();
+});
 
 // ── Upload de PDFs ───────────────────────────────────────────────────────────
 async function enviar() {
