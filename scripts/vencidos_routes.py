@@ -27,8 +27,11 @@ def index():
     ordem = request.args.get("ordem", v.ORDEM_PADRAO)
     if ordem not in v.ORDENS_VENCIDOS:
         ordem = v.ORDEM_PADRAO
+    ordem_avisos = request.args.get("ordem_avisos", v.ORDEM_AVISOS_PADRAO)
+    if ordem_avisos not in v.ORDENS_AVISOS:
+        ordem_avisos = v.ORDEM_AVISOS_PADRAO
     vencidos = v.listar_vencidos(mes=(None if todos else mes), limite=limite, ordem=ordem)
-    avisos   = v.listar_avisos(mes=(None if todos else mes), limite=limite)
+    avisos   = v.listar_avisos(mes=(None if todos else mes), limite=limite, ordem=ordem_avisos)
     return render_template(
         "vencidos/index.html",
         resumo=v.resumo(None if todos else mes),
@@ -37,6 +40,7 @@ def index():
         meses=meses,
         mes_atual=mes,
         ordem_atual=ordem,
+        ordem_avisos_atual=ordem_avisos,
         truncado=todos and (len(vencidos) >= LIM_TODOS or len(avisos) >= LIM_TODOS),
         lim_todos=LIM_TODOS,
         hoje=v._hoje(),

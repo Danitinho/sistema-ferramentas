@@ -523,16 +523,20 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   esquerda — casa por `{cb, cb.zfill(14)}`. Falha do módulo de vendas não quebra.
 - **Vínculo com quantidades**: `listar_vencidos` faz LEFT JOIN no aviso e expõe
   `vinculo` (avisadas × perdidas × aproveitadas) quando o vencido casou com aviso.
-- **Ordenação da lista** (`listar_vencidos(ordem=...)` + `ORDENS_VENCIDOS`): as
-  **baixas pendentes ficam SEMPRE no topo** (1º nível `baixa_status='baixado'`);
-  o desempate dentro de cada grupo é escolhido no seletor da tela (`?ordem=`,
-  server-side): `modificacao` (padrão — `atualizado_em DESC`, últimos inseridos/
-  alterados no topo), `data` (`criado_em DESC`) ou `valor` (custo perdido DESC).
-  A coluna `atualizado_em` foi adicionada por migração (backfill =
-  `COALESCE(baixa_em, criado_em)`) e é gravada em toda mutação
-  (registrar/editar/baixa/reabrir). `_enriquecer_vencido` expõe `atualizado_fmt`
-  e `editado` (só quando a última alteração ≠ registro e ≠ baixa — mostra
-  "editado em" na sub-linha).
+- **Ordenação das listas** (`listar_vencidos(ordem=...)` / `listar_avisos(ordem=...)`
+  + `ORDENS_VENCIDOS` / `ORDENS_AVISOS`): o 1º nível é fixo — nos vencidos as
+  **baixas pendentes ficam SEMPRE no topo** e nos avisos os **resolvidos vão
+  SEMPRE para o fim**; o desempate dentro de cada grupo é escolhido nos
+  seletores da tela (server-side, params independentes `?ordem=` p/ vencidos e
+  `?ordem_avisos=` p/ avisos — o JS preserva um ao trocar o outro e usa
+  `#aba-avisos` para reabrir a aba certa). Critérios: vencidos → `modificacao`
+  (padrão), `data`, `valor`; avisos → `vencimento` (padrão, urgência),
+  `modificacao`, `data`, `valor` (qtd × custo). A coluna `atualizado_em` existe
+  nas DUAS tabelas (migração; backfill = `COALESCE(baixa_em|resolvido_em,
+  criado_em)`) e é gravada em toda mutação — inclusive resolver/reabrir aviso
+  via vencido. `_enriquecer_*` expõe `atualizado_fmt` e `editado` (só quando a
+  última alteração ≠ registro e ≠ baixa/resolução — mostra "editado em" na
+  sub-linha).
 - **Análise** (janela 6 meses): `ranking_reincidencia` (2+ ocorrências),
   `ranking_fornecedores` (perda por custo), `ranking_responsaveis` (antecedência
   média e % no prazo por responsável de seção).

@@ -124,12 +124,17 @@ def _init_schema(conn):
         if "fornecedor_id" not in cols_t:
             conn.execute(f"ALTER TABLE {tabela} ADD COLUMN fornecedor_id TEXT")
     # migração: data da última modificação (ordenação por "alterado recentemente").
-    # Backfill: usa a baixa (última ação conhecida) ou, na falta, o registro.
+    # Backfill: usa a última ação conhecida (baixa/resolução) ou, na falta, o registro.
     if "atualizado_em" not in {r[1] for r in conn.execute("PRAGMA table_info(vencidos)")}:
         conn.execute("ALTER TABLE vencidos ADD COLUMN atualizado_em TEXT")
         conn.execute("UPDATE vencidos SET atualizado_em = COALESCE(baixa_em, criado_em) "
                      "WHERE atualizado_em IS NULL")
+    if "atualizado_em" not in {r[1] for r in conn.execute("PRAGMA table_info(avisos)")}:
+        conn.execute("ALTER TABLE avisos ADD COLUMN atualizado_em TEXT")
+        conn.execute("UPDATE avisos SET atualizado_em = COALESCE(resolvido_em, criado_em) "
+                     "WHERE atualizado_em IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_venc_atualizado ON vencidos(atualizado_em)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_aviso_atualizado ON avisos(atualizado_em)")
     conn.commit()
     _backfill_fornecedor_id(conn)
 
@@ -297,6 +302,12 @@ def _enriquecer_aviso(a):
     a["promocao"] = a["valor_promocional"] is not None
     a["data_venc_fmt"] = _fmt_dia(a["data_vencimento"])
     a["criado_fmt"] = _fmt_dt(a["criado_em"])
+    atualizado = a.get("atualizado_em") or a["criado_em"]
+    a["atualizado_fmt"] = _fmt_dt(atualizado)
+    # "editado" quando a última alteração não é o registro nem a resolução
+    # (mesma regra do vencido) — sinaliza mexida manual no aviso.
+    a["editado"] = bool(atualizado[:19] != (a["criado_em"] or "")[:19]
+                        and atualizado[:19] != (a.get("resolvido_em") or "")[:19])
     return a
 
 
@@ -333,15 +344,16 @@ def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
     conn = _conn()
     try:
         aid = _uid()
+        agora = _agora()
         conn.execute(
             "INSERT INTO avisos (id, produto, codigo_barras, quantidade, fornecedor, "
             "fornecedor_id, responsavel, data_vencimento, custo, venda, valor_promocional, "
-            "obs, registrado_por, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "obs, registrado_por, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (aid, produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
              (fornecedor_id or "").strip() or None,
              (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
              _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
-             (obs or "").strip(), usuario, _agora()),
+             (obs or "").strip(), usuario, agora, agora),
         )
         _auditar(conn, "aviso", aid, "criar", f"{produto} · vence {_fmt_dia(dv)}", usuario)
         conn.commit()
@@ -433,7 +445,19 @@ def meses_disponiveis():
     return [{"mes": m, "rotulo": rotulo_mes(m)} for m in meses]
 
 
-def listar_avisos(mes=None, status=None, busca=None, incluir_resolvidos=True, limite=5000):
+# Critérios de ordenação da lista de avisos (o "não resolvidos no topo" é
+# sempre o 1º nível; estes controlam o desempate dentro de cada grupo).
+ORDENS_AVISOS = {
+    "vencimento":  "data_vencimento ASC, criado_em DESC",              # padrão (urgência)
+    "modificacao": "COALESCE(atualizado_em, criado_em) DESC",
+    "data":        "criado_em DESC",
+    "valor":       "(COALESCE(quantidade,0) * COALESCE(custo,0)) DESC, criado_em DESC",
+}
+ORDEM_AVISOS_PADRAO = "vencimento"
+
+
+def listar_avisos(mes=None, status=None, busca=None, incluir_resolvidos=True, limite=5000,
+                  ordem=ORDEM_AVISOS_PADRAO):
     # avisos paginam pelo mês de VENCIMENTO (filtro por range, no SQL)
     conn = _conn()
     try:
@@ -443,7 +467,9 @@ def listar_avisos(mes=None, status=None, busca=None, incluir_resolvidos=True, li
             ini, fim = _limites_mes(mes)
             sql += " AND data_vencimento >= ? AND data_vencimento < ?"
             params += [ini, fim]
-        sql += " ORDER BY data_vencimento ASC, criado_em DESC"
+        # avisos ativos sempre no topo; resolvidos descem para o fim
+        criterio = ORDENS_AVISOS.get(ordem, ORDENS_AVISOS[ORDEM_AVISOS_PADRAO])
+        sql += f" ORDER BY (resolvido_em IS NOT NULL), {criterio}"
         if limite:
             sql += f" LIMIT {int(limite)}"
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -505,12 +531,12 @@ def editar_aviso(id_aviso, produto, quantidade, data_vencimento, codigo_barras=N
         conn.execute(
             "UPDATE avisos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
             "fornecedor_id=?, responsavel=?, data_vencimento=?, custo=?, venda=?, "
-            "valor_promocional=?, obs=? WHERE id=?",
+            "valor_promocional=?, obs=?, atualizado_em=? WHERE id=?",
             (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
              (fornecedor_id or "").strip() or None,
              (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
              _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
-             (obs or "").strip(), id_aviso))
+             (obs or "").strip(), _agora(), id_aviso))
         _auditar(conn, "aviso", id_aviso, "editar",
                  f"{produto} · {qtd:g} un · vence {_fmt_dia(dv)}", usuario)
         conn.commit()
@@ -600,8 +626,9 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
         )
         # resolve o aviso correspondente (vincula e tira da vigília)
         if aviso:
-            conn.execute("UPDATE avisos SET resolvido_em=?, resolvido_vencido_id=? WHERE id=?",
-                         (_agora(), vid, aviso["id"]))
+            conn.execute("UPDATE avisos SET resolvido_em=?, resolvido_vencido_id=?, "
+                         "atualizado_em=? WHERE id=?",
+                         (agora, vid, agora, aviso["id"]))
             _auditar(conn, "aviso", aviso["id"], "resolver", f"vencido {vid}", usuario)
         _auditar(conn, "vencido", vid, "criar",
                  f"{produto} · {qtd:g} un · {'avisado' if foi_avisado else 'SEM aviso'}", usuario)
@@ -636,8 +663,9 @@ def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, forneced
         novo_aviso_id = v["aviso_id"]
         # se passou a 'não avisado' e havia aviso vinculado, devolve o aviso à vigília
         if fa == 0 and v["aviso_id"]:
-            conn.execute("UPDATE avisos SET resolvido_em = NULL, resolvido_vencido_id = NULL WHERE id = ?",
-                         (v["aviso_id"],))
+            conn.execute("UPDATE avisos SET resolvido_em = NULL, resolvido_vencido_id = NULL, "
+                         "atualizado_em = ? WHERE id = ?",
+                         (_agora(), v["aviso_id"]))
             _auditar(conn, "aviso", v["aviso_id"], "reabrir", "vencido desvinculado na edição", usuario)
             novo_aviso_id = None
         conn.execute(

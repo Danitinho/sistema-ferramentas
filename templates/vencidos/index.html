@@ -213,6 +213,16 @@
       <button data-f="programado">31–90d</button>
       <button data-f="antecipado">Antecipado</button>
     </div>
+    <div class="ord-wrap">
+      <span class="ord-lbl">Ordenar</span>
+      <select class="ord-sel" id="sel-ordem-avisos" onchange="irParaOrdemAvisos(this.value)"
+              title="Critério de ordenação (avisos resolvidos ficam sempre no fim)">
+        <option value="vencimento" {% if ordem_avisos_atual == 'vencimento' %}selected{% endif %}>Vencimento (urgência)</option>
+        <option value="modificacao" {% if ordem_avisos_atual == 'modificacao' %}selected{% endif %}>Modificação (recentes)</option>
+        <option value="data" {% if ordem_avisos_atual == 'data' %}selected{% endif %}>Data de registro</option>
+        <option value="valor" {% if ordem_avisos_atual == 'valor' %}selected{% endif %}>Maior valor</option>
+      </select>
+    </div>
   </div>
 
   <div class="card card-flush">
@@ -238,6 +248,7 @@
           {% if a.custo is not none %} · custo {{ a.custo | brl }}{% endif %}
           {% if a.venda is not none %} · venda {{ a.venda | brl }}{% endif %}
           {% if a.valor_promocional is not none %} · promo {{ a.valor_promocional | brl }}{% endif %}
+          {% if a.editado %} · editado em <span class="num">{{ a.atualizado_fmt }}</span>{% endif %}
           {% if a.status != 'resolvido' %}
           <br><span class="acc {% if a.no_prazo %}acc-ok{% else %}acc-bad{% endif %}">
             {% if a.no_prazo %}✓ avisado no prazo ({{ a.dias_antecedencia }}d de antecedência)
@@ -467,11 +478,16 @@ function irParaMes(mes) {
   location.href = "/vencidos/?" + p.toString();
 }
 
-// ── Critério de ordenação (recarrega, preservando o mês) ──
+// ── Critérios de ordenação (recarrega, preservando mês e o outro seletor) ──
 function irParaOrdem(ordem) {
   const p = new URLSearchParams(location.search);
   p.set("ordem", ordem);
   location.href = "/vencidos/?" + p.toString();
+}
+function irParaOrdemAvisos(ordem) {
+  const p = new URLSearchParams(location.search);
+  p.set("ordem_avisos", ordem);
+  location.href = "/vencidos/?" + p.toString() + "#aba-avisos";
 }
 
 // ── Abas ──
@@ -483,6 +499,8 @@ function mostrarAba(qual) {
   $("tab-avi").classList.toggle("ativo",  qual === "avisos");
   $("tab-ana").classList.toggle("ativo",  qual === "analise");
 }
+// reabre a aba de avisos após recarregar pelo seletor de ordenação dela
+if (location.hash === "#aba-avisos") mostrarAba("avisos");
 
 // ── Filtros client-side ──
 function ligarFiltros(secId, mapa, seletorLinha) {
