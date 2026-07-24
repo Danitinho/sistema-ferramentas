@@ -18,11 +18,20 @@ LIM_TODOS = 500   # "Todos os meses" mostra só os mais recentes (evita página 
 @vencidos_bp.route("/")
 def index():
     meses = v.meses_disponiveis()
-    # Sem ?mes: abre no mês mais recente com dados (ou no mês atual). ?mes= vazio = Todos.
+    mes_hoje = v._hoje()[:7]
+    # Sem ?mes: abre no MÊS ATUAL. ?mes= vazio = Todos.
     mes = request.args.get("mes")
     if mes is None:
-        mes = meses[0]["mes"] if meses else v._hoje()[:7]
+        mes = mes_hoje
     todos = (mes == "")
+    # garante que o mês atual (e o selecionado) apareçam no seletor mesmo sem
+    # dados — senão o mês vazio some da lista e o <select> fica sem opção.
+    presentes = {m["mes"] for m in meses}
+    for m in (mes_hoje, mes):
+        if m and m not in presentes:
+            meses.append({"mes": m, "rotulo": v.rotulo_mes(m)})
+            presentes.add(m)
+    meses.sort(key=lambda x: x["mes"], reverse=True)
     limite = LIM_TODOS if todos else 5000
     ordem = request.args.get("ordem", v.ORDEM_PADRAO)
     if ordem not in v.ORDENS_VENCIDOS:
