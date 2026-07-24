@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}Custo real por NF-e{% endblock %}
+{% block header_title %}Custo real por NF-e{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro · <a href="/cadastro/calculadora">Calculadora</a>{% endblock %}
+
+{% block extra_head %}
+<style>
+  .sub-seg { margin-bottom: 16px; }
+  .fcol { overflow-x: auto; }
+  table.grade { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 720px; }
+  .grade th { text-align: left; font-size: 11px; font-weight: 650; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--muted); padding: 9px 12px;
+    border-bottom: 1px solid var(--line); background: var(--surface-2); white-space: nowrap; }
+  .grade td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .grade tr:last-child td { border-bottom: none; }
+  .grade .r { text-align: right; }
+  .grade .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .grade tr.clic { cursor: pointer; }
+  .grade tr.clic:hover { background: var(--surface-2); }
+  .chave { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .a-badge { display: inline-block; font-size: 11px; font-weight: 650; padding: 2px 8px;
+    border-radius: 3px; background: var(--warning-bg); color: var(--warning); }
+  .a-zero { background: var(--success-bg); color: var(--success); }
+  .grupo { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+  .grupo-cab { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    background: var(--surface-2); border-bottom: 1px solid var(--line); font-weight: 650; }
+  .grupo-cab .cont { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .fitem { display: flex; align-items: center; gap: 12px; padding: 11px 16px;
+    border-bottom: 1px solid var(--line); }
+  .fitem:last-child { border-bottom: none; }
+  .fitem .info { flex: 1; min-width: 0; }
+  .fitem .prod { font-weight: 600; font-size: 14px; }
+  .fitem .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .fitem .acts { display: flex; gap: 6px; flex-shrink: 0; }
+  .pill-al { font-size: 10.5px; }
+  .prodrow { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+    margin-bottom: 6px; cursor: pointer; }
+  .prodrow:hover { background: var(--surface-2); border-color: var(--accent); }
+  .prodrow .d { font-weight: 600; font-size: 13.5px; }
+  .prodrow .s { font-size: 11.5px; color: var(--muted); }
+  .comp-neg { color: var(--danger); }
+  .comp-pos { color: var(--success); }
+</style>
+{% endblock %}
+
+{% block header_actions %}
+<a class="btn btn-secondary btn-sm" href="/cadastro/calculadora">Calculadora manual</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="seg sub-seg full">
+  <button class="ativo" id="t-import" onclick="aba('import')">Importação</button>
+  <button id="t-confer" onclick="aba('confer')">Conferência <span class="num" id="cont-fila"></span></button>
+  <button id="t-detalhe" onclick="aba('detalhe')">Detalhe da nota</button>
+  <button id="t-tabelas" onclick="aba('tabelas')">Tabelas e parâmetros</button>
+</div>
+
+<!-- ══ IMPORTAÇÃO ══ -->
+<section id="sec-import" class="full">
+  <div class="card">
+    <div class="card-title">Importar XML de NF-e de compra</div>
+    <div class="upload-area" id="area-up" onclick="document.getElementById('inp-xml').click()">
+      <input type="file" id="inp-xml" accept=".xml,.zip" multiple onchange="mostrarArquivos()">
+      <div class="upload-label" id="up-label">Arraste XMLs ou um .zip aqui, ou clique para escolher</div>
+    </div>
+    <button class="btn btn-primary" id="btn-importar" onclick="importar()">Importar</button>
+    <div class="result-box" id="msg-import"><div class="result-label" id="msg-import-txt"></div></div>
+  </div>
+
+  <div class="card card-flush full">
+    <div class="card-head"><span class="ttl">Notas importadas</span>
+      <span class="hint" id="hint-notas"></span></div>
+    <div class="fcol">
+      <table class="grade">
+        <thead><tr><th>Nota</th><th>Emitente</th><th>Data</th><th class="r">Itens</th>
+          <th class="r">Alertas</th><th>Status</th></tr></thead>
+        <tbody id="tb-notas"><tr><td colspan="6" class="empty-state">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══ CONFERÊNCIA ══ -->
+<section id="sec-confer" class="full" style="display:none">
+  <div class="alertx" style="margin-bottom:14px">
+    Resolva os alertas de baixo para cima: <b>vincular produto</b> → <b>preencher NCM</b> →
+    <b>confirmar fator</b>. Cada ação recalcula o item na hora.
+  </div>
+  <div id="fila-cont"><div class="empty-state">Carregando fila…</div></div>
+</section>
+
+<!-- ══ DETALHE DA NOTA ══ -->
+<section id="sec-detalhe" class="full" style="display:none">
+  <div id="detalhe-cont"><div class="empty-state">Selecione uma nota na aba Importação.</div></div>
+</section>
+
+<!-- ══ TABELAS E PARÂMETROS ══ -->
+<section id="sec-tabelas" class="full" style="display:none">
+  <div class="card">
+    <div class="card-title">Parâmetros de precificação (global)</div>
+    {% set g = None %}
+    {% for p in parametros %}{% if p.escopo == 'global' %}{% set g = p %}{% endif %}{% endfor %}
+    <div class="two-col">
+      <div><label>PIS/COFINS de saída</label>
+        <input type="number" id="pm-pis" step="0.0001" value="{{ g.pis_cofins if g else '' }}" placeholder="0,0925"></div>
+      <div><label>Taxa de cartão</label>
+        <input type="number" id="pm-cartao" step="0.0001" value="{{ g.taxa_cartao if g else '' }}" placeholder="0,02"></div>
+    </div>
+    <div class="two-col" style="margin-top:14px">
+      <div><label>Quebra</label>
+        <input type="number" id="pm-quebra" step="0.0001" value="{{ g.quebra if g else '' }}" placeholder="0,01"></div>
+      <div><label>Margem alvo</label>
+        <input type="number" id="pm-margem" step="0.0001" value="{{ g.margem_alvo if g else '' }}" placeholder="0,30"></div>
+    </div>
+    <div class="fhelp">Valores em fração (0,30 = 30%). Resolução por subgrupo→seção→global; só o global é usado por ora.</div>
+    <button class="btn btn-primary" onclick="salvarParametro()">Salvar parâmetros</button>
+  </div>
+
+  <div class="card card-flush full">
+    <div class="card-head"><span class="ttl">Regras fiscais por NCM</span>
+      <span class="hint">{{ ncms|length }} cadastrado(s)</span></div>
+    <div class="card-body">
+      <div class="toolrow">
+        <div class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" id="busca-ncm" placeholder="Filtrar NCM…" oninput="filtrarNcm()"></div>
+        <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-ncm')">+ NCM</button>
+        <label class="btn btn-secondary btn-sm" style="margin:0" for="csv-ncm">Importar CSV</label>
+        <input type="file" id="csv-ncm" accept=".csv" style="display:none" onchange="importarCsvNcm()">
+      </div>
+      <div class="fcol">
+        <table class="grade"><thead><tr><th>NCM</th><th class="r">Alíq. interna</th>
+          <th>Monofásico</th><th>ST destino</th><th>Obs.</th><th></th></tr></thead>
+          <tbody id="tb-ncm">
+          {% for n in ncms %}
+          <tr data-ncm="{{ n.ncm }}">
+            <td class="num">{{ n.ncm }}</td>
+            <td class="r num">{{ n.aliquota_interna or '—' }}</td>
+            <td>{{ 'Sim' if n.monofasico_pis_cofins else '—' }}</td>
+            <td>{{ 'Sim' if n.sujeito_st_destino else '—' }}</td>
+            <td class="sub">{{ n.observacao or '' }}</td>
+            <td class="r"><button class="btn-lixo" onclick="excluirNcm('{{ n.ncm }}')" title="Excluir">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty-state">Nenhum NCM. O módulo funciona sem — assume 19% e sinaliza.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Modal: vincular produto -->
+<div class="modal-overlay" id="modal-vinc" onclick="fecharSeFundo(event,'modal-vinc')">
+  <div class="modal"><div class="modal-head"><div class="modal-title">Vincular produto</div>
+    <button class="modal-close" onclick="fecharModal('modal-vinc')">&times;</button></div>
+    <div class="modal-body">
+      <div class="fhelp" id="vinc-item"></div>
+      <label>Buscar produto no cadastro</label>
+      <input type="text" id="vinc-busca" placeholder="Descrição, EAN ou código…" oninput="buscarProduto()" autocomplete="off">
+      <div id="vinc-res" style="margin-top:8px"></div>
+      <div style="border-top:1px solid var(--line); margin-top:12px; padding-top:12px">
+        <div class="fhelp">Não achou? Cadastre um novo:</div>
+        <label>Descrição do novo produto</label>
+        <input type="text" id="vinc-nova-desc" placeholder="Nome do produto">
+        <button class="btn btn-secondary" onclick="criarEVincular()">Cadastrar e vincular</button>
+      </div>
+      <div class="result-box error" id="msg-vinc"><div class="result-value error" id="msg-vinc-txt"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: novo NCM -->
+<div class="modal-overlay" id="modal-ncm" onclick="fecharSeFundo(event,'modal-ncm')">
+  <div class="modal"><div class="modal-head"><div class="modal-title">Regra de NCM</div>
+    <button class="modal-close" onclick="fecharModal('modal-ncm')">&times;</button></div>
+    <div class="modal-body">
+      <label>NCM (2, 4, 6 ou 8 dígitos) <em>*</em></label>
+      <input type="text" id="ncm-cod" class="num" placeholder="22021000">
+      <label>Alíquota interna (fração, ex.: 0,19)</label>
+      <input type="number" id="ncm-aliq" step="0.0001" placeholder="0,19">
+      <div class="two-col" style="margin-top:14px">
+        <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13.5px">
+          <input type="checkbox" id="ncm-mono" style="width:auto"> Monofásico PIS/COFINS</label>
+        <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13.5px">
+          <input type="checkbox" id="ncm-st" style="width:auto"> Sujeito a ST no destino</label>
+      </div>
+      <label>Observação</label>
+      <input type="text" id="ncm-obs" placeholder="opcional">
+      <div class="result-box error" id="msg-ncm"><div class="result-value error" id="msg-ncm-txt"></div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-ncm')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNcm()">Salvar e recalcular</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+let _itemVinc = null;
+
+function aba(qual) {
+  ["import","confer","detalhe","tabelas"].forEach(s => {
+    $("sec-"+s).style.display = s === qual ? "" : "none";
+    $("t-"+s).classList.toggle("ativo", s === qual);
+  });
+  if (qual === "confer") carregarFila();
+  if (qual === "import") carregarNotas();
+}
+
+// ── Importação ──
+function mostrarArquivos() {
+  const fs = $("inp-xml").files;
+  $("up-label").textContent = fs.length ? `${fs.length} arquivo(s) selecionado(s)` :
+    "Arraste XMLs ou um .zip aqui, ou clique para escolher";
+}
+async function importar() {
+  const fs = $("inp-xml").files;
+  const msg = $("msg-import");
+  if (!fs.length) { $("msg-import-txt").textContent = "Escolha ao menos um arquivo."; msg.classList.add("show"); return; }
+  const fd = new FormData();
+  for (const f of fs) fd.append("arquivos", f);
+  $("btn-importar").disabled = true;
+  const r = await fetch("/fiscal/api/importar", { method: "POST", body: fd }).then(r => r.json());
+  $("btn-importar").disabled = false;
+  if (r.ok) {
+    $("msg-import-txt").textContent = `${r.importadas} nota(s) importada(s)` + (r.erros ? `, ${r.erros} com erro` : "") + ".";
+    msg.classList.add("show");
+    $("inp-xml").value = ""; mostrarArquivos(); carregarNotas(); atualizarContadorFila();
+  } else { $("msg-import-txt").textContent = r.msg || "Falha ao importar."; msg.classList.add("show"); }
+}
+async function carregarNotas() {
+  const r = await fetch("/fiscal/api/notas").then(r => r.json());
+  const tb = $("tb-notas");
+  if (!r.notas.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhuma nota importada ainda.</td></tr>'; $("hint-notas").textContent = ""; return; }
+  $("hint-notas").textContent = `${r.notas.length} nota(s)`;
+  tb.innerHTML = r.notas.map(n => `
+    <tr class="clic" onclick="verNota(${n.id})">
+      <td><b>${n.numero || '—'}</b><br><span class="chave">${n.chave.slice(0,12)}…</span></td>
+      <td>${n.emitente || '—'}</td>
+      <td class="num">${(n.data || '').slice(0,10)}</td>
+      <td class="r num">${n.itens}</td>
+      <td class="r"><span class="a-badge ${n.alertas ? '' : 'a-zero'}">${n.alertas}</span></td>
+      <td>${n.status}</td>
+    </tr>`).join("");
+}
+
+// ── Conferência ──
+async function atualizarContadorFila() {
+  const r = await fetch("/fiscal/api/fila").then(r => r.json());
+  $("cont-fila").textContent = r.total ? `(${r.total})` : "";
+}
+async function carregarFila() {
+  const cont = $("fila-cont");
+  const r = await fetch("/fiscal/api/fila").then(r => r.json());
+  $("cont-fila").textContent = r.total ? `(${r.total})` : "";
+  if (!r.total) { cont.innerHTML = '<div class="empty-state">Nenhum item pendente. 🎉</div>'; return; }
+  cont.innerHTML = r.fila.map(g => `
+    <div class="grupo">
+      <div class="grupo-cab"><span class="a-badge">${g.label}</span><span class="cont">${g.itens.length} item(ns)</span></div>
+      ${g.itens.map(it => fitem(it, g.alerta)).join("")}
+    </div>`).join("");
+}
+function fitem(it, alerta) {
+  let acao = "";
+  if (alerta === "produto_nao_vinculado")
+    acao = `<button class="btn btn-primary btn-sm" onclick='abrirVincular(${it.id}, ${JSON.stringify(it.descricao||"")})'>Vincular</button>`;
+  else if (alerta === "ncm_ausente")
+    acao = `<button class="btn btn-primary btn-sm" onclick="abrirNcmPreencher('${it.ncm||""}')">Preencher NCM</button>`;
+  else if (alerta === "fator_conversao_suspeito" || alerta === "fator_nao_confirmado")
+    acao = `<button class="btn btn-primary btn-sm" onclick="confirmarFator(${it.id}, '${it.fator_conversao}')">Confirmar fator</button>`;
+  else
+    acao = `<button class="btn btn-secondary btn-sm" onclick="verNota(${it.nota_id})">Ver nota</button>`;
+  return `<div class="fitem"><div class="info">
+      <div class="prod">${it.descricao || '(sem descrição)'}</div>
+      <div class="meta">NF ${it.numero_item} · ${it.emitente || ''} · cód ${it.codigo_fornecedor || '—'}
+        · NCM ${it.ncm || '—'} · ${it.quantidade_comercial} ${it.unidade_comercial||''}
+        · custo líq ${it.custo_liquido ? 'R$ '+it.custo_liquido : '—'}</div>
+    </div><div class="acts">${acao}</div></div>`;
+}
+
+// ── Vincular produto ──
+function abrirVincular(itemId, desc) {
+  _itemVinc = itemId;
+  $("vinc-item").textContent = "Item: " + (desc || "");
+  $("vinc-busca").value = ""; $("vinc-res").innerHTML = ""; $("vinc-nova-desc").value = "";
+  $("msg-vinc").classList.remove("show");
+  abrirModal("modal-vinc");
+}
+let _bt = null;
+function buscarProduto() {
+  clearTimeout(_bt);
+  _bt = setTimeout(async () => {
+    const q = $("vinc-busca").value.trim();
+    const r = await fetch("/fiscal/api/produtos?q=" + encodeURIComponent(q)).then(r => r.json());
+    $("vinc-res").innerHTML = r.produtos.map(p => `
+      <div class="prodrow" onclick="vincular(${p.id})">
+        <div class="d">${p.descricao}</div>
+        <div class="s">${p.ean || 'sem EAN'} · ${p.secao || 'sem seção'}</div>
+      </div>`).join("") || '<div class="fhelp">Nenhum produto encontrado.</div>';
+  }, 250);
+}
+async function vincular(produtoId) {
+  const r = await postJSON(`/fiscal/api/item/${_itemVinc}/vincular`, { produto_id: produtoId });
+  if (r.ok) { fecharModal("modal-vinc"); carregarFila(); atualizarContadorFila(); }
+  else { $("msg-vinc-txt").textContent = r.msg; $("msg-vinc").classList.add("show"); }
+}
+async function criarEVincular() {
+  const desc = $("vinc-nova-desc").value.trim();
+  if (!desc) { $("msg-vinc-txt").textContent = "Informe a descrição."; $("msg-vinc").classList.add("show"); return; }
+  const c = await postJSON("/fiscal/api/produto", { descricao: desc });
+  if (!c.ok) { $("msg-vinc-txt").textContent = c.msg; $("msg-vinc").classList.add("show"); return; }
+  vincular(c.produto.id);
+}
+
+async function confirmarFator(itemId, sugerido) {
+  const f = prompt("Fator de conversão confirmado (unidades por embalagem):", sugerido || "1");
+  if (f === null) return;
+  const r = await postJSON(`/fiscal/api/item/${itemId}/fator`, { fator: f });
+  if (r.ok) { carregarFila(); atualizarContadorFila(); } else alert(r.msg);
+}
+
+function abrirNcmPreencher(ncm) { aba("tabelas"); $("ncm-cod").value = ncm || ""; abrirModal("modal-ncm"); }
+
+// ── Detalhe da nota ──
+async function verNota(id) {
+  aba("detalhe");
+  const cont = $("detalhe-cont");
+  cont.innerHTML = '<div class="empty-state">Carregando…</div>';
+  const r = await fetch("/fiscal/api/nota/" + id).then(r => r.json());
+  if (!r.ok) { cont.innerHTML = '<div class="empty-state">Nota não encontrada.</div>'; return; }
+  const n = r.nota;
+  cont.innerHTML = `
+    <div class="card">
+      <div class="card-title">Nota ${n.numero || ''} — ${n.emitente || ''}</div>
+      <div class="fhelp">Chave <span class="num">${n.chave}</span> · CNPJ ${n.cnpj||''} · ${(n.data||'').slice(0,10)}
+        · total R$ ${n.valor_total} · status ${n.status}</div>
+      <a class="btn btn-secondary btn-auto" style="margin-top:12px" href="/fiscal/api/nota/${n.id}/csv">Exportar CSV</a>
+    </div>
+    <div class="card card-flush full">
+      <div class="card-head"><span class="ttl">Composição do custo por item</span></div>
+      <div class="fcol"><table class="grade"><thead><tr>
+        <th>Produto</th><th class="r">Produto R$</th><th class="r">Desc.</th><th class="r">IPI</th>
+        <th class="r">Frete</th><th class="r">ICMS-ST</th><th class="r">Créd. ICMS</th>
+        <th class="r">Créd. PIS/COF</th><th class="r">Custo líq.</th><th class="r">Custo un.</th>
+        <th class="r">Preço sug.</th><th>Alertas</th><th></th></tr></thead>
+        <tbody>${r.itens.map(itDetalhe).join("")}</tbody></table></div>
+    </div>`;
+}
+function itDetalhe(i) {
+  const als = (i.alertas||[]).map(a => `<span class="pill p-part pill-al">${a}</span>`).join(" ");
+  const podeAprovar = i.produto_id && i.preco_sugerido;
+  const aprov = podeAprovar ? `<button class="btn btn-primary btn-sm" onclick="aprovar(${i.id})">Aprovar preço</button>` : "";
+  return `<tr>
+    <td>${i.descricao||'—'}<br><span class="sub">cód ${i.codigo_fornecedor||'—'} · NCM ${i.ncm||'—'}</span></td>
+    <td class="r num">${i.valor_produto}</td><td class="r num">${i.valor_desconto}</td>
+    <td class="r num">${i.valor_ipi}</td><td class="r num">${i.valor_frete}</td>
+    <td class="r num">${i.valor_icms_st}</td>
+    <td class="r num comp-pos">${i.credito_icms}</td><td class="r num comp-pos">${i.credito_pis_cofins}</td>
+    <td class="r num"><b>${i.custo_liquido||'—'}</b></td><td class="r num">${i.custo_unitario||'—'}</td>
+    <td class="r num"><b>${i.preco_sugerido||'—'}</b></td>
+    <td>${als}</td><td>${aprov}</td></tr>`;
+}
+async function aprovar(itemId) {
+  let r = await postJSON(`/fiscal/api/item/${itemId}/aprovar`, {});
+  if (!r.ok && r.msg && r.msg.includes("abaixo do custo")) {
+    if (!confirm(r.msg + "\n\nAprovar mesmo assim?")) return;
+    r = await postJSON(`/fiscal/api/item/${itemId}/aprovar`, { aprovar_abaixo_do_custo: true });
+  }
+  alert(r.msg);
+}
+
+// ── Tabelas ──
+async function salvarParametro() {
+  const r = await postJSON("/fiscal/api/parametro", { escopo: "global",
+    pis_cofins: $("pm-pis").value, taxa_cartao: $("pm-cartao").value,
+    quebra: $("pm-quebra").value, margem_alvo: $("pm-margem").value });
+  alert(r.msg);
+}
+async function salvarNcm() {
+  const cod = $("ncm-cod").value.trim();
+  if (!cod) { $("msg-ncm-txt").textContent = "Informe o NCM."; $("msg-ncm").classList.add("show"); return; }
+  const r = await postJSON("/fiscal/api/ncm", { ncm: cod, aliquota_interna: $("ncm-aliq").value,
+    monofasico_pis_cofins: $("ncm-mono").checked, sujeito_st_destino: $("ncm-st").checked,
+    observacao: $("ncm-obs").value });
+  if (r.ok) { location.reload(); } else { $("msg-ncm-txt").textContent = r.msg; $("msg-ncm").classList.add("show"); }
+}
+async function excluirNcm(ncm) {
+  if (!confirm("Excluir a regra do NCM " + ncm + "?")) return;
+  await fetch("/fiscal/api/ncm/" + ncm, { method: "DELETE" }); location.reload();
+}
+function filtrarNcm() {
+  const q = $("busca-ncm").value.replace(/\D/g, "");
+  document.querySelectorAll("#tb-ncm tr[data-ncm]").forEach(tr =>
+    tr.style.display = tr.dataset.ncm.startsWith(q) ? "" : "none");
+}
+async function importarCsvNcm() {
+  const f = $("csv-ncm").files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append("arquivo", f);
+  const r = await fetch("/fiscal/api/ncm/csv", { method: "POST", body: fd }).then(r => r.json());
+  alert(r.msg || "Importado."); if (r.ok) location.reload();
+}
+
+carregarNotas();
+atualizarContadorFila();
+</script>
+{% endblock %}

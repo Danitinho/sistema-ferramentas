@@ -26,6 +26,7 @@ MODULOS = [
     ("scripts.relatorios_routes", "relatorios_bp"),
     ("scripts.vencidos_routes",   "vencidos_bp"),
     ("scripts.fornecedores_routes", "fornecedores_bp"),
+    ("scripts.fiscal_routes",     "fiscal_bp"),
     ("scripts.backup_routes",     "backup_bp"),
 ]
 
