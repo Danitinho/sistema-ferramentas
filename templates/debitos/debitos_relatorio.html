@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+{% block title %}Relatório de débitos{% endblock %}
+{% block header_title %}Relatório do fechamento{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · <a href="/debitos">Débitos</a> · Relatório{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" onclick="baixarPDF()"
+        title="Relatório para apresentar/imprimir (A4): capa com os números do fechamento e as 3 partes">Relatório PDF</button>
+<button class="btn btn-secondary btn-sm" onclick="baixarExcel()"
+        title="Planilha de análise: débitos, pagamentos aplicados, resumo por dívida e crédito não aplicado">Excel</button>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .mes-sel, .emp-sel { width: auto; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
+  .mes-sel { min-width: 170px; }
+  .emp-sel { min-width: 230px; max-width: 340px; }
+
+  .carimbo { font-size: 12px; color: var(--muted); margin: -4px 0 18px; line-height: 1.6; }
+  .carimbo b { color: var(--ink); font-weight: 650; }
+
+  /* cabeçalho de parte: numera a leitura (1, 2, 3) */
+  .parte-head { display: flex; align-items: center; gap: 13px; margin: 26px 0 12px; }
+  .parte-n { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    background: var(--brand); color: var(--on-brand); display: flex;
+    align-items: center; justify-content: center; font-size: 14px; font-weight: 750; }
+  .parte-t { font-size: 18px; font-weight: 750; letter-spacing: -.02em; }
+  .parte-sub { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px 43px; max-width: 70ch; }
+
+  .grid-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 13px; }
+  @media (max-width: 640px) { .grid-stats { grid-template-columns: 1fr; } }
+  .grid-stats .stat-v { font-size: 20px; }
+  .grid-cons { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 900px) { .grid-cons { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .grid-cons { grid-template-columns: 1fr; } }
+
+  /* livro-razão do relatório: documento | valor | pago | saldo | situação */
+  .rel-lg .lg-head, .rel-lg .lg-row { grid-template-columns: 2.6fr .95fr .95fr .95fr 100px; }
+  .rel-lg .lg-grid { min-width: 720px; }
+
+  /* quebra por dívida dentro de uma parte */
+  .qbr-lg .lg-head, .qbr-lg .lg-row { grid-template-columns: 2.4fr 1fr 1fr 1fr; }
+  .qbr-lg .lg-grid { min-width: 620px; }
+
+  /* quebra do consolidado (duas colunas de mês) */
+  .cons-lg .lg-head, .cons-lg .lg-row { grid-template-columns: 2.2fr .9fr .9fr .9fr .9fr .9fr; }
+  .cons-lg .lg-grid { min-width: 800px; }
+
+  /* crédito não aplicado */
+  .avu-lg .lg-head, .avu-lg .lg-row { grid-template-columns: 1.5fr 1.5fr 1.2fr .9fr .9fr; }
+  .avu-lg .lg-grid { min-width: 700px; }
+
+  .bloco-nota { font-size: 12.5px; color: var(--muted); padding: 0 18px 12px;
+    border-bottom: 1px solid var(--line); background: var(--surface-2); }
+  .aviso-fora { background: var(--warning-bg); color: var(--warning); font-weight: 600;
+    padding: 1px 5px; border-radius: var(--radius-sm); }
+
+  .chip-pag { font-size: 12px; }
+  .chip-pag .q { color: var(--muted); font-weight: 400; }
+
+  /* vendedor: empresa com mais de um tem dívidas separadas, uma por vendedor */
+  .tag-vend { background: var(--accent-soft); color: var(--accent); }
+
+  .cons-card { border-color: var(--brand); }
+  .cons-card .card-head { background: var(--brand); color: var(--on-brand); }
+  .cons-card .card-head .ttl, .cons-card .card-head .hint { color: var(--on-brand); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="toolrow full">
+  <select class="mes-sel" id="sel-mes" onchange="ir()" title="Mês do fechamento">
+    {% for m in meses %}
+    <option value="{{ m.mes }}" {% if rel.mes == m.mes %}selected{% endif %}>{{ m.rotulo }}</option>
+    {% endfor %}
+  </select>
+  <select class="emp-sel" id="sel-emp" onchange="ir()" title="Empresa">
+    <option value="">Todas as empresas</option>
+    {% for e in empresas %}
+    <option value="{{ e.cnpj }}" {% if rel.cnpj == e.cnpj %}selected{% endif %}>{{ e.razao_social }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary btn-sm" onclick="baixarPDF()">Relatório PDF</button>
+  <button class="btn btn-secondary btn-sm" onclick="baixarExcel()">Excel</button>
+</div>
+
+<div class="carimbo full">
+  <b>{{ rel.escopo }}</b> · fechamento de <b>{{ rel.mes_label }}</b>, incluindo os débitos de
+  <b>{{ rel.mes_ant_label }}</b> (que são pagos ao longo de {{ rel.mes_label }}).
+  Cada pagamento conta no mês do débito que ele abate, não na data em que foi digitado.
+  Gerado em <b class="num">{{ rel.gerado_em }}</b>.
+</div>
+
+{# ── Partes 1 e 2: cada mês se fecha sozinho, sem número somado ─────────── #}
+{% for parte in rel.partes %}
+<div class="full">
+  <div class="parte-head">
+    <span class="parte-n">{{ loop.index }}</span>
+    <span class="parte-t">{{ parte.titulo }}</span>
+  </div>
+  <div class="parte-sub">{{ parte.nota }}</div>
+
+  <div class="grid-stats">
+    <div class="stat-card s-danger">
+      <div class="stat-v num" style="color:var(--danger)">{{ parte.totais.total | brl }}</div>
+      <div class="stat-l">Débitos de {{ parte.label }}</div>
+    </div>
+    <div class="stat-card s-success">
+      <div class="stat-v num" style="color:var(--success)">{{ parte.totais.pago | brl }}</div>
+      <div class="stat-l">Abatido</div>
+    </div>
+    <div class="stat-card {% if parte.totais.saldo > 0 %}s-amber{% else %}s-success{% endif %}">
+      <div class="stat-v num" style="color:{% if parte.totais.saldo > 0 %}var(--warning){% else %}var(--success){% endif %}">{{ parte.totais.saldo | brl }}</div>
+      <div class="stat-l">Em aberto</div>
+    </div>
+  </div>
+
+  {% if rel.mostrar_quebra and parte.por_empresa %}
+  <div class="card card-flush">
+    <div class="card-head">
+      <span class="ttl">Por empresa / vendedor — {{ parte.label }}</span>
+      <span class="hint">{{ parte.por_empresa | length }} dívida(s)</span>
+    </div>
+    <div class="ledger qbr-lg" style="border:none;border-radius:0;margin:0">
+      <div class="ledger-scroll"><div class="lg-grid">
+        <div class="lg-head">
+          <div>Empresa / vendedor</div>
+          <div class="r">Débitos</div>
+          <div class="r">Pago</div>
+          <div class="r">Saldo</div>
+        </div>
+        {% for e in parte.por_empresa %}
+        <div class="lg-row">
+          <div class="lg-doc">
+            <div class="d1">{{ e.razao_social }}
+              {% if e.vendedor %}<span class="tag tag-vend">{{ e.vendedor }}</span>{% endif %}</div>
+            <div class="d2 num">{{ e.cnpj }}</div>
+          </div>
+          <div class="r cell-num num">{{ e.total | brl }}</div>
+          <div class="r cell-sub num" style="color:var(--success)">{{ e.pago | brl }}</div>
+          <div class="r cell-num num" style="color:{% if e.saldo > 0 %}var(--danger){% else %}var(--success){% endif %}">{{ e.saldo | brl }}</div>
+        </div>
+        {% endfor %}
+      </div></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card card-flush">
+    <div class="card-head">
+      <span class="ttl">Débitos e pagamentos aplicados</span>
+      <span class="hint">{{ parte.totais.qtd }} débito(s) · {{ parte.totais.abertos }} em aberto</span>
+    </div>
+    {% if parte.debitos %}
+    <div class="ledger rel-lg" style="border:none;border-radius:0;margin:0">
+      <div class="ledger-scroll"><div class="lg-grid">
+        <div class="lg-head">
+          <div>Documento</div>
+          <div class="r">Valor</div>
+          <div class="r">Pago</div>
+          <div class="r">Saldo</div>
+          <div class="r">Situação</div>
+        </div>
+        {% for d in parte.debitos %}
+        <div class="lg-row">
+          <div class="lg-doc">
+            <div class="d1">
+              {% if d.tipo == 'vencimento' %}<span class="tag tag-v">Vencimento</span>{% else %}<span class="tag tag-r">Rebaixa</span>{% endif %}
+              {{ d.rotulo }}
+              {% if d.vendedor %}<span class="tag tag-vend">{{ d.vendedor }}</span>{% endif %}
+            </div>
+            <div class="d2">
+              {% if rel.todas_empresas %}{{ d.razao_social }} · {% endif %}
+              {{ d.periodo_label }} · lançado em <span class="num">{{ d.data_fmt }}</span>
+              {%- if d.obs %} · {{ d.obs }}{% endif %}
+            </div>
+          </div>
+          <div class="r cell-num num">{{ d.valor_total | brl }}</div>
+          <div class="r cell-sub num" style="color:var(--success)">{{ d.valor_pago | brl }}</div>
+          <div class="r cell-num num" style="color:{% if d.saldo > 0 %}var(--danger){% else %}var(--success){% endif %}">{{ d.saldo | brl }}</div>
+          <div class="r"><span class="pill p-{{ d.status }}">{{ d.status }}</span></div>
+          {% if d.alocacoes %}
+          <div class="rowchips">
+            {% for a in d.alocacoes %}
+            <span class="chip chip-pag">
+              {{ a.tipo_label }} <b>{{ a.referencia }}</b>
+              <b class="num">{{ a.valor | brl }}</b>
+              <span class="q">
+                {%- if a.parcial %} de {{ a.pag_total | brl }} ·{% endif %}
+                lançado {{ a.lancado_em }}</span>
+            </span>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div></div>
+      <div class="ledger-foot">
+        <span>Total da parte {{ loop.index }} — {{ parte.label }}</span>
+        <span><b class="num">{{ parte.totais.total | brl }}</b> ·
+          <b class="num">{{ parte.totais.pago | brl }}</b> abatidos ·
+          <b class="num">{{ parte.totais.saldo | brl }}</b> em aberto</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty-state">Nenhum débito referente a {{ parte.label }}.</div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{# ── Parte 3: só aqui os dois meses se somam ────────────────────────────── #}
+<div class="full">
+  <div class="parte-head">
+    <span class="parte-n">3</span>
+    <span class="parte-t">Consolidado</span>
+  </div>
+  <div class="parte-sub">
+    Soma das partes 1 e 2: os débitos de {{ rel.mes_label }} e de {{ rel.mes_ant_label }}.
+  </div>
+
+  <div class="grid-stats grid-cons">
+    <div class="stat-card s-danger">
+      <div class="stat-v num" style="color:var(--danger)">{{ rel.consolidado.totais.total_debitos | brl }}</div>
+      <div class="stat-l">Débito total</div>
+    </div>
+    <div class="stat-card s-success">
+      <div class="stat-v num" style="color:var(--success)">{{ rel.consolidado.totais.total_pago | brl }}</div>
+      <div class="stat-l">Total pago</div>
+    </div>
+    <div class="stat-card {% if rel.consolidado.totais.saldo > 0 %}s-amber{% else %}s-success{% endif %}">
+      <div class="stat-v num" style="color:{% if rel.consolidado.totais.saldo > 0 %}var(--warning){% else %}var(--success){% endif %}">{{ rel.consolidado.totais.saldo | brl }}</div>
+      <div class="stat-l">Saldo em aberto</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-v num">{{ rel.consolidado.totais.credito | brl }}</div>
+      <div class="stat-l">Crédito livre · fora do fechamento</div>
+    </div>
+  </div>
+
+  <div class="card card-flush cons-card">
+    <div class="card-head">
+      <span class="ttl">Fechamento{% if rel.mostrar_quebra %} por empresa / vendedor{% endif %}</span>
+      <span class="hint">{{ rel.mes_label }} + {{ rel.mes_ant_label }}</span>
+    </div>
+    {% if rel.mostrar_quebra and rel.consolidado.por_empresa %}
+    <div class="ledger cons-lg" style="border:none;border-radius:0;margin:0">
+      <div class="ledger-scroll"><div class="lg-grid">
+        <div class="lg-head">
+          <div>Empresa / vendedor</div>
+          <div class="r">{{ rel.mes_label }}</div>
+          <div class="r">{{ rel.mes_ant_label }}</div>
+          <div class="r">Total</div>
+          <div class="r">Pago</div>
+          <div class="r">Saldo</div>
+        </div>
+        {% for e in rel.consolidado.por_empresa %}
+        <div class="lg-row">
+          <div class="lg-doc">
+            <div class="d1">
+              <a href="/debitos/relatorio?mes={{ rel.mes }}&cnpj={{ e.cnpj | urlencode }}">{{ e.razao_social }}</a>
+              {% if e.vendedor %}<span class="tag tag-vend">{{ e.vendedor }}</span>{% endif %}
+            </div>
+            <div class="d2 num">{{ e.cnpj }}{% if e.credito > 0 %} · {{ e.credito | brl }} de crédito livre{% endif %}</div>
+          </div>
+          <div class="r cell-sub num">{{ e.deb_mes | brl }}</div>
+          <div class="r cell-sub num">{{ e.deb_ant | brl }}</div>
+          <div class="r cell-num num">{{ e.total | brl }}</div>
+          <div class="r cell-sub num" style="color:var(--success)">{{ e.pago | brl }}</div>
+          <div class="r cell-num num" style="color:{% if e.saldo > 0 %}var(--danger){% else %}var(--success){% endif %}">{{ e.saldo | brl }}</div>
+        </div>
+        {% endfor %}
+      </div></div>
+      <div class="ledger-foot">
+        <span>Débito total do fechamento</span>
+        <span><b class="num">{{ rel.consolidado.totais.total_debitos | brl }}</b> ·
+          <b class="num">{{ rel.consolidado.totais.total_pago | brl }}</b> abatidos ·
+          <b class="num">{{ rel.consolidado.totais.saldo | brl }}</b> em aberto</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="card-body">
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-value num">{{ rel.partes[0].totais.total | brl }}</div>
+          <div class="metric-label">Débitos de {{ rel.mes_label }}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value num">{{ rel.partes[1].totais.total | brl }}</div>
+          <div class="metric-label">Débitos de {{ rel.mes_ant_label }}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value num">{{ rel.consolidado.totais.total_debitos | brl }}</div>
+          <div class="metric-label">Débito total</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Apêndice: fica fora dos totais do fechamento ───────────────────────── #}
+<div class="card card-flush full" style="margin-top:26px">
+  <div class="card-head">
+    <span class="ttl">Apêndice — crédito não aplicado</span>
+    <span class="hint">lançado em {{ rel.mes_label }}</span>
+  </div>
+  <div class="bloco-nota">
+    Dinheiro sem mês de referência próprio: crédito ainda livre, a sobra de um pagamento
+    maior que o saldo do débito e o que abateu débito antigo sem período. Entra aqui pelo
+    mês em que foi lançado e fica <b class="aviso-fora">fora dos totais do fechamento</b>.
+  </div>
+  {% if rel.avulsos %}
+  <div class="ledger avu-lg" style="border:none;border-radius:0;margin:0">
+    <div class="ledger-scroll"><div class="lg-grid">
+      <div class="lg-head">
+        <div>Natureza</div>
+        <div>Pagamento</div>
+        <div>Aplicado em</div>
+        <div class="r">Lançado</div>
+        <div class="r">Valor</div>
+      </div>
+      {% for a in rel.avulsos %}
+      <div class="lg-row">
+        <div class="lg-doc">
+          <div class="d1">{{ a.natureza_label }}</div>
+          {% if rel.todas_empresas %}<div class="d2">{{ a.grupo }}</div>
+          {% elif a.vendedor %}<div class="d2">{{ a.vendedor }}</div>{% endif %}
+        </div>
+        <div class="lg-doc">
+          <div class="d1">{{ a.tipo_label }}</div>
+          <div class="d2">{{ a.referencia }}{% if a.pag_total != a.valor %} · total {{ a.pag_total | brl }}{% endif %}</div>
+        </div>
+        <div class="cell-sub">{{ a.destino or "—" }}</div>
+        <div class="r cell-sub num">{{ a.lancado_em }}</div>
+        <div class="r cell-num num">{{ a.valor | brl }}</div>
+      </div>
+      {% endfor %}
+    </div></div>
+    <div class="ledger-foot">
+      <span>{{ rel.avulsos | length }} lançamento(s)</span>
+      <span>crédito livre <b class="num">{{ rel.consolidado.totais.credito | brl }}</b>
+        {%- if rel.consolidado.totais.sem_periodo > 0 %} · em débito sem período
+        <b class="num">{{ rel.consolidado.totais.sem_periodo | brl }}</b>{% endif %}</span>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state">Nenhum crédito sem destino lançado em {{ rel.mes_label }}.</div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+
+function _url(base) {
+  const mes  = $("sel-mes").value;
+  const cnpj = $("sel-emp").value;
+  let u = base + "?mes=" + encodeURIComponent(mes);
+  if (cnpj) u += "&cnpj=" + encodeURIComponent(cnpj);   // CNPJ contém '/': precisa escapar
+  return u;
+}
+
+function ir()          { location.href = _url("/debitos/relatorio"); }
+function baixarPDF()   { location.href = _url("/debitos/relatorio/pdf"); }
+function baixarExcel() { location.href = _url("/debitos/relatorio/excel"); }
+</script>
+{% endblock %}

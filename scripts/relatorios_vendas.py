@@ -303,20 +303,42 @@ def _normaliza_codigos(texto_ou_lista) -> list[str]:
     return saida
 
 
-def consultar_codigos(codigos) -> dict:
+def filtrar_meses(pedidos, disponiveis) -> list[str]:
+    """Meses da consulta: os pedidos que existem no banco, na ordem cronológica
+    do banco. Vazio/None = todos — é o padrão, para nunca esconder um mês novo
+    sem o usuário pedir."""
+    if not pedidos:
+        return list(disponiveis)
+    if isinstance(pedidos, str):
+        pedidos = re.split(r'[\s,;]+', pedidos)
+    querido = {str(m).strip() for m in pedidos if str(m).strip()}
+    escolhidos = [m for m in disponiveis if m in querido]
+    return escolhidos or list(disponiveis)
+
+
+def consultar_codigos(codigos, meses=None) -> dict:
     """
     Para cada código de barras informado, retorna:
       codigo (interno), descrição (a mais recente entre os meses),
-      e a quantidade vendida em cada mês registrado.
+      e a quantidade vendida em cada mês CONSULTADO.
+
+    `meses` = lista de 'AAAA-MM' a incluir; None/vazio traz todos.
+
+    O código continua "encontrado" mesmo que não tenha vendido nada nos meses
+    escolhidos: ele existe no banco, só não teve venda na janela — dizer "não
+    encontrado" aí seria mentira. Por isso a descrição vem do último mês com
+    registro (qualquer um), enquanto as quantidades e o total olham só a janela.
 
     Retorno:
       {
-        "meses":  ["2025-04", "2025-05", ...],
+        "meses":  ["2025-04", "2025-05", ...],        # os consultados
         "rotulos": ["abr/2025", "mai/2025", ...],
+        "meses_disponiveis": [...],                    # tudo que há no banco
+        "todos_meses": bool,                           # a janela é o banco todo?
         "linhas": [
           {"codigo_barras": "...", "codigo": "...", "descricao": "...",
            "encontrado": True, "qtds": {"2025-04": 12, "2025-05": 30},
-           "total": 42},
+           "total": 42, "meses_com_venda": 2},
           ...
         ]
       }
@@ -324,7 +346,9 @@ def consultar_codigos(codigos) -> dict:
     codigos = _normaliza_codigos(codigos)
     conn = _conn()
     try:
-        meses = _meses_ordenados(conn)
+        disponiveis = _meses_ordenados(conn)
+        selecionados = filtrar_meses(meses, disponiveis)
+        na_janela = set(selecionados)
         linhas = []
         for cb in codigos:
             regs = conn.execute(
@@ -337,10 +361,11 @@ def consultar_codigos(codigos) -> dict:
                 linhas.append({
                     "codigo_barras": cb, "codigo": "", "descricao": "",
                     "encontrado": False, "qtds": {}, "total": 0,
+                    "meses_com_venda": 0,
                 })
                 continue
 
-            qtds = {r["mes"]: (r["qtd"] or 0) for r in regs}
+            qtds = {r["mes"]: (r["qtd"] or 0) for r in regs if r["mes"] in na_janela}
             # descrição/código mais recentes = último mês com registro
             ultimo = regs[-1]
             linhas.append({
@@ -350,15 +375,21 @@ def consultar_codigos(codigos) -> dict:
                 "encontrado":    True,
                 "qtds":          qtds,
                 "total":         sum(qtds.values()),
+                "meses_com_venda": sum(1 for v in qtds.values() if v),
             })
     finally:
         conn.close()
 
-    return {
-        "meses":   meses,
-        "rotulos": [rotulo_mes(m) for m in meses],
-        "linhas":  linhas,
+    saida = {
+        "meses":             selecionados,
+        "rotulos":           [rotulo_mes(m) for m in selecionados],
+        "meses_disponiveis": disponiveis,
+        "todos_meses":       len(selecionados) == len(disponiveis),
+        "linhas":            linhas,
     }
+    # rótulo da janela calculado num lugar só — tela e Excel dizem a mesma coisa
+    saida["escopo"] = escopo_consulta(saida)
+    return saida
 
 
 # ── Excel da consulta ────────────────────────────────────────────────────────
@@ -369,8 +400,53 @@ _BORDA = Border(left=Side("thin"), right=Side("thin"),
                 top=Side("thin"), bottom=Side("thin"))
 
 
+def rotulo_periodo(resultado: dict) -> str:
+    """'abr/2025 a jul/2025' · 'jul/2025' · 'nenhum mês'. Descreve a janela
+    consultada — vai no cabeçalho do Excel e no nome do arquivo."""
+    rotulos = resultado.get("rotulos") or []
+    if not rotulos:
+        return "nenhum mês"
+    if len(rotulos) == 1:
+        return rotulos[0]
+    return f"{rotulos[0]} a {rotulos[-1]}"
+
+
+def escopo_consulta(resultado: dict) -> str:
+    """Descreve a janela consultada em uma linha. Meses escolhidos a dedo (com
+    buraco no meio) NÃO formam intervalo — aí o "a" de `rotulo_periodo`
+    mentiria, e a janela sai listada mês a mês."""
+    meses   = resultado.get("meses") or []
+    rotulos = resultado.get("rotulos") or []
+    if not meses:
+        return "nenhum mês"
+    if _sequencia_continua(meses):
+        janela = rotulo_periodo(resultado)
+    elif len(meses) <= 8:
+        janela = ", ".join(rotulos)
+    else:
+        janela = f"{rotulos[0]} a {rotulos[-1]} (meses avulsos)"
+    texto = f"{len(meses)} mês(es): {janela}"
+    if not resultado.get("todos_meses", True):
+        texto += f" — seleção de {len(resultado.get('meses_disponiveis') or [])} no banco"
+    return texto
+
+
+def _sequencia_continua(meses) -> bool:
+    """Os meses escolhidos são consecutivos no calendário?"""
+    def indice(m):
+        ano, mo = m.split("-")
+        return int(ano) * 12 + int(mo)
+    try:
+        idx = [indice(m) for m in meses]
+    except (ValueError, AttributeError):
+        return False
+    return all(b - a == 1 for a, b in zip(idx, idx[1:]))
+
+
 def gerar_excel_consulta(resultado: dict, caminho: str):
-    """Gera o Excel pivotado da consulta (uma coluna por mês)."""
+    """Gera o Excel pivotado da consulta (uma coluna por mês CONSULTADO).
+    A linha 1 diz a janela — sem ela, o arquivo não conta quais meses cobre e
+    duas exportações diferentes ficam indistinguíveis."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Consulta"
@@ -379,14 +455,23 @@ def gerar_excel_consulta(resultado: dict, caminho: str):
     meses   = resultado["meses"]
     cols = ["Código de Barras", "Código", "Descrição", *rotulos, "Total"]
 
+    escopo = resultado.get("escopo") or escopo_consulta(resultado)
+    ws.append([f"Consulta de venda por código de barras — {escopo} — "
+               f"{len(resultado['linhas'])} código(s)"])
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(cols))
+    c = ws.cell(1, 1)
+    c.font      = Font(bold=True, name="Arial", size=11, color=_COR_HEADER)
+    c.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 22
+
     ws.append(cols)
     for c in range(1, len(cols) + 1):
-        cell = ws.cell(1, c)
+        cell = ws.cell(2, c)
         cell.font      = Font(bold=True, color="FFFFFF", name="Arial", size=10)
         cell.fill      = PatternFill("solid", start_color=_COR_HEADER)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border    = _BORDA
-    ws.row_dimensions[1].height = 28
+    ws.row_dimensions[2].height = 28
 
     for i, ln in enumerate(resultado["linhas"]):
         linha = [ln["codigo_barras"], ln["codigo"], ln["descricao"]]
@@ -414,6 +499,7 @@ def gerar_excel_consulta(resultado: dict, caminho: str):
     larguras = [22, 12, 50] + [12] * len(meses) + [12]
     for i, w in enumerate(larguras, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = "D2"
+    ws.freeze_panes = "D3"
+    ws.auto_filter.ref = f"A2:{get_column_letter(len(cols))}{max(ws.max_row, 2)}"
 
     wb.save(caminho)

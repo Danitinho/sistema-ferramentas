@@ -13,6 +13,14 @@ auth_bp = Blueprint("auth", __name__)
 # Endpoints acessíveis sem login.
 PUBLICOS = {"auth.login", "auth.logout", "auth.setup", "static"}
 
+# Endpoints que NAO usam sessao de navegador porque tem autenticacao propria.
+# Caso concreto: o programa de mesa da reclassificacao roda na maquina do
+# operador e se identifica por token no cabecalho X-Token; a guarda de sessao
+# devolveria 401 para ele. Nao ponha aqui rota que so tenha o nome do usuario
+# como identificacao - o prefixo isenta da sessao, entao a rota precisa checar
+# credencial por conta propria.
+PREFIXOS_PUBLICOS = ("reclassificacao.api_",)
+
 
 # ── Guarda global ─────────────────────────────────────────────────────────────
 def instalar_guarda(app):
@@ -22,6 +30,8 @@ def instalar_guarda(app):
     def _guarda():
         ep = request.endpoint or ""
         if ep in PUBLICOS:
+            return None
+        if ep.startswith(PREFIXOS_PUBLICOS):
             return None
         if session.get("usuario"):
             return None

@@ -56,6 +56,9 @@
   .mes-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
   .mes-bar .mes-sel { width: auto; min-width: 190px; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
   .mes-bar .escopo { font-size: 12.5px; color: var(--muted); }
+  .mes-bar .exportar { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .mes-bar .btn-export { display: inline-flex; align-items: center;
+    gap: 7px; text-decoration: none; }
   .ord-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
   .ord-wrap .ord-lbl { font-size: 12px; font-weight: 650; letter-spacing: .06em;
     text-transform: uppercase; color: var(--muted); }
@@ -78,6 +81,27 @@
     {% elif truncado %}Mostrando os {{ lim_todos }} mais recentes — selecione um mês para ver o mês completo.
     {% else %}Todos os meses.{% endif %}
   </span>
+  <div class="exportar">
+    <a class="btn btn-primary btn-sm btn-export"
+       href="{{ url_for('vencidos.pdf', mes=mes_atual, ordem=ordem_atual) }}"
+       title="Relatório para apresentar/imprimir (A4): capa com os números do mês e as 5 partes — geral, com troca (devolução), sem troca (perda), sem troca e sem aviso, e os avisos do que ainda vai vencer neste mês e no seguinte">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>
+      </svg>
+      Relatório PDF
+    </a>
+    <a class="btn btn-secondary btn-sm btn-export"
+       href="{{ url_for('vencidos.excel', mes=mes_atual, ordem=ordem_atual) }}"
+       title="Planilha de trabalho: uma aba por parte, tabela plana com autofiltro e totais — para filtrar e cruzar os números">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>
+      </svg>
+      Excel
+    </a>
+  </div>
 </div>
 
 <!-- Painel -->

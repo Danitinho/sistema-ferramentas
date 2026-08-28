@@ -12,6 +12,9 @@ dados/vencidos.db
 dados/fiscal.db
 dados/fornecedores.db
 dados/sistema.db
+dados/reclassificacao.db
+dados/reclassificacao.db-wal
+dados/reclassificacao.db-shm
 dados/secret.key
 scripts/*.xlsx
 

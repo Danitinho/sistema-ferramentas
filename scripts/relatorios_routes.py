@@ -65,11 +65,12 @@ def api_processar():
 
 
 # ── API — Consultar códigos de barras ─────────────────────────────────────────
+# `meses` (lista de 'AAAA-MM') recorta a janela da consulta; ausente/vazio = o
+# banco inteiro, que é o padrão — mês novo nunca fica de fora sem alguém pedir.
 @relatorios_bp.route("/api/consultar", methods=["POST"])
 def api_consultar():
     d = request.get_json() or {}
-    codigos = d.get("codigos", "")
-    resultado = rv.consultar_codigos(codigos)
+    resultado = rv.consultar_codigos(d.get("codigos", ""), d.get("meses"))
     if not resultado["meses"]:
         return jsonify({"ok": False,
                         "msg": "Nenhum relatório no banco ainda. Processe PDFs primeiro."})
@@ -83,13 +84,15 @@ def api_consultar():
 @relatorios_bp.route("/api/consultar/excel", methods=["POST"])
 def api_consultar_excel():
     d = request.get_json() or {}
-    resultado = rv.consultar_codigos(d.get("codigos", ""))
+    resultado = rv.consultar_codigos(d.get("codigos", ""), d.get("meses"))
     if not resultado["linhas"]:
         return jsonify({"ok": False, "msg": "Nada para exportar."}), 400
 
+    meses = resultado["meses"]
+    sufixo = f"_{meses[0]}_a_{meses[-1]}" if len(meses) > 1 else (f"_{meses[0]}" if meses else "")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp.close()
     rv.gerar_excel_consulta(resultado, tmp.name)
     return send_file(tmp.name, as_attachment=True,
-                     download_name="consulta_vendas.xlsx",
+                     download_name=f"consulta_vendas{sufixo}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

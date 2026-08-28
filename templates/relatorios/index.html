@@ -66,6 +66,28 @@
     border:1px solid color-mix(in srgb, var(--warning) 35%, transparent);
     border-radius:var(--radius-sm); font-size:12.5px; line-height:1.5;
     padding:10px 12px; margin-bottom:14px; }
+
+  /* ── Seletor de meses da consulta ── */
+  .meses-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    margin:16px 0 8px; }
+  .meses-head label { margin:0; }
+  .meses-cont { font-size:12px; color:var(--muted); font-family:var(--mono);
+    font-variant-numeric:tabular-nums; }
+  .atalhos { display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; }
+  .atalhos button { border:1px solid var(--line-2); background:var(--surface);
+    color:var(--muted); font-size:12px; font-weight:600; padding:4px 10px;
+    border-radius:var(--radius-sm); cursor:pointer; }
+  .atalhos button:hover { color:var(--accent); border-color:var(--accent); }
+  .meses-grid { display:flex; flex-wrap:wrap; gap:6px; }
+  .mes-chip { border:1px solid var(--line-2); background:var(--surface);
+    color:var(--muted); font-size:12.5px; font-weight:600; padding:6px 12px;
+    border-radius:var(--radius-sm); cursor:pointer; user-select:none;
+    font-family:var(--mono); font-variant-numeric:tabular-nums;
+    transition:background .12s, color .12s, border-color .12s; }
+  .mes-chip:hover { border-color:var(--accent); color:var(--accent); }
+  .mes-chip.on { background:var(--brand); border-color:var(--brand);
+    color:var(--on-brand); }
+  .meses-vazio { font-size:12.5px; color:var(--muted); }
 </style>
 {% endblock %}
 
@@ -79,7 +101,23 @@
   <label>Códigos de barras (um por linha, ou separados por vírgula)</label>
   <textarea id="codigos" rows="5" placeholder="7891000100001&#10;7891000100002&#10;7891000100003"></textarea>
 
-  <button class="btn btn-primary" onclick="consultar()">
+  <!-- Meses da consulta: começa com tudo marcado (o comportamento de sempre);
+       desmarcar recorta a janela na tela, no gráfico e no Excel. -->
+  <div class="meses-head">
+    <label>Meses da consulta</label>
+    <span class="meses-cont" id="meses-cont"></span>
+    <div class="atalhos" id="meses-atalhos"></div>
+  </div>
+  <div class="meses-grid" id="meses-grid">
+    {% for m in status.meses %}
+    <button type="button" class="mes-chip on" data-mes="{{ m.mes }}"
+            onclick="alternarMes(this)" title="{{ m.periodo }} · {{ m.produtos }} produtos">{{ m.rotulo }}</button>
+    {% else %}
+    <span class="meses-vazio">Nenhum mês no banco ainda — processe os PDFs primeiro.</span>
+    {% endfor %}
+  </div>
+
+  <button class="btn btn-primary" onclick="consultar()" style="margin-top:14px">
     <span id="spin-cons" class="spinner"></span><span id="txt-cons">Consultar</span>
   </button>
 
@@ -88,7 +126,8 @@
   </div>
 
   <div id="cons-resultado" style="display:none">
-    <div id="produtos-lista" style="margin-top:14px"></div>
+    <div class="meses-cont" id="cons-escopo" style="margin-top:14px"></div>
+    <div id="produtos-lista" style="margin-top:8px"></div>
     <button class="btn btn-secondary" onclick="baixarExcel()" style="margin-top:6px">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="vertical-align:-2px;margin-right:4px">
         <path d="M7.5 1v9m0 0L4.5 7m3 3 3-3M2 13h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -231,12 +270,77 @@ function aplicarStatus(s) {
       `<li><span>${m.rotulo} <span class="q">· ${m.periodo}</span></span><span class="mpill">${m.produtos} prod.</span></li>`
     ).join("");
   }
+  redesenharMeses(s.meses);
 }
 
+// ── Seletor de meses da consulta ─────────────────────────────────────────────
+// Reconstrói os chips depois de processar PDFs, preservando o que já estava
+// marcado. Mês NOVO entra marcado: quem acabou de importar quer vê-lo.
+function redesenharMeses(meses) {
+  const grid = $("meses-grid");
+  if (!grid) return;
+  const antes = new Set([...grid.querySelectorAll(".mes-chip")].map(b => b.dataset.mes));
+  const ligados = new Set(mesesSelecionados());
+  if (!meses.length) {
+    grid.innerHTML = '<span class="meses-vazio">Nenhum mês no banco ainda — '
+                   + 'processe os PDFs primeiro.</span>';
+  } else {
+    grid.innerHTML = meses.map(m => {
+      const on = (!antes.has(m.mes) || ligados.has(m.mes)) ? " on" : "";
+      return `<button type="button" class="mes-chip${on}" data-mes="${esc(m.mes)}"`
+           + ` onclick="alternarMes(this)" title="${esc(m.periodo)} · ${m.produtos} produtos">`
+           + `${esc(m.rotulo)}</button>`;
+    }).join("");
+  }
+  atualizarContagem();
+}
+
+function chipsMes()          { return [...document.querySelectorAll(".mes-chip")]; }
+function mesesSelecionados() { return chipsMes().filter(b => b.classList.contains("on"))
+                                                .map(b => b.dataset.mes); }
+
+function alternarMes(btn) {
+  btn.classList.toggle("on");
+  atualizarContagem();
+}
+
+function marcarMeses(quantos) {
+  const chips = chipsMes();                       // já vêm em ordem cronológica
+  const alvo = quantos === null ? chips.length : Math.min(quantos, chips.length);
+  chips.forEach((b, i) => b.classList.toggle("on", i >= chips.length - alvo));
+  atualizarContagem();
+}
+
+function atualizarContagem() {
+  const chips = chipsMes(), n = mesesSelecionados().length;
+  $("meses-cont").textContent = chips.length ? `${n} de ${chips.length} meses` : "";
+  // atalhos só aparecem quando encurtam alguma coisa (com 4 meses, "últimos 6"
+  // seria o mesmo que "todos" e só ocuparia espaço)
+  const atalhos = [["Todos", null], ["Últimos 3", 3], ["Últimos 6", 6], ["Últimos 12", 12]]
+    .filter(([, q]) => q === null || q < chips.length);
+  $("meses-atalhos").innerHTML = chips.length
+    ? atalhos.map(([rot, q]) =>
+        `<button type="button" onclick="marcarMeses(${q})">${rot}</button>`).join("")
+    : "";
+}
+document.addEventListener("DOMContentLoaded", atualizarContagem);
+
 // ── Consulta ─────────────────────────────────────────────────────────────────
+function erroConsulta(msg) {
+  $("cons-msg-erro").textContent = msg;
+  $("cons-erro").classList.add("show");
+}
+
 async function consultar() {
   $("cons-erro").classList.remove("show");
   $("cons-resultado").style.display = "none";
+
+  const meses = mesesSelecionados();
+  if (chipsMes().length && !meses.length) {
+    erroConsulta("Selecione ao menos um mês da consulta.");
+    return;
+  }
+
   $("spin-cons").style.display = "inline-block";
   $("txt-cons").textContent = "Consultando...";
 
@@ -247,15 +351,14 @@ async function consultar() {
   try {
     const res = await fetch("/relatorios/api/consultar", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ codigos: $("codigos").value })
+      body: JSON.stringify({ codigos: $("codigos").value, meses })
     }).then(r=>r.json());
 
-    if (!res.ok) {
-      $("cons-msg-erro").textContent = res.msg;
-      $("cons-erro").classList.add("show");
-      return;
-    }
+    if (!res.ok) { erroConsulta(res.msg); return; }
     _consulta = res;
+    // o rótulo da janela vem pronto do servidor (mesmo texto que vai no Excel)
+    $("cons-escopo").textContent = res.escopo
+      + (res.todos_meses ? " — todo o banco" : "");
     renderProdutos(res);
     $("cons-resultado").style.display = "block";
   } finally {
@@ -408,15 +511,21 @@ document.getElementById("theme-toggle")?.addEventListener("click", () => {
 
 // ── Baixar Excel ──────────────────────────────────────────────────────────────
 async function baixarExcel() {
+  // exporta exatamente a janela que está na tela (_consulta), não o que os
+  // chips mostram agora — senão mexer nos meses sem reconsultar geraria um
+  // Excel diferente do que o usuário está vendo
+  const meses = _consulta ? _consulta.meses : mesesSelecionados();
   const res = await fetch("/relatorios/api/consultar/excel", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ codigos: $("codigos").value })
+    body: JSON.stringify({ codigos: $("codigos").value, meses })
   });
   if (!res.ok) { alert("Erro ao gerar Excel."); return; }
   const blob = await res.blob();
+  const nome = (res.headers.get("Content-Disposition") || "")
+                 .match(/filename=([^;]+)/)?.[1]?.trim() || "consulta_vendas.xlsx";
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
-  a.href = url; a.download = "consulta_vendas.xlsx";
+  a.href = url; a.download = nome;
   document.body.appendChild(a); a.click();
   a.remove(); URL.revokeObjectURL(url);
 }

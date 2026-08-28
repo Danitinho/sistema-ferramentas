@@ -91,7 +91,9 @@ sistema_ferramentas_refatorado/
 │   ├── layouts_routes.py      # Blueprint /layouts (placas de oferta)
 │   ├── curva_abc.py           # EXTRAÇÃO TESTADA de PDF Curva ABC (NÃO ALTERAR — seção 7)
 │   ├── relatorios_vendas.py   # lógica + persistência (SQLite) de relatórios
-│   └── relatorios_routes.py   # Blueprint /relatorios
+│   ├── relatorios_routes.py   # Blueprint /relatorios
+│   ├── reclassificacao.py     # fila do lote de reclassificação (seção 10-B)
+│   └── reclassificacao_routes.py  # Blueprint /reclassificacao + API por token
 │
 ├── templates/             # CAMADA DE VIEW (Jinja2, todas estendem base.html)
 │   ├── base.html              # layout + DESIGN SYSTEM (paleta, responsivo) — seção 8
@@ -100,7 +102,8 @@ sistema_ferramentas_refatorado/
 │   ├── loja/                  # lote_vencimento
 │   ├── debitos/               # debitos_index, debitos_empresa
 │   ├── layouts/               # index, cadastrar, gerar
-│   └── relatorios/            # index (processar PDFs + consultar por código de barras)
+│   ├── relatorios/            # index (processar PDFs + consultar por código de barras)
+│   └── reclassificacao/       # painel do lote, operadores e tokens
 │
 ├── assets/                # estáticos servidos em /assets/<arquivo>
 │   ├── *.ttf                  # fontes das placas (Anton, ChelseaMarket, impact)
@@ -109,6 +112,7 @@ sistema_ferramentas_refatorado/
 │
 ├── dados/                 # dados de runtime
 │   ├── debitos.xlsx           # base de débitos/bonificações
+│   ├── reclassificacao.db     # estado do lote de reclassificação (seção 10-B)
 │   └── relatorios/            # criado em runtime pelo módulo de relatórios
 │       ├── entrada/  processados/  saida/   # fluxo de PDFs
 │       └── vendas.db          # banco SQLite consolidado
@@ -196,6 +200,26 @@ Na tela, cada débito é um **bloco** com seus pagamentos dentro; há um **pool 
 crédito** no topo. (O antigo `pagamentos.nf_numero` foi migrado para `referencia`
 com rebuild não destrutivo da tabela; a antiga `bonificacoes` já vira `tipo=bonificacao`.)
 
+**Vendedor (dívidas separadas na mesma empresa):** uma empresa pode ter mais de
+um vendedor, um por setor, e **cada um responde pelos próprios débitos** — são
+dívidas separadas que só compartilham o CNPJ. `debitos.vendedor` e
+`pagamentos.vendedor` (colunas por migração, **opcionais** — em branco = empresa
+de vendedor único, e é o caso dos débitos antigos). Regras:
+- o nome é gravado **como digitado**, mas todo agrupamento e comparação usam a
+  **chave normalizada** (`vendedor_chave` = maiúsculas, sem espaço sobrando);
+  `_canon_vendedor` ainda reaproveita a grafia já usada naquela empresa, para
+  "Vanusa"/"VANUSA" não aparecerem como dois nomes;
+- o pagamento **herda o vendedor do débito** que abate; só o **crédito avulso**
+  pergunta o vendedor (campo aparece apenas nesse modo no modal);
+- `alocar` **barra** crédito de um vendedor em débito de outro (inclusive em
+  débito sem vendedor) e `alocar_automatico` só faz FIFO **dentro do mesmo
+  vendedor** — foi decisão explícita bloquear, não só avisar;
+- trocar o vendedor de um débito **não** mexe nos pagamentos já alocados (eles
+  foram lançados sob o vendedor de então);
+- `listar_debitos`/`listar_creditos`/`calcular_saldo` aceitam `vendedor=`
+  (`'sem'` = os sem vendedor); `vendedores_empresa(cnpj)` alimenta o seletor de
+  filtro e o `<datalist>` de sugestão do formulário.
+
 **Período do débito:** cada débito tem um período de referência (obrigatório ao
 criar) — `periodo_tipo` (`mes` | `intervalo`) + `periodo_inicio`/`periodo_fim`
 (datas ISO). "Mês fechado" vira 1º→último dia do mês; "intervalo" guarda as duas
@@ -219,7 +243,62 @@ pré-preenchidos).
 > "i"). É um typo que o frontend já consome — **não "corrija" sem atualizar o
 > JS correspondente**, senão quebra.
 
+**Relatório do fechamento** (`scripts/debitos_relatorio.py` + `GET /debitos/relatorio`
+e `/relatorio/excel`): fecha o mês juntando os débitos do mês **e os do mês anterior**
+— as notas de junho são pagas ao longo de julho. Só leitura, nenhuma tabela nova.
+Regra de competência, que é o coração do módulo:
+- o **débito** pertence ao mês do seu **período de referência**, nunca ao
+  `debitos.data` (as notas de julho são digitadas em agosto — a data de
+  digitação mentiria);
+- o **pagamento herda o mês do débito que abate**, então uma bonificação
+  digitada depois do fechamento ainda conta no mês certo;
+- como um pagamento pode se repartir entre débitos de meses diferentes
+  (`alocar_automatico` faz FIFO), a **unidade é a ALOCAÇÃO, não o pagamento** —
+  cada linha traz o valor aplicado e o total de origem (`parcial`);
+- dinheiro **sem débito** (crédito avulso, sobra de pagamento, abatimento de
+  débito antigo sem período) não tem mês por essa regra: cai no mês em que foi
+  **lançado**, na seção "crédito não aplicado", **fora dos totais** do fechamento.
+A unidade do resumo é a **dívida = (empresa, vendedor)**, não a empresa: uma
+empresa com dois vendedores rende duas linhas, "MARQUES E MELO (VANUSA)" e
+"MARQUES E MELO (FABIOLA)" (`_grupo`). A coluna "Vendedor" só entra nas abas
+quando alguma dívida do período tem um (`tem_vendedor`).
+Débito com período em **intervalo** que cobre os dois meses conta **uma vez só**,
+no mês do relatório (senão o total dobra). Mês padrão = **mês anterior ao
+corrente** (é o fechamento em pauta). `cnpj` opcional na query: sem ele é o
+consolidado de todas as empresas, com ele a empresa só — a coluna/aba "Empresa"
+some. O relatório é **retroativo** por natureza (novo lançamento muda um mês já
+impresso), por isso é carimbado com `gerado_em`.
+
+**Leitura em 3 partes** (`rel["partes"]` + `rel["consolidado"]`) — e **nenhum
+número somado dos dois meses aparece antes da parte 3**, que foi o pedido
+explícito: (1) débitos do mês, (2) débitos do mês anterior, onde estão os
+pagamentos mandados ao longo do mês, (3) consolidado. Cada parte é fechada em si:
+totais próprios + quebra por dívida (`_por_empresa_parte`); o consolidado usa
+`_por_empresa_consolidado`, com as duas colunas de mês. O **crédito livre não
+entra no "total pago"** — ainda não abateu nada, somá-lo inflaria o abatimento;
+aparece numa linha à parte. `mostrar_quebra` esconde a quebra quando ela não
+informa nada (uma empresa só, sem vendedores).
+
+**Saídas** (`GET /debitos/relatorio/pdf` e `/relatorio/excel`, ambas BytesIO):
+o **PDF** é o documento de apresentação (capa executiva + as 3 partes) e o
+**Excel** é a planilha de análise (4 abas planas com autofiltro). Detalhes na
+seção 16 — inclusive por que o antigo Excel de UMA página A4 foi aposentado.
+A coluna 1 das tabelas é adaptativa (`_rotulo_linha`/`_titulo_col1` no
+`debitos_pdf.py`): "Empresa / vendedor" no consolidado, "Vendedor" na empresa
+única com vendedores, "Tipo" quando nenhum dos dois informa nada.
+
+`rel["por_tipo"]` (`_abatimento_por_tipo`) agrega o abatimento por forma de
+pagamento (bonificação/troca/desconto) para a capa do PDF. A unidade é a
+**alocação**: crédito ainda livre não abateu nada e fica de fora.
+
 ### Relatórios de venda — Blueprint `/relatorios` (ver seção 7, é o mais novo)
+
+### Reclassificação merceológica — Blueprint `/reclassificacao` (ver seção 10-B)
+
+Fila do lote de reclassificação do cadastro. Metade servidor de um sistema cuja
+outra metade é um programa de mesa que roda na máquina do operador e controla o
+ERP. **A seção 10-B tem o contrato da API que esse programa consome** — mudar
+campo ali quebra ele sem aviso.
 
 ---
 
@@ -236,6 +315,7 @@ Não há um banco único. Cada módulo persiste de um jeito:
 | Usuários + SECRET_KEY | `dados/sistema.db` + `dados/secret.key` | SQLite + arquivo |
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
 | Relatórios venda  | `dados/relatorios/vendas.db`  | SQLite |
+| Reclassificação merceológica | `dados/reclassificacao.db` | SQLite |
 | Backups           | `backups/<banco>/*.db`        | cópias SQLite datadas |
 | Uploads temporários | `uploads/`                  | arquivos soltos |
 | Saídas geradas    | `outputs/`                    | PDF/imagens |
@@ -296,12 +376,42 @@ movido (fica na entrada para inspeção).
 - Na consulta, mostrar a **descrição mais recente** entre os meses.
 - Resultado da consulta sai **na tela e em Excel** (botão baixar).
 
+### Janela de meses da consulta (`meses=` nas duas APIs)
+Os meses se acumulam (7 hoje, e crescendo), então a consulta é recortável:
+`consultar_codigos(codigos, meses=None)` + `filtrar_meses`. A janela vale para os
+**três** destinos ao mesmo tempo — tabela, gráfico e Excel —, porque a resposta
+já vem só com os meses escolhidos.
+- **`meses` vazio/None = todos** e é o padrão. Foi escolha: assim um mês recém
+  importado nunca fica de fora sem alguém pedir. Por isso também **não há
+  persistência** da seleção entre visitas — uma lista salva em `localStorage`
+  esconderia silenciosamente o mês seguinte.
+- Mês pedido que não existe no banco é **ignorado**; se sobrar nada, cai em
+  todos (rede de segurança do servidor — a tela barra antes, com aviso).
+- O código continua **"encontrado" mesmo sem venda na janela**: ele existe no
+  banco, só não vendeu no período. Dizer "não encontrado" ali seria mentira.
+  Daí a descrição vir do último mês com registro (qualquer um), enquanto `qtds`
+  e `total` olham só a janela.
+- `escopo_consulta` monta o rótulo da janela **num lugar só** (tela e Excel dizem
+  a mesma coisa, campo `escopo` da resposta). Seleção **não contígua** é listada
+  mês a mês — "jan/2026 a jul/2026" para uma escolha de jan+jul seria mentira
+  (`_sequencia_continua`).
+- O Excel ganhou **linha 1 de escopo** (e por isso o cabeçalho foi para a linha
+  2, congelamento em `D3`); o nome do arquivo carrega a janela
+  (`consulta_vendas_2026-05_a_2026-07.xlsx`). Sem isso, duas exportações de
+  janelas diferentes ficariam indistinguíveis.
+- Na tela, chips de mês (`.mes-chip`) + atalhos **Todos / Últimos 3 / 6 / 12** —
+  o atalho só aparece quando encurta algo (com 7 meses, "Últimos 12" some).
+  Depois de processar PDFs os chips são redesenhados preservando a marcação, e
+  **mês novo entra marcado**. O botão de Excel exporta a janela **da consulta
+  exibida** (`_consulta.meses`), não a dos chips: mexer nos chips sem
+  reconsultar não pode gerar um arquivo diferente do que está na tela.
+
 ### Rotas
 `GET /relatorios/` · `GET /relatorios/api/status` ·
 `POST /relatorios/api/upload` (envia PDFs p/ a fila) ·
 `POST /relatorios/api/processar` (processa a fila) ·
-`POST /relatorios/api/consultar` (JSON `{codigos}`) ·
-`POST /relatorios/api/consultar/excel` (baixa Excel pivotado).
+`POST /relatorios/api/consultar` (JSON `{codigos, meses?}`) ·
+`POST /relatorios/api/consultar/excel` (mesmo corpo; baixa Excel pivotado).
 
 ---
 
@@ -412,6 +522,252 @@ seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 
   removidos (o `.gitignore` já os ignora).
 
 ---
+
+## 10-B. Reclassificação merceológica (`/reclassificacao`)
+
+Incorporado em 28/08/2026, vindo do projeto `C:\dev\pythonprojects\reclassificador`.
+Esta seção é autossuficiente: dá para desenvolver o módulo sem abrir o outro
+projeto. O que estiver marcado como **contrato** é consumido por um programa que
+mora fora daqui — mudar quebra ele em silêncio.
+
+### O problema de negócio
+
+O supermercado está migrando o cadastro para uma estrutura merceológica nova.
+**65.876 produtos** estão em departamentos legados e precisam de departamento,
+seção e subseção corrigidos no ERP RADGe. À mão, produto por produto, é
+inviável.
+
+Volumes: 27.414 ativos. Por confiança da sugestão: ALTA 38.506 · MÉDIA 18.710 ·
+BAIXA 4.657 · REVISAR 4.003. O trabalho real são **26.096 ativos com destino**,
+e **nenhum deles já está correto** — todo item da lista precisa mesmo mudar.
+Desses, 16.852 são ALTA (podem rodar no automático) e 9.244 são MÉDIA/BAIXA, que
+exigem confirmação humana e são o gargalo de verdade. O departamento 12 sozinho
+é 47% do lote. A ~3 s por produto, são mais de 21 horas de máquina.
+
+### O que este módulo NÃO faz
+
+**Ele não mexe no ERP.** Quem edita o RADGe é um **programa de mesa** (tkinter +
+pywinauto) que roda na máquina de cada operador e controla a janela do ERP por
+Win32 — coisa que servidor web não alcança. Esse programa continua em
+`C:\dev\pythonprojects\reclassificador` e tem CLAUDE.md próprio, com tudo sobre
+o driver do ERP.
+
+Aqui fica só a metade que decide **quem fica com qual produto**. Ela não sabe
+nada de ERP nem de interface gráfica: é só estado. Foi por isso que coube aqui.
+
+### Arquivos
+
+- `scripts/reclassificacao.py` — fila, máquina de estados, tokens, leitura do
+  xlsx e exportação do resultado. Sem Flask.
+- `scripts/reclassificacao_routes.py` — blueprint: páginas do coordenador + API
+  do programa de mesa.
+- `templates/reclassificacao/index.html` — painel.
+- `dados/reclassificacao.db` — estado do lote. Entra no backup automático
+  sozinho, porque o agendador varre todo `.db` dentro de `dados/`.
+
+### A armadilha dos códigos (leia antes de mexer em destino)
+
+O ERP guarda a classificação em três campos: `CodGrp1` = departamento,
+`CodGrp2` = seção, `CodGrp3` = subseção. **Os códigos se repetem entre níveis
+com significados diferentes:**
+
+| Código | Como seção | Como subseção |
+|---|---|---|
+| 3 | Higiene Pessoal | Controle de Pragas |
+| 22 | Cervejas | Bovinos |
+| 28 | Casa Geral | Alimentos Naturais |
+| 36 | Cozinha | Salgados |
+| 82 | Cosméticos e Perfumaria | Sucos e Néctares |
+
+Também colidem `6`, `7` e `9` entre departamento e seção/subseção.
+
+Consequência: **um trio na ordem errada produz cadastro que o ERP aceita sem
+reclamar e que está semanticamente errado.** A validação da hierarquia hoje mora
+no programa de mesa (`estrutura_grupos.json`: 8 departamentos, 35 seções, 114
+subseções). Se um dia este módulo ganhar tela para editar destino — a curadoria
+dos 4.003 em REVISAR é o candidato óbvio —, **traga o `estrutura_grupos.json`
+junto e valide aqui também**. Não confie em `<select>` do navegador: quem grava
+é a API.
+
+### Contrato da planilha de entrada
+
+Arquivo `RECLASSIFICACAO_PRODUTOS_V3.xlsx`, aba `Lista de Trabalho`. As colunas
+são localizadas **pelo nome no cabeçalho**, nunca pela posição (`COLUNAS` em
+`reclassificacao.py`): se o layout mudar, o carregamento falha com mensagem
+clara em vez de ler a coluna errada calado.
+
+`Cód. Barras` (chave; texto, pode ter zero à esquerda, de 4 a 13 dígitos) ·
+`Produto` · `Ativo` (SIM/não) · `Últ. mov.` · `CodGrp1/2/3 atual` ·
+`CodGrp1/2/3` (destino) · `Confiança` (ALTA|MÉDIA|BAIXA|REVISAR) ·
+`Base da sugestão`.
+
+A planilha é **semente, não estado**: depois da importação o que vale é o banco.
+Reimportar é seguro — só acrescenta código que ainda não está lá e não encosta em
+nada já trabalhado.
+
+Duas armadilhas conhecidas: itens **REVISAR não têm destino** e entram como
+`sem_destino`, fora da fila para sempre; e há **dois códigos de barras
+repetidos** (`7898056270316`, `7896183901325`). Como `cod` é chave primária, a
+segunda linha é descartada. Hoje os destinos das duplicatas são idênticos, então
+não há perda — **se uma planilha futura trouxer duplicata com destinos
+diferentes, isso precisa virar erro em vez de descarte silencioso.**
+
+### A fila
+
+```
+livre ──reservar──> reservado ──> concluido   (terminal)
+                        │      └─> falhou     (pilha à parte, não volta sozinho)
+                        │      └─> simulado   (não contou como feito)
+                        └──prazo vence──> livre
+```
+
+O operador pede um bloco (padrão 100); o servidor seleciona e marca como dele
+**na mesma transação**. A reserva é um **prazo, não uma trava**: vale 20 minutos
+e o programa de mesa renova a cada 3 enquanto roda. Se a máquina travar, os itens
+voltam sozinhos. A varredura de vencidos roda preguiçosamente na próxima
+reserva, então não há timer no servidor.
+
+Se o bloco vier todo de retomada, ele é **completado** com itens novos até a
+quantidade pedida. Sem isso, um operador com pendências que não fecham receberia
+sempre os mesmos itens e nunca avançaria.
+
+`simulado` existe porque uma rodada em modo simulação não grava nada no ERP:
+marcá-la como concluído faria a rodada de verdade pular o produto. Também não
+volta sozinha à fila, senão a simulação giraria nos mesmos itens — o painel tem
+botão para devolvê-la.
+
+O bloco sai **ordenado por confiança e destino**, o que agrupa naturalmente:
+num bloco de 100 medido, os **68 primeiros iam todos para o mesmo destino**.
+Isso é de propósito (reduz o custo mental da conferência), e já foi relatado como
+defeito por parecer que a tela travou.
+
+### As duas autenticações
+
+As páginas do coordenador usam a guarda de sessão normal. A API do programa de
+mesa **não pode** usar sessão de navegador: autentica por **token** no cabeçalho
+`X-Token`, gerado no painel. Por isso os endpoints dela começam com `api_` e o
+prefixo `reclassificacao.api_` está em `PREFIXOS_PUBLICOS` (`auth_routes.py`),
+isentando-os da guarda de sessão — eles têm guarda própria em `_guarda_token`.
+
+**Nunca ponha em `PREFIXOS_PUBLICOS` uma rota que não cheque credencial
+própria.** O prefixo isenta da sessão; não substitui autenticação.
+
+**O nome do operador vem do token, nunca do corpo da requisição.** Se viesse do
+corpo, qualquer um se diria outro e fecharia produto alheio — e `concluido` é
+terminal, não tem desfazer.
+
+O token aparece **uma vez só**, na volta do *Gerar token*. Gerar de novo
+invalida o anterior. Revogar zera o token e o programa de mesa passa a receber
+401 com mensagem pedindo outro ao coordenador.
+
+### Contrato da API (consumido pelo programa de mesa)
+
+Base: `http://<servidor>/reclassificacao`. Todas exigem `X-Token`, menos `ping`.
+
+| Rota | Corpo / query | Devolve |
+|---|---|---|
+| `GET /api/ping` | — | `{ok, servidor, agora}` — sem token, serve para o operador testar o endereço |
+| `GET /api/estado` | — | resumo do lote (ver `resumo()`) |
+| `GET /api/eventos` | `limite` | lista de eventos recentes |
+| `GET /api/item` | `cod` | `{existe, meu, estado, operador}` |
+| `GET /api/todos` | — | `{linhas, contagem}` para exportação |
+| `POST /api/reservar` | `{quantidade, so_ativos, confiancas, maquina}` | `{itens, expira_em, retomado, novos}` |
+| `POST /api/renovar` | — | `{reservados, expira_em}` |
+| `POST /api/concluir` | `{cod, situacao, dep, sec, sub, detalhe}` | `{ok, estado}` ou `{ok:false, motivo}` |
+| `POST /api/liberar` | `{cods}` (ou nulo = tudo) | `{liberados}` |
+
+`situacao` aceita `alterado`, `ja_correto`, `pulado` (viram `concluido`),
+`simulado` e `erro` (vira `falhou`). Cada item devolvido em `reservar` tem
+`cod, linha, produto, ativo, ano, dep_atual, sec_atual, sub_atual, dep_novo,
+sec_novo, sub_novo, confianca, base`.
+
+**Mudar nome de campo, formato ou semântica aqui quebra o programa de mesa sem
+aviso**, porque ele está noutro repositório e ninguém vai ver o erro até um
+operador tentar trabalhar. Se precisar mudar, mude os dois lados na mesma
+sessão.
+
+### O que não pode ser refatorado
+
+1. **A reserva seleciona e marca na MESMA transação.** É isso, e só isso, que
+   impede dois operadores de receberem o mesmo produto. Separar em "buscar
+   livres" e depois "marcar" reabre a corrida que a fila existe para fechar.
+2. **O lock serializa dentro de UM processo.** O waitress roda processo único
+   com threads, então funciona. Se o sistema passar a vários processos worker,
+   a atomicidade cai e a fila precisa de outra trava (advisory lock no SQLite,
+   ou trocar por Postgres com `SELECT ... FOR UPDATE SKIP LOCKED`).
+3. **`concluido` é terminal** e não tem botão de voltar no painel: reabrir um
+   cadastro já editado é exatamente o que a fila existe para impedir. Só
+   `falhou` e `simulado` voltam à fila.
+4. **Só o dono da reserva fecha o item** (`concluir` recusa os demais).
+5. **O `.db` fica atrás deste processo, nunca numa pasta de rede.** O travamento
+   do SQLite depende de file locks pouco confiáveis sobre SMB e o modo WAL nem
+   funciona em rede. Todo mundo fala HTTP com este processo, que é o único
+   escritor.
+
+### Como testar
+
+O módulo inteiro é testável sem o ERP — e foi. Suba numa porta de
+desenvolvimento (**não** reinicie o serviço da porta 80 enquanto isso, senão
+ficam dois processos escrevendo no mesmo banco):
+
+```bat
+cd C:\dev\pythonprojects\sistema_ferramentas_refatorado
+python -c "from app import app; app.run(port=5001)"
+```
+
+Para as páginas do coordenador, use o `test_client` com sessão fingida:
+
+```python
+c = app.test_client()
+with c.session_transaction() as s:
+    s['usuario'] = 'teste'
+c.post('/reclassificacao/operadores', data={'nome': 'ana'})   # token volta na URL
+```
+
+Para a API, o próprio cliente do outro projeto serve:
+
+```python
+import sys; sys.path.insert(0, r'C:\dev\pythonprojects\reclassificador')
+from reclassificador.fila import Fila
+URL = "http://127.0.0.1:5001/reclassificacao"
+a, b = Fila(URL, "ana", token=TOKEN_A), Fila(URL, "bruno", token=TOKEN_B)
+ia, _ = a.reservar(50, True, ["ALTA"])
+ib, _ = b.reservar(50, True, ["ALTA"])
+assert not ({i.cod for i in ia} & {i.cod for i in ib})      # blocos disjuntos
+assert a.ainda_meu(ia[0].cod)[0] and not b.ainda_meu(ia[0].cod)[0]
+assert b.registrar(ia[0].cod, "alterado")["ok"] is False    # não é dele
+```
+
+Verificado assim: importação com a planilha real (65.876 linhas · 65.874 novos ·
+2 já existiam · 4.003 sem destino), blocos disjuntos, recusa de conclusão por
+quem não é dono, token ausente/revogado devolvendo 401, painel renderizando com
+dados reais, e **seis operadores simultâneos: 1.440 entregas, 1.440 produtos
+distintos, zero duplicados, a 405 itens/s** — ordens de grandeza acima do
+necessário para dois a seis operadores.
+
+Depois de testar, **limpe o resíduo**: item deixado em `concluido` por teste faz
+a rodada de verdade pular aquele produto para sempre.
+
+### Pendências e ideias
+
+- **Curar os 4.003 em REVISAR.** Não têm destino e nunca entram na fila. É
+  trabalho puro de dado, sem ERP, e fica melhor no navegador do que no programa
+  de mesa. Exige trazer `estrutura_grupos.json` para cá e validar o trio no
+  servidor (ver "armadilha dos códigos").
+- **Confirmar em série.** Como o bloco vem agrupado por destino (68 seguidos no
+  mesmo lugar, medido), um botão "aceitar os próximos com este mesmo destino"
+  ataca direto os 9.244 MÉDIA/BAIXA que são o gargalo.
+- **Corte por dia ou turno no painel.** Hoje ele mostra só o acumulado do lote;
+  não dá para acompanhar ritmo.
+- **Auditoria no padrão da seção 6.** Os eventos usam epoch float e tabela
+  própria (`eventos`), não a `auditoria` do sistema nem datas ISO. Funciona, mas
+  destoa da convenção; vale alinhar se alguém for mexer ali.
+- **Sem reatribuição dirigida** (passar o bloco de A para B). Hoje é liberar e
+  deixar a fila redistribuir.
+- **A fila coordena a equipe, não a loja.** Ninguém enxerga o pessoal do balcão
+  editando cadastro pelo ERP durante o expediente; num Delphi CRUD comum o
+  último que salva vence, silenciosamente. Mitigação é rodar fora do horário.
+
 
 ## 11. Deploy (Windows + NSSM)
 
@@ -543,6 +899,8 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   via vencido. `_enriquecer_*` expõe `atualizado_fmt` e `editado` (só quando a
   última alteração ≠ registro e ≠ baixa/resolução — mostra "editado em" na
   sub-linha).
+- **Relatório** (PDF de apresentação + Excel de trabalho): ver seção 16.
+  `vencidos.py` só produz os dados — quem formata são os módulos de relatório.
 - **Análise** (janela 6 meses): `ranking_reincidencia` (2+ ocorrências),
   `ranking_fornecedores` (perda por custo), `ranking_responsaveis` (antecedência
   média e % no prazo por responsável de seção).
@@ -650,3 +1008,97 @@ Preço < custo líquido → **bloqueia** (salvo `aprovar_abaixo_do_custo`); vari
 não confirmado → **não precifica**; margem fora da faixa do subgrupo → só
 alertaria (sem faixa por subgrupo cadastrada). Idempotência por `chave_acesso`
 (reimportar atualiza, nunca duplica).
+
+
+---
+
+## 16. Relatórios em PDF (apresentação) e Excel (trabalho)
+
+Dois relatórios seguem o mesmo desenho, sobre uma base comum:
+
+| | Vencidos | Débitos e bonificações |
+|---|---|---|
+| **dados** (fonte única) | `vencidos_relatorio.montar_relatorio` | `debitos_relatorio.montar_relatorio` |
+| **PDF** (apresentação) | `vencidos_pdf.py` · `GET /vencidos/pdf` | `debitos_pdf.py` · `GET /debitos/relatorio/pdf` |
+| **Excel** (trabalho) | `gerar_excel_vencidos` · `GET /vencidos/excel` | `gerar_excel_relatorio` · `GET /debitos/relatorio/excel` |
+| **base visual** | `scripts/relatorio_pdf.py` | `scripts/relatorio_pdf.py` |
+
+**A regra que organiza tudo:** `montar_relatorio` é a fonte única e os
+renderizadores são burros — **nenhuma regra de negócio mora num renderizador**.
+PDF apresenta, Excel analisa; cada formato faz bem uma coisa. Ambos geram **em
+memória** (BytesIO) — no Windows um temporário aberto pelo `send_file` não pode
+ser apagado depois.
+
+**Por que PDF e não Excel para apresentar:** o Excel muda de cara conforme a
+versão, o zoom e o aparelho de quem abre (e perde a formatação no celular ou no
+Google Sheets). O PDF é fixo. Os dois relatórios já tiveram um Excel formatado
+para impressão (o de débitos chegou a caber numa página A4 medida a régua) e os
+dois perderam isso de propósito: **planilha que vira documento perde o
+autofiltro** (mesclagem e sub-linha quebram o filtro) **e não ganha a fidelidade
+de um PDF**. Se algum dia precisar daquela página A4 de novo, ela está no git.
+
+### `scripts/relatorio_pdf.py` — a base
+Paleta do app, registro de fontes, estilos, formatação pt-BR, `esc()`,
+`BarraEmpilhada`, `cartoes_kpi`, `alertas`, `tabela_ranking`, `barra_secao`,
+`estilo_tabela`, `linha_detalhe`, `linha_total`, `fabrica_canvas` e `construir`.
+- **Mexer aqui mexe em TODOS os relatórios** — é o preço de terem a mesma cara.
+  Mudança nesta base pede reteste de todos.
+- **`reportlab` importado de forma PROTEGIDA**: sem ele, `DISPONIVEL=False`, as
+  rotas de PDF respondem **503 com instrução** e nada mais sai do ar. Instale com
+  o python do serviço (armadilha da seção 11) e reinicie o serviço.
+- **Fontes**: registra a **Segoe UI** de `%WINDIR%\Fonts` (a do app) e cai para
+  Helvetica se não achar. O texto do PDF **usa acentos normalmente** — a regra
+  "só ASCII" da seção 8 vale para `print()` no stdout cp1252, não para documento.
+- **Grade em MILÍMETROS** somando 182 (A4 retrato, margem de 14 mm). Coluna que
+  estoura empurra a tabela para fora da folha.
+- `linha_detalhe` amarra o par item+sub-linha com **`NOSPLIT`** para o detalhe
+  não ficar órfão na virada de página. **Cuidado**: um bloco NOSPLIT mais alto
+  que a página não tem como ser quebrado — quando o item pode ter MUITAS
+  sub-linhas (os pagamentos de um débito), amarre só a primeira (`nosplit=False`
+  nas demais), que é o que o `debitos_pdf` faz.
+- `fabrica_canvas` é um canvas de **duas passadas**: o total de páginas do
+  "Página X de Y" só se sabe no fim.
+
+### Estrutura dos dois documentos
+**Página 1 é uma CAPA EXECUTIVA** — é o motivo de o PDF existir. Quatro KPIs,
+uma barra empilhada, duas caixas de alerta e dois blocos de ranking. Depois, as
+partes como detalhamento.
+
+- **Vencidos** — KPIs: valor total, perda efetiva, devolvido, % avisado. Barra:
+  devolvido / perda / baixa pendente. Alertas: baixas paradas e valor em risco no
+  mês seguinte. Blocos: fornecedores com maior perda e produtos reincidentes
+  (janela **fixa de 6 meses**, não o mês do relatório — o rótulo diz isso).
+- **Débitos** — KPIs: débito total, total abatido, saldo em aberto, dívidas em
+  aberto. Barra: abatido / em aberto do mês / em aberto do mês anterior — a
+  terceira fatia é o **atraso**, porque as notas do mês anterior já deveriam ter
+  sido pagas. Alertas: saldo atrasado e crédito livre parado. Blocos: maiores
+  saldos por dívida (só quando `mostrar_quebra`) e **como a dívida está sendo
+  abatida** (`rel["por_tipo"]`). A capa traz a **regra de competência escrita** —
+  é a coisa mais fácil de o leitor entender errado.
+- **Alerta com valor ZERO vira caixa verde**, com o texto da boa notícia. Uma
+  caixa vermelha escrita "R$ 0,00" assusta à toa e ensina o leitor a ignorá-la.
+- **Parte vazia não gasta uma folha**: só parte com item abre página nova (a
+  parte 1 sempre abre, para não colar na capa). Um mês de vencidos sem nada sai
+  em 2 páginas em vez de 6.
+
+### As partes
+- **Vencidos, 5 partes**: geral · com troca (`baixa_tipo=devolucao`) · sem troca
+  (`perda`) · sem troca e sem aviso (`perda` + `foi_avisado=0`) · avisos de
+  vencimento (mês do relatório **e o seguinte**, só o que vence **depois** da
+  geração, com venda/mês, sobra estimada e risco). As partes 2–4 são recortes da
+  1; quem está com baixa **pendente** não tem tipo e só aparece na parte 1.
+  Produto sem venda registrada fica **sem estimativa** ("—", nunca zero).
+- **Débitos, 3 partes**: débitos do mês · débitos do mês anterior · consolidado,
+  mais o crédito não aplicado. Cada débito leva uma sub-linha de contexto e uma
+  sub-linha por pagamento aplicado (o acompanhamento NF a NF).
+
+### Os Excel de trabalho
+Tabela **plana**: uma linha por registro, **autofiltro**, painel congelado em
+`A3`, linha de TOTAL. Nome de aba ≤31 caracteres (limite do Excel).
+- **Vencidos** — 5 abas, uma por parte; a de avisos tem colunas próprias (prazo,
+  venda/mês, sobra, risco, antecedência).
+- **Débitos** — 4 abas: *Débitos* (as duas partes numa tabela só, com a coluna
+  "Mês de referência" para separar no filtro), *Pagamentos aplicados* (uma linha
+  por **alocação** — a unidade real, porque um pagamento pode se repartir entre
+  débitos de meses diferentes; vem de `alocacoes_planas`), *Resumo por dívida* e
+  *Crédito não aplicado*.

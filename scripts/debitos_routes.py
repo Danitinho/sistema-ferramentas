@@ -2,8 +2,13 @@
 scripts/debitos_routes.py
 Blueprint Flask do módulo de débitos e bonificações.
 """
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, session
+import io
+
+from flask import (Blueprint, render_template, request, jsonify, redirect,
+                   url_for, session, send_file)
 from scripts import debitos as db
+from scripts import debitos_relatorio as rel
+from scripts import debitos_pdf as dpdf
 
 debitos_bp = Blueprint("debitos", __name__, url_prefix="/debitos")
 
@@ -26,17 +31,76 @@ def empresa(cnpj):
     if not emp:
         return redirect(url_for("debitos.index"))
     mes = request.args.get("mes", "")
+    vend = request.args.get("vendedor", "")
     return render_template(
         "debitos/debitos_empresa.html",
         emp=emp,
-        saldo=db.calcular_saldo(cnpj),
-        debitos=db.listar_debitos(cnpj, mes=mes),
-        creditos=db.listar_creditos(cnpj),
+        saldo=db.calcular_saldo(cnpj, vendedor=vend),
+        debitos=db.listar_debitos(cnpj, mes=mes, vendedor=vend),
+        creditos=db.listar_creditos(cnpj, vendedor=vend),
         tipos=db.TIPOS_PAGAMENTO,
         ref_label=db.REF_LABEL,
         meses=db.meses_debitos(cnpj),
         mes_atual=mes,
+        vendedores=db.vendedores_empresa(cnpj),
+        vendedor_atual=vend,
     )
+
+
+@debitos_bp.route("/relatorio")
+def relatorio():
+    """Fechamento do mês: débitos do mês + do mês anterior (que são pagos ao
+    longo dele) + os pagamentos que abateram uns e outros."""
+    r = rel.montar_relatorio(request.args.get("mes"), request.args.get("cnpj"))
+    return render_template(
+        "debitos/debitos_relatorio.html",
+        rel=r,
+        empresas=db.listar_empresas(),
+        meses=rel.meses_disponiveis(),
+    )
+
+
+# Duas vistas do mesmo `montar_relatorio`: o PDF é o documento de apresentação
+# (capa executiva + as 3 partes) e o Excel é a planilha de análise (4 abas
+# planas com autofiltro).
+def _nome_arquivo(r, ext):
+    sufixo = ("" if r["todas_empresas"]
+              else "_" + "".join(c for c in r["escopo"][:20] if c.isalnum()))
+    return f"debitos_{r['mes']}{sufixo}.{ext}"
+
+
+def _entregar(buf, nome, mimetype):
+    # Em memória: no Windows um temporário aberto pelo send_file não pode ser
+    # apagado depois (ficaria lixo em %TEMP%).
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=nome, mimetype=mimetype)
+
+
+@debitos_bp.route("/relatorio/pdf")
+def relatorio_pdf():
+    """Documento de apresentação, em PDF."""
+    if not dpdf.DISPONIVEL:
+        return ("<h3>Relatório em PDF indisponível</h3>"
+                "<p>A biblioteca <code>reportlab</code> não está instalada neste "
+                "servidor. Instale com o python do serviço:<br>"
+                "<code>python -m pip install -r requirements.txt</code> "
+                "e reinicie o serviço.</p>"
+                f"<p><small>{dpdf.ERRO_IMPORT}</small></p>", 503)
+    r = rel.montar_relatorio(request.args.get("mes"), request.args.get("cnpj"))
+    buf = io.BytesIO()
+    dpdf.gerar_pdf_relatorio(r, buf)
+    return _entregar(buf, _nome_arquivo(r, "pdf"), "application/pdf")
+
+
+@debitos_bp.route("/relatorio/excel")
+def relatorio_excel():
+    """Planilha de análise: débitos, pagamentos aplicados, resumo e crédito."""
+    r = rel.montar_relatorio(request.args.get("mes"), request.args.get("cnpj"))
+    buf = io.BytesIO()
+    rel.gerar_excel_relatorio(r, buf)
+    return _entregar(
+        buf, _nome_arquivo(r, "xlsx"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # ── API — Empresas ────────────────────────────────────────────────────────────
@@ -63,7 +127,7 @@ def api_add_vencimento():
         cnpj=d.get("cnpj", ""), nf_numero=d.get("nf_numero", ""),
         valor_total=d.get("valor_total", 0), obs=d.get("obs", ""), usuario=_usuario(),
         periodo_tipo=d.get("periodo_tipo"), periodo_inicio=d.get("periodo_inicio"),
-        periodo_fim=d.get("periodo_fim"),
+        periodo_fim=d.get("periodo_fim"), vendedor=d.get("vendedor", ""),
     )
     return jsonify({"ok": ok, "msg": msg})
 
@@ -76,7 +140,7 @@ def api_add_rebaxa():
         quantidade=d.get("quantidade", 0), valor_unit=d.get("valor_unit", 0),
         obs=d.get("obs", ""), usuario=_usuario(),
         periodo_tipo=d.get("periodo_tipo"), periodo_inicio=d.get("periodo_inicio"),
-        periodo_fim=d.get("periodo_fim"),
+        periodo_fim=d.get("periodo_fim"), vendedor=d.get("vendedor", ""),
     )
     return jsonify({"ok": ok, "msg": msg})
 
@@ -91,6 +155,7 @@ def api_edit_debito(id_debito):
         valor_unit=d.get("valor_unit"), obs=d.get("obs", ""),
         periodo_tipo=d.get("periodo_tipo"), periodo_inicio=d.get("periodo_inicio"),
         periodo_fim=d.get("periodo_fim"), usuario=_usuario(),
+        vendedor=d.get("vendedor", ""),
     )
     return jsonify({"ok": ok, "msg": msg})
 
@@ -113,6 +178,7 @@ def api_add_pagamento():
         cnpj=d.get("cnpj", ""), valor_total=d.get("valor_total", 0),
         tipo=d.get("tipo", "bonificacao"), referencia=referencia,
         obs=d.get("obs", ""), debito_id=d.get("debito_id"), usuario=_usuario(),
+        vendedor=d.get("vendedor", ""),
     )
     return jsonify({"ok": ok, "msg": msg})
 

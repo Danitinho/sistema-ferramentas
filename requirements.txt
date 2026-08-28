@@ -8,3 +8,4 @@ waitress>=3.0.0      # servidor de produção (server.py, porta 80)
 pillow>=10.0.0       # geração de imagens das placas de oferta
 pdfplumber>=0.11.0   # extração dos relatórios Curva ABC (PDF)
 openpyxl>=3.1.0      # planilhas Excel (débitos e relatórios)
+reportlab>=4.0.0     # relatório de vencidos em PDF (documento de apresentação)

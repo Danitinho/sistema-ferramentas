@@ -1,0 +1,85 @@
+{
+  "nome": "PREÇO UNITARIO E FARDO",
+  "imagem_base": "layout_e3fb4c76.png",
+  "contorno_preto": true,
+  "contorno_largura": 6,
+  "debug_areas": false,
+  "campos": [
+    {
+      "area": [
+        50,
+        271,
+        1009,
+        588
+      ],
+      "cor": [
+        0,
+        0,
+        0
+      ],
+      "fonte_path": "",
+      "id": "NOME PRODUTO",
+      "label": "PRODUTO",
+      "maiusculo": true,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        237,
+        685,
+        875,
+        996
+      ],
+      "cor": [
+        237,
+        12,
+        12
+      ],
+      "fonte_path": "",
+      "id": "PREÇO",
+      "label": "PREÇO",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "preco_simples"
+    },
+    {
+      "area": [
+        174,
+        1248,
+        324,
+        1320
+      ],
+      "cor": [
+        255,
+        255,
+        255
+      ],
+      "fonte_path": "",
+      "id": "QUANTIDADE ATACADO ",
+      "label": "ATACADO",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "texto"
+    },
+    {
+      "area": [
+        442,
+        1177,
+        937,
+        1351
+      ],
+      "cor": [
+        13,
+        13,
+        13
+      ],
+      "fonte_path": "",
+      "id": "VALOR FARDO ",
+      "label": "FARDO ",
+      "maiusculo": false,
+      "opcional": false,
+      "tipo": "preco_simples"
+    }
+  ]
+}

@@ -80,6 +80,7 @@ def _init_schema(conn):
             cnpj        TEXT NOT NULL,
             data        TEXT NOT NULL,
             tipo        TEXT NOT NULL,   -- 'vencimento' | 'rebaxa'
+            vendedor    TEXT,            -- setor/vendedor responsável (opcional)
             nf_numero   TEXT,
             produto     TEXT,
             quantidade  REAL,
@@ -99,6 +100,7 @@ def _init_schema(conn):
             cnpj          TEXT NOT NULL,
             data          TEXT NOT NULL,
             tipo          TEXT NOT NULL DEFAULT 'bonificacao',  -- bonificacao | troca | desconto_boleto
+            vendedor      TEXT,                                 -- herdado do débito abatido
             referencia    TEXT,                                 -- nº NF / nº boleto / descrição
             valor_total   REAL NOT NULL,
             valor_alocado REAL NOT NULL DEFAULT 0,
@@ -188,6 +190,12 @@ def _migrar(conn):
             CREATE INDEX IF NOT EXISTS idx_pag_cnpj ON pagamentos(cnpj);
         """)
 
+    # vendedor: empresa com mais de um vendedor tem dívidas SEPARADAS por
+    # vendedor (cada um paga a sua). Opcional — débito antigo fica sem.
+    for tabela in ("debitos", "pagamentos"):
+        if "vendedor" not in _colunas(conn, tabela):
+            conn.execute(f"ALTER TABLE {tabela} ADD COLUMN vendedor TEXT")
+
     # migra a tabela antiga bonificacoes -> pagamentos (idempotente por PK).
     if "bonificacoes" in _tabelas(conn):
         conn.execute("""
@@ -244,6 +252,58 @@ def _fmt_data(s):
         return s
     y, mo, d, h, mi = m.groups()
     return f"{d}/{mo}/{y} {h}:{mi}"
+
+
+# ── Vendedor ──────────────────────────────────────────────────────────────────
+# Uma empresa pode ter mais de um vendedor (um por setor), e cada um responde
+# pelos SEUS débitos. O nome é guardado como digitado, mas todo agrupamento e
+# comparação usam a chave normalizada — senão "Vanusa", "VANUSA" e "vanusa "
+# viram três dívidas diferentes. Vazio = sem vendedor (empresa de vendedor único).
+def limpar_vendedor(v):
+    """Nome como será guardado: sem espaço sobrando, preservando o que digitaram."""
+    return " ".join((v or "").split())
+
+
+def vendedor_chave(v):
+    """Chave de agrupamento/comparação: '  vanusa  ' → 'VANUSA'; vazio → ''."""
+    return limpar_vendedor(v).upper()
+
+
+def vendedores_empresa(cnpj):
+    """Vendedores já usados nesta empresa (para sugestão e filtro), sem repetir
+    por diferença de caixa. Ordenados por nome."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT vendedor FROM debitos WHERE cnpj = ? AND excluido_em IS NULL "
+            "UNION ALL "
+            "SELECT vendedor FROM pagamentos WHERE cnpj = ? AND excluido_em IS NULL",
+            (cnpj, cnpj)).fetchall()
+    finally:
+        conn.close()
+    vistos = {}
+    for r in rows:
+        nome = limpar_vendedor(r["vendedor"])
+        if nome:
+            vistos.setdefault(vendedor_chave(nome), nome)
+    return sorted(vistos.values())
+
+
+def _canon_vendedor(conn, cnpj, vendedor):
+    """Reaproveita a grafia já usada nesta empresa para o mesmo vendedor. Sem
+    isso, digitar 'VANUSA' hoje e 'Vanusa' amanhã mostra dois nomes na tela para
+    a mesma dívida (o agrupamento já é por chave, mas a exibição destoaria)."""
+    v = limpar_vendedor(vendedor)
+    if not v:
+        return ""
+    chave = vendedor_chave(v)
+    for tabela in ("debitos", "pagamentos"):
+        r = conn.execute(
+            f"SELECT vendedor FROM {tabela} WHERE cnpj = ? AND excluido_em IS NULL "
+            f"AND UPPER(TRIM(COALESCE(vendedor,''))) = ? LIMIT 1", (cnpj, chave)).fetchone()
+        if r:
+            return limpar_vendedor(r["vendedor"])
+    return v
 
 
 def _parse_valor(v):
@@ -530,12 +590,14 @@ def _alocacoes_do_debito(conn, debito_id):
     return saida
 
 
-def listar_debitos(cnpj=None, mes=None):
+def listar_debitos(cnpj=None, mes=None, vendedor=None):
     """Lista débitos. `mes` filtra pelo período:
       • 'AAAA-MM' → débitos cujo período cobre aquele mês (intervalos aparecem
         em todos os meses que tocam);
       • 'sem'     → débitos sem período;
       • None/''   → todos.
+    `vendedor` filtra pelo responsável (comparação normalizada); use 'sem' para
+    os débitos sem vendedor.
     """
     conn = _conn()
     try:
@@ -544,6 +606,11 @@ def listar_debitos(cnpj=None, mes=None):
         if cnpj:
             sql += " AND cnpj = ?"
             params.append(cnpj)
+        if vendedor == "sem":
+            sql += " AND COALESCE(TRIM(vendedor), '') = ''"
+        elif vendedor:
+            sql += " AND UPPER(TRIM(vendedor)) = ?"
+            params.append(vendedor_chave(vendedor))
         if mes == "sem":
             sql += " AND periodo_inicio IS NULL"
         elif mes:
@@ -566,6 +633,8 @@ def listar_debitos(cnpj=None, mes=None):
             d["data_fmt"]       = _fmt_data(d["data"])
             d["periodo_label"]  = _periodo_label(d.get("periodo_tipo"),
                                                  d.get("periodo_inicio"), d.get("periodo_fim"))
+            d["vendedor"]       = limpar_vendedor(d.get("vendedor"))
+            d["vendedor_chave"] = vendedor_chave(d["vendedor"])
             d["alocacoes"]      = _alocacoes_do_debito(conn, d["id"])
         return rows
     finally:
@@ -573,9 +642,11 @@ def listar_debitos(cnpj=None, mes=None):
 
 
 def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs="", usuario=None,
-                                periodo_tipo=None, periodo_inicio=None, periodo_fim=None):
+                                periodo_tipo=None, periodo_inicio=None, periodo_fim=None,
+                                vendedor=""):
     if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
+    vend = limpar_vendedor(vendedor)
     nf = nf_numero.strip()
     if not nf:
         return False, "Número da NF é obrigatório."
@@ -592,14 +663,16 @@ def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs="", usuario=No
     try:
         if _nf_duplicada(conn, "debitos", cnpj, nf):
             return False, f"Já existe um débito com a NF {nf} para esta empresa."
+        vend = _canon_vendedor(conn, cnpj, vend)
         did = _uid()
         conn.execute(
-            "INSERT INTO debitos (id, cnpj, data, tipo, nf_numero, valor_total, obs, "
+            "INSERT INTO debitos (id, cnpj, data, tipo, vendedor, nf_numero, valor_total, obs, "
             "periodo_tipo, periodo_inicio, periodo_fim) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (did, cnpj, _agora(), "vencimento", nf, valor, obs.strip(), p_tipo, p_ini, p_fim))
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (did, cnpj, _agora(), "vencimento", vend, nf, valor, obs.strip(), p_tipo, p_ini, p_fim))
         _auditar(conn, "debito", did, "criar",
-                 f"vencimento NF {nf} · R$ {valor:.2f} · {_periodo_label(p_tipo, p_ini, p_fim)}", usuario)
+                 f"vencimento NF {nf} · R$ {valor:.2f} · {_periodo_label(p_tipo, p_ini, p_fim)}"
+                 + (f" · vendedor {vend}" if vend else ""), usuario)
         conn.commit()
         return True, f"Vencimento NF {nf} de R$ {valor:.2f} registrado."
     finally:
@@ -607,9 +680,11 @@ def adicionar_debito_vencimento(cnpj, nf_numero, valor_total, obs="", usuario=No
 
 
 def adicionar_debito_rebaxa(cnpj, produto, quantidade, valor_unit, obs="", usuario=None,
-                            periodo_tipo=None, periodo_inicio=None, periodo_fim=None):
+                            periodo_tipo=None, periodo_inicio=None, periodo_fim=None,
+                            vendedor=""):
     if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
+    vend = limpar_vendedor(vendedor)
     produto = produto.strip()
     if not produto:
         return False, "Nome do produto é obrigatório."
@@ -629,15 +704,17 @@ def adicionar_debito_rebaxa(cnpj, produto, quantidade, valor_unit, obs="", usuar
     p_tipo, p_ini, p_fim = per
     conn = _conn()
     try:
+        vend = _canon_vendedor(conn, cnpj, vend)
         did = _uid()
         conn.execute(
-            "INSERT INTO debitos (id, cnpj, data, tipo, produto, quantidade, valor_unit, valor_total, obs, "
-            "periodo_tipo, periodo_inicio, periodo_fim) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (did, cnpj, _agora(), "rebaxa", produto, qtd, v_uni, valor, obs.strip(),
+            "INSERT INTO debitos (id, cnpj, data, tipo, vendedor, produto, quantidade, valor_unit, "
+            "valor_total, obs, periodo_tipo, periodo_inicio, periodo_fim) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (did, cnpj, _agora(), "rebaxa", vend, produto, qtd, v_uni, valor, obs.strip(),
              p_tipo, p_ini, p_fim))
         _auditar(conn, "debito", did, "criar",
-                 f"rebaxa {produto} · R$ {valor:.2f} · {_periodo_label(p_tipo, p_ini, p_fim)}", usuario)
+                 f"rebaxa {produto} · R$ {valor:.2f} · {_periodo_label(p_tipo, p_ini, p_fim)}"
+                 + (f" · vendedor {vend}" if vend else ""), usuario)
         conn.commit()
         return True, f"Rebaxa de R$ {valor:.2f} registrada."
     finally:
@@ -665,7 +742,8 @@ def excluir_debito(id_debito, usuario=None):
 
 def editar_debito(id_debito, valor_total=None, nf_numero=None, produto=None,
                   quantidade=None, valor_unit=None, obs=None,
-                  periodo_tipo=None, periodo_inicio=None, periodo_fim=None, usuario=None):
+                  periodo_tipo=None, periodo_inicio=None, periodo_fim=None, usuario=None,
+                  vendedor=""):
     """Corrige as informações de um débito (dentro do mesmo tipo). Preserva o
     registro, as alocações e o histórico. O status é derivado — reajusta sozinho."""
     per = _parse_periodo(periodo_tipo, periodo_inicio, periodo_fim)
@@ -714,13 +792,18 @@ def editar_debito(id_debito, valor_total=None, nf_numero=None, produto=None,
             return False, (f"O novo valor R$ {novo_valor:.2f} é menor que o já pago "
                            f"R$ {valor_pago:.2f}. Desfaça pagamentos antes de reduzir.")
 
+        # Trocar o vendedor não mexe nos pagamentos já alocados: eles foram
+        # lançados sob o vendedor de então e continuam contando ali (o relatório
+        # os mostra sob o débito que abatem, então segue coerente).
+        vend = _canon_vendedor(conn, cnpj, vendedor)
         campos.update({"obs": (obs or "").strip(), "periodo_tipo": p_tipo,
-                       "periodo_inicio": p_ini, "periodo_fim": p_fim})
+                       "periodo_inicio": p_ini, "periodo_fim": p_fim, "vendedor": vend})
         sets = ", ".join(f"{k} = ?" for k in campos)
         conn.execute(f"UPDATE debitos SET {sets} WHERE id = ?",
                      (*campos.values(), id_debito))
         _auditar(conn, "debito", id_debito, "editar",
-                 f"{resumo} · {_periodo_label(p_tipo, p_ini, p_fim)}", usuario)
+                 f"{resumo} · {_periodo_label(p_tipo, p_ini, p_fim)}"
+                 + (f" · vendedor {vend}" if vend else ""), usuario)
         conn.commit()
         return True, "Débito atualizado."
     finally:
@@ -758,22 +841,35 @@ def listar_pagamentos(cnpj=None):
             p["data_fmt"]      = _fmt_data(p["data"])
             p["tipo_label"]    = TIPOS_PAGAMENTO.get(p.get("tipo"), p.get("tipo") or "")
             p["referencia"]    = p.get("referencia") or ""
+            p["vendedor"]      = limpar_vendedor(p.get("vendedor"))
+            p["vendedor_chave"] = vendedor_chave(p["vendedor"])
             p["alocacoes"]     = _alocacoes_do_pagamento(conn, p["id"])
         return rows
     finally:
         conn.close()
 
 
-def listar_creditos(cnpj):
-    """Pagamentos com saldo não alocado — o 'pool' de crédito da empresa."""
-    return [p for p in listar_pagamentos(cnpj) if p["disponivel"] > _EPS]
+def listar_creditos(cnpj, vendedor=None):
+    """Pagamentos com saldo não alocado — o 'pool' de crédito da empresa.
+    Com `vendedor`, só o crédito daquele responsável ('sem' = sem vendedor)."""
+    creditos = [p for p in listar_pagamentos(cnpj) if p["disponivel"] > _EPS]
+    if vendedor == "sem":
+        return [p for p in creditos if not p["vendedor_chave"]]
+    if vendedor:
+        alvo = vendedor_chave(vendedor)
+        return [p for p in creditos if p["vendedor_chave"] == alvo]
+    return creditos
 
 
 def adicionar_pagamento(cnpj, valor_total, tipo="bonificacao", referencia="",
-                        obs="", usuario=None, debito_id=None):
+                        obs="", usuario=None, debito_id=None, vendedor=""):
     """Registra um pagamento (abatimento). Se `debito_id` for informado, o valor
     abate aquele débito e o excedente vira crédito; sem `debito_id`, entra como
-    crédito avulso."""
+    crédito avulso.
+
+    O vendedor vem do DÉBITO quando há um (a dívida é dele); no crédito avulso,
+    vem do parâmetro. É ele que impede um crédito de um vendedor de quitar o
+    débito de outro."""
     if not buscar_empresa(cnpj):
         return False, "Empresa não encontrada."
     if tipo not in TIPOS_PAGAMENTO:
@@ -798,14 +894,19 @@ def adicionar_pagamento(cnpj, valor_total, tipo="bonificacao", referencia="",
             if not d:
                 return False, "Débito de destino não encontrado."
 
+        # dentro de um débito, o vendedor é o do débito; avulso, o informado
+        vend = (limpar_vendedor(d["vendedor"]) if d
+                else _canon_vendedor(conn, cnpj, vendedor))
+
         pid = _uid()
         conn.execute(
-            "INSERT INTO pagamentos (id, cnpj, data, tipo, referencia, valor_total, obs) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (pid, cnpj, _agora(), tipo, referencia, valor, obs.strip()))
+            "INSERT INTO pagamentos (id, cnpj, data, tipo, vendedor, referencia, valor_total, obs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, cnpj, _agora(), tipo, vend, referencia, valor, obs.strip()))
         _auditar(conn, "pagamento", pid, "criar",
                  f"{TIPOS_PAGAMENTO[tipo]} {referencia} · R$ {valor:.2f}"
-                 + (f" (no débito {debito_id})" if debito_id else " (crédito avulso)"),
+                 + (f" (no débito {debito_id})" if debito_id else " (crédito avulso)")
+                 + (f" · vendedor {vend}" if vend else ""),
                  usuario)
 
         alocado = 0.0
@@ -886,6 +987,12 @@ def alocar(pagamento_id, debito_id, valor, usuario=None):
             return False, "Débito não encontrado."
         if p["cnpj"] != d["cnpj"]:
             return False, "Pagamento e débito são de empresas diferentes."
+        # cada vendedor paga a sua dívida — crédito de um não quita o débito do outro
+        vp, vd = vendedor_chave(p["vendedor"]), vendedor_chave(d["vendedor"])
+        if vp != vd:
+            return False, (f"Este crédito é de {limpar_vendedor(p['vendedor']) or 'nenhum vendedor'} "
+                           f"e o débito é de {limpar_vendedor(d['vendedor']) or 'nenhum vendedor'}. "
+                           f"Cada vendedor responde pelos próprios débitos.")
         disp  = round(p["valor_total"] - (p["valor_alocado"] or 0), 2)
         saldo = round(d["valor_total"] - (d["valor_pago"] or 0), 2)
         if valor > disp + _EPS:
@@ -921,9 +1028,12 @@ def alocar_automatico(pagamento_id, usuario=None):
         restante = round(p["valor_total"] - (p["valor_alocado"] or 0), 2)
         if restante <= _EPS:
             return False, "Este pagamento já está todo alocado."
+        # FIFO só dentro do mesmo vendedor: a dívida de cada um é separada
+        vend = vendedor_chave(p["vendedor"])
         debs = conn.execute(
-            "SELECT * FROM debitos WHERE cnpj = ? AND excluido_em IS NULL ORDER BY data ASC",
-            (p["cnpj"],)).fetchall()
+            "SELECT * FROM debitos WHERE cnpj = ? AND excluido_em IS NULL "
+            "AND UPPER(TRIM(COALESCE(vendedor,''))) = ? ORDER BY data ASC",
+            (p["cnpj"], vend)).fetchall()
         alocado = 0.0
         for d in debs:
             if restante <= _EPS:
@@ -946,7 +1056,9 @@ def alocar_automatico(pagamento_id, usuario=None):
             restante = round(restante - v, 2)
         conn.commit()
         if alocado <= _EPS:
-            return False, "Não há débito em aberto para alocar."
+            quem = limpar_vendedor(p["vendedor"])
+            return False, (f"Não há débito em aberto de {quem} para alocar."
+                           if quem else "Não há débito em aberto para alocar.")
         return True, f"Alocado automaticamente R$ {alocado:.2f}."
     finally:
         conn.close()
@@ -968,18 +1080,28 @@ def desalocar(alocacao_id, usuario=None):
 
 
 # ── Saldo ─────────────────────────────────────────────────────────────────────
-def calcular_saldo(cnpj):
+def calcular_saldo(cnpj, vendedor=None):
+    """Posição da empresa. Com `vendedor`, restringe ao responsável (a dívida de
+    cada vendedor é separada); 'sem' = os lançamentos sem vendedor."""
+    if vendedor == "sem":
+        filtro, arg = " AND COALESCE(TRIM(vendedor), '') = ''", []
+    elif vendedor:
+        filtro, arg = " AND UPPER(TRIM(vendedor)) = ?", [vendedor_chave(vendedor)]
+    else:
+        filtro, arg = "", []
     conn = _conn()
     try:
         tot_deb = conn.execute(
             "SELECT COALESCE(SUM(valor_total),0), COALESCE(SUM(valor_pago),0), "
             "COUNT(*), COALESCE(SUM(CASE WHEN valor_pago + ? < valor_total THEN 1 ELSE 0 END),0) "
-            "FROM debitos WHERE cnpj = ? AND excluido_em IS NULL", (_EPS, cnpj)).fetchone()
+            "FROM debitos WHERE cnpj = ? AND excluido_em IS NULL" + filtro,
+            (_EPS, cnpj, *arg)).fetchone()
         total_debito, total_pago = round(tot_deb[0], 2), round(tot_deb[1], 2)
         debitos_total, debitos_abertos = tot_deb[2], tot_deb[3]
         tot_pag = conn.execute(
             "SELECT COALESCE(SUM(valor_total),0), COALESCE(SUM(valor_alocado),0) "
-            "FROM pagamentos WHERE cnpj = ? AND excluido_em IS NULL", (cnpj,)).fetchone()
+            "FROM pagamentos WHERE cnpj = ? AND excluido_em IS NULL" + filtro,
+            (cnpj, *arg)).fetchone()
         total_pagamentos, total_alocado = round(tot_pag[0], 2), round(tot_pag[1], 2)
 
         saldo_devedor    = round(total_debito - total_pago, 2)

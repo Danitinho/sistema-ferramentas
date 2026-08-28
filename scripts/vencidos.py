@@ -911,3 +911,7 @@ def ranking_responsaveis(limite=10):
              "antecedencia_media": round(r["antec"] or 0),
              "pct_no_prazo": round((r["no_prazo"] or 0) * 100 / r["avisos"]) if r["avisos"] else 0}
             for r in rows]
+
+
+# O relatório em Excel para impressão (5 partes, A4 retrato) mora em
+# `scripts/vencidos_relatorio.py` — este módulo só produz os dados.

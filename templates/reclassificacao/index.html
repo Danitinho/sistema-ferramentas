@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Reclassificação merceológica{% endblock %}
+{% block header_title %}Reclassificação merceológica{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
+
+{% block header_actions %}
+  <a class="btn btn-secondary btn-sm" href="/reclassificacao/exportar">Exportar resultado</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .painel { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+            gap: 12px; margin-bottom: 20px; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl th { text-align: left; font-size: 11px; letter-spacing: .07em;
+            text-transform: uppercase; color: var(--muted); font-weight: 650;
+            padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .tbl td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl .num { text-align: right; }
+  .aviso { background: var(--accent-soft); color: var(--accent); font-weight: 600;
+           padding: 12px 16px; border-radius: var(--radius); margin-bottom: 18px;
+           font-size: 13.5px; }
+  .token-box { background: var(--surface-2); border: 1px dashed var(--line-2);
+               border-radius: var(--radius); padding: 16px; margin-bottom: 18px; }
+  .token-val { font-family: var(--mono); font-size: 15px; font-weight: 650;
+               word-break: break-all; display: block; margin: 8px 0; color: var(--ink); }
+  .linha-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .linha-form > div { flex: 1 1 220px; }
+  .ev { font-size: 12.5px; color: var(--muted); }
+  .ev b { color: var(--ink); font-weight: 650; }
+  .sem { color: var(--muted); font-size: 13px; padding: 14px 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if aviso %}<div class="aviso full">{{ aviso }}</div>{% endif %}
+
+{% if token_novo %}
+<div class="token-box full">
+  <div style="font-weight:650">Token de <b>{{ nome_novo }}</b></div>
+  <code class="token-val">{{ token_novo }}</code>
+  <div class="ev">
+    Cole na aba <b>Configuração</b> do programa de mesa, no campo Token.
+    Ele aparece <b>uma vez só</b> — se perder, gere outro (o antigo deixa de valer).
+  </div>
+</div>
+{% endif %}
+
+<!-- Painel do lote -->
+<div class="painel full">
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(resumo.no_lote).replace(",", ".") }}</div>
+    <div class="stat-l">No lote</div>
+  </div>
+  <div class="stat-card s-success">
+    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('concluido', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Concluídos</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('livre', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Na fila</div>
+  </div>
+  <div class="stat-card s-amber">
+    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('reservado', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Em mãos agora</div>
+  </div>
+  <div class="stat-card {% if resumo.por_estado.get('falhou', 0) %}s-danger{% endif %}">
+    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('falhou', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Falharam</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('simulado', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Simulados</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('sem_destino', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Sem destino</div>
+  </div>
+</div>
+
+<!-- Operadores -->
+<div class="card card-flush full">
+  <div class="card-head">
+    <div class="ttl">Operadores</div>
+    <div class="hint">cada um precisa de um token para o programa de mesa conectar</div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/reclassificacao/operadores" class="linha-form">
+      <div>
+        <label for="nome">Nome do operador</label>
+        <input type="text" id="nome" name="nome" placeholder="ex.: Daniel" required>
+      </div>
+      <div style="flex:0 0 auto">
+        <button class="btn btn-primary btn-sm" type="submit">Gerar token</button>
+      </div>
+    </form>
+  </div>
+
+  {% if operadores %}
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Operador</th><th>Máquina</th><th>Token</th>
+        <th class="num">Em mãos</th><th class="num">Concluídos</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in operadores %}
+      <tr>
+        <td><b>{{ o.nome }}</b></td>
+        <td class="ev">{{ o.maquina or "—" }}</td>
+        <td class="ev">
+          {% if o.tem_token %}ativo{% else %}<span style="color:var(--danger)">sem token</span>{% endif %}
+        </td>
+        <td class="num">{{ o.reservados }}</td>
+        <td class="num">{{ o.concluidos }}</td>
+        <td style="text-align:right; white-space:nowrap">
+          {% if o.reservados %}
+          <form method="post" action="/reclassificacao/liberar" style="display:inline">
+            <input type="hidden" name="operador" value="{{ o.nome }}">
+            <button class="btn btn-secondary btn-sm" type="submit"
+                    title="Devolve à fila os produtos que estão com esta pessoa">
+              Devolver à fila
+            </button>
+          </form>
+          {% endif %}
+          {% if o.tem_token %}
+          <form method="post" action="/reclassificacao/operadores/revogar" style="display:inline">
+            <input type="hidden" name="nome" value="{{ o.nome }}">
+            <button class="btn btn-danger btn-sm" type="submit">Revogar</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="sem">Nenhum operador cadastrado ainda.</div>
+  {% endif %}
+</div>
+
+<!-- Ações do lote -->
+<div class="card full">
+  <div class="card-title">Lote</div>
+
+  <form method="post" action="/reclassificacao/importar" enctype="multipart/form-data"
+        class="linha-form" style="margin-bottom:18px">
+    <div>
+      <label for="planilha">Importar a planilha de reclassificação (.xlsx)</label>
+      <input type="file" id="planilha" name="planilha" accept=".xlsx" required>
+    </div>
+    <div style="flex:0 0 auto">
+      <button class="btn btn-secondary btn-sm" type="submit">Importar</button>
+    </div>
+  </form>
+  <div class="ev" style="margin-bottom:18px">
+    Reimportar é seguro: só acrescenta código que ainda não está no lote e não
+    encosta em nada já trabalhado. Itens em REVISAR entram sem destino e nunca
+    são oferecidos a ninguém.
+  </div>
+
+  <div class="linha-form">
+    {% if resumo.por_estado.get('falhou', 0) %}
+    <form method="post" action="/reclassificacao/devolver" style="flex:0 0 auto">
+      <input type="hidden" name="estado" value="falhou">
+      <button class="btn btn-secondary btn-sm" type="submit">
+        Devolver à fila os {{ resumo.por_estado.get('falhou', 0) }} que falharam
+      </button>
+    </form>
+    {% endif %}
+    {% if resumo.por_estado.get('simulado', 0) %}
+    <form method="post" action="/reclassificacao/devolver" style="flex:0 0 auto">
+      <input type="hidden" name="estado" value="simulado">
+      <button class="btn btn-secondary btn-sm" type="submit">
+        Devolver à fila os {{ resumo.por_estado.get('simulado', 0) }} simulados
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="ev" style="margin-top:10px">
+    Produto <b>concluído</b> não volta: é o que impede que um cadastro já editado
+    seja reaberto por outra pessoa.
+  </div>
+</div>
+
+<!-- Últimos eventos -->
+<div class="card card-flush full">
+  <div class="card-head"><div class="ttl">Últimos eventos</div></div>
+  {% if eventos %}
+  <table class="tbl">
+    <thead><tr><th>Quando</th><th>Operador</th><th>Produto</th><th>Ação</th><th>Detalhe</th></tr></thead>
+    <tbody>
+      {% for e in eventos %}
+      <tr>
+        <td class="ev">{{ e.quando | fmt_hora }}</td>
+        <td>{{ e.operador or "—" }}</td>
+        <td class="ev">{{ e.cod or "—" }}</td>
+        <td><b>{{ e.acao }}</b></td>
+        <td class="ev">{{ e.detalhe or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="sem">Nada aconteceu ainda.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

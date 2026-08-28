@@ -6,6 +6,8 @@
 {% endblock %}
 
 {% block header_actions %}
+<a class="btn btn-secondary btn-sm"
+   href="/debitos/relatorio?cnpj={{ emp.cnpj | urlencode }}{% if mes_atual %}&mes={{ mes_atual | urlencode }}{% endif %}">Relatório</a>
 <button class="btn btn-secondary btn-sm" onclick="abrirCreditoAvulso()">+ Crédito avulso</button>
 <button class="btn btn-primary btn-sm" onclick="abrirNovoDebito()">+ Débito</button>
 {% endblock %}
@@ -94,6 +96,8 @@
   .deb-add:hover { background: var(--accent-soft); border-color: var(--accent); }
   .deb-acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
   .deb-edit:hover { color: var(--accent); background: var(--accent-soft); }
+  /* vendedor: empresa com mais de um tem dívidas separadas, uma por vendedor */
+  .tag-vend { background: var(--accent-soft); color: var(--accent); }
 </style>
 {% endblock %}
 
@@ -142,7 +146,8 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
     </div>
     <div class="cred-info">
-      <div class="cred-t">{{ c.tipo_label }} <span class="num" style="color:var(--muted)">{{ c.referencia }}</span></div>
+      <div class="cred-t">{{ c.tipo_label }} <span class="num" style="color:var(--muted)">{{ c.referencia }}</span>
+        {% if c.vendedor %}<span class="tag tag-vend">{{ c.vendedor }}</span>{% endif %}</div>
       <div class="cred-s num">{{ c.data_fmt }} · total {{ c.valor_total | brl }}</div>
     </div>
     <div class="cred-livre num">{{ c.disponivel | brl }}</div>
@@ -169,6 +174,17 @@
     <option value="sem" {% if mes_atual == 'sem' %}selected{% endif %}>Sem período</option>
     {% endif %}
   </select>
+  {# Empresa com mais de um vendedor: cada um responde pelos seus débitos. #}
+  {% if vendedores %}
+  <select class="mes-sel" id="sel-vendedor" onchange="irParaVendedor(this.value)"
+          title="Filtrar por vendedor responsável">
+    <option value="">Todos os vendedores</option>
+    {% for v in vendedores %}
+    <option value="{{ v }}" {% if vendedor_atual and vendedor_atual|lower == v|lower %}selected{% endif %}>{{ v }}</option>
+    {% endfor %}
+    <option value="sem" {% if vendedor_atual == 'sem' %}selected{% endif %}>Sem vendedor</option>
+  </select>
+  {% endif %}
   <div class="search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
     <input type="text" id="busca" placeholder="Buscar por NF ou produto…" autocomplete="off">
@@ -193,6 +209,7 @@
           {% if d.tipo == 'vencimento' %}<span class="tag tag-v">Vencimento</span> NF {{ d.nf_numero }}
           {% else %}<span class="tag tag-r">Rebaixa</span> {{ d.produto }}{% endif %}
           <span class="pill p-{{ d.status }}">{{ d.status }}</span>
+          {% if d.vendedor %}<span class="tag tag-vend">{{ d.vendedor }}</span>{% endif %}
         </div>
         {% if d.obs %}<div class="deb-desc">{{ d.obs }}</div>{% endif %}
         {% if d.periodo_label %}
@@ -288,6 +305,16 @@
         <input type="text" id="r-obs" placeholder="Ex.: rebaixa dos vencidos de junho/2026">
       </div>
 
+      <!-- Vendedor (comum aos dois tipos) — empresa com mais de um vendedor tem
+           dívidas separadas: cada um responde pelos seus débitos. -->
+      <label style="margin-top:16px">Vendedor responsável
+        <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(opcional — só se a empresa tiver mais de um)</span></label>
+      <input type="text" id="d-vendedor" list="lista-vendedores" autocomplete="off"
+             placeholder="Ex.: Vanusa">
+      <datalist id="lista-vendedores">
+        {% for v in vendedores %}<option value="{{ v }}"></option>{% endfor %}
+      </datalist>
+
       <!-- Período (comum aos dois tipos) -->
       <label style="margin-top:16px">Período a que se refere <em>*</em></label>
       <div class="seg" style="margin-bottom:10px">
@@ -333,6 +360,16 @@
       <label>Valor <em>*</em></label>
       <div class="ingrp"><span class="pre">R$</span>
         <input type="number" id="pag-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
+      <!-- Só no crédito avulso: dentro de um débito o vendedor é o do débito. -->
+      <div id="pag-vend-wrap" style="display:none">
+        <label>Vendedor responsável
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(opcional)</span></label>
+        <input type="text" id="pag-vendedor" list="lista-vendedores" autocomplete="off"
+               placeholder="Ex.: Vanusa">
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">
+          O crédito só poderá quitar débitos deste vendedor.
+        </div>
+      </div>
       <label>Observação</label>
       <input type="text" id="pag-obs" placeholder="Detalhes do abatimento">
       <div class="alertx" id="pag-hint" style="margin-top:12px;display:none"></div>
@@ -375,6 +412,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const CNPJ = "{{ emp.cnpj }}";
+const MES_ATUAL = {{ mes_atual | tojson }};
+const VENDEDOR_ATUAL = {{ vendedor_atual | tojson }};
 const DEBITOS = {{ debitos | tojson }};
 const CREDITOS = {{ creditos | tojson }};
 const REF_LABEL = {{ ref_label | tojson }};
@@ -386,10 +425,15 @@ let _credAtual = null;          // crédito sendo alocado
 
 function rotuloDebito(d) { return d.tipo === "vencimento" ? ("NF " + d.nf_numero) : (d.produto || "rebaxa"); }
 
-// ── Filtro por mês (recarrega a página) ──
-function irParaMes(mes) {
-  location.href = "/debitos/empresa/" + CNPJ + (mes ? ("?mes=" + encodeURIComponent(mes)) : "");  // CNPJ cru: contém '/'
+// ── Filtros de mês e vendedor (recarregam a página, preservando um ao outro) ──
+function _irPara(mes, vend) {
+  const q = [];
+  if (mes)  q.push("mes=" + encodeURIComponent(mes));
+  if (vend) q.push("vendedor=" + encodeURIComponent(vend));
+  location.href = "/debitos/empresa/" + CNPJ + (q.length ? "?" + q.join("&") : "");  // CNPJ cru: contém '/'
 }
+function irParaMes(mes)      { _irPara(mes, VENDEDOR_ATUAL); }
+function irParaVendedor(v)   { _irPara(MES_ATUAL, v); }
 
 // ── Período do débito ──
 function selecionarPeriodo(modo) {
@@ -435,8 +479,10 @@ function abrirNovoDebito() {
   _modoDebito = "novo"; _editId = null;
   $("debito-tipo-seg").style.display = "";
   selecionarTipo("vencimento");
-  ["v-nf","v-valor","v-obs","r-produto","r-qtd","r-vunit","r-obs","p-mes","p-ini","p-fim"]
+  ["v-nf","v-valor","v-obs","r-produto","r-qtd","r-vunit","r-obs","p-mes","p-ini","p-fim","d-vendedor"]
     .forEach(id => $(id).value = "");
+  // já filtrando por um vendedor? o débito novo nasce dele
+  if (VENDEDOR_ATUAL && VENDEDOR_ATUAL !== "sem") $("d-vendedor").value = VENDEDOR_ATUAL;
   $("preview-total").textContent = "Total: R$ 0,00";
   selecionarPeriodo("mes");
   $("debito-tit").textContent = "Registrar débito";
@@ -470,6 +516,7 @@ function abrirEditarDebito(id) {
     selecionarPeriodo("mes");
     $("p-mes").value = (d.periodo_inicio || "").slice(0, 7);
   }
+  $("d-vendedor").value = d.vendedor || "";
   $("debito-tit").textContent = "Editar débito";
   $("debito-salvar").textContent = "Salvar";
   $("msg-debito").classList.remove("show");
@@ -506,7 +553,7 @@ async function salvarDebito() {
   }
   const per = _coletarPeriodo(msg);
   if (!per) return;
-  Object.assign(body, per);
+  Object.assign(body, per, { vendedor: $("d-vendedor").value.trim() });
 
   if (_modoDebito === "editar") {
     const r = await postJSON(`/debitos/api/debito/${_editId}/editar`, body);
@@ -528,6 +575,7 @@ function selecionarTipoPag(t) {
 }
 function abrirPagar(debitoId) {
   _debitoAlvo = debitoId;
+  $("pag-vend-wrap").style.display = "none";   // herda o vendedor do débito
   const d = DEBITOS.find(x => x.id === debitoId);
   $("pag-titulo").textContent = "Registrar pagamento";
   $("pag-contexto").innerHTML = d
@@ -548,6 +596,8 @@ function abrirPagar(debitoId) {
 }
 function abrirCreditoAvulso() {
   _debitoAlvo = null;
+  $("pag-vend-wrap").style.display = "";
+  $("pag-vendedor").value = (VENDEDOR_ATUAL && VENDEDOR_ATUAL !== "sem") ? VENDEDOR_ATUAL : "";
   $("pag-titulo").textContent = "Registrar crédito avulso";
   $("pag-contexto").innerHTML = "Sem débito de origem — entra direto como crédito da empresa.";
   $("pag-hint").style.display = "none";
