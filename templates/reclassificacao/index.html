@@ -4,6 +4,7 @@
 {% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro{% endblock %}
 
 {% block header_actions %}
+  <a class="btn btn-primary btn-sm" href="/reclassificacao/curadoria">Curadoria</a>
   <a class="btn btn-secondary btn-sm" href="/reclassificacao/exportar">Exportar resultado</a>
 {% endblock %}
 
@@ -30,6 +31,49 @@
   .ev { font-size: 12.5px; color: var(--muted); }
   .ev b { color: var(--ink); font-weight: 650; }
   .sem { color: var(--muted); font-size: 13px; padding: 14px 12px; }
+
+  /* ── Máquina do operador ────────────────────────────────────────────────
+     Cada bloco é uma máquina rodando o agente. Como lá não há mais tela
+     nenhuma para olhar, isto aqui é a única janela para dentro dela. */
+  .maquina { border: 1px solid var(--line-2); border-radius: var(--radius);
+             background: var(--surface); margin-bottom: 14px; overflow: hidden; }
+  .maq-topo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+              padding: 12px 16px; border-bottom: 1px solid var(--line);
+              background: var(--surface-2); }
+  .maq-nome { font-weight: 650; font-size: 15px; }
+  .maq-pc { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .maq-acts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .maq-corpo { padding: 14px 16px; }
+  .maq-linha { font-size: 13.5px; margin-bottom: 10px; }
+  .maq-linha .atual { font-family: var(--mono); }
+  .params { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+            padding-top: 12px; border-top: 1px solid var(--line); }
+  .params label { margin-top: 0; }
+  .params .campo { flex: 0 0 auto; }
+  .params input[type=number] { width: 92px; }
+  .params .caixa { display: flex; align-items: center; gap: 6px; font-size: 13px;
+                   color: var(--ink-2); font-weight: 600; padding-bottom: 9px; }
+  .params .caixa input { width: 15px; height: 15px; margin: 0; }
+
+  .log { font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+         background: var(--surface-3); border: 1px solid var(--line);
+         border-radius: var(--radius-sm); padding: 10px 12px; max-height: 190px;
+         overflow-y: auto; color: var(--ink-2); white-space: pre-wrap;
+         word-break: break-word; margin-top: 12px; }
+  .log .h { color: var(--muted); }
+
+  .est { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px;
+         font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+         padding: 4px 10px; border-radius: 20px; }
+  .e-rodando  { background: var(--success-bg); color: var(--success); }
+  .e-pausado  { background: var(--warning-bg); color: var(--warning); }
+  .e-parado   { background: var(--surface-3);  color: var(--muted); }
+  .e-erro     { background: var(--danger-bg);  color: var(--danger); }
+  .e-sem      { background: var(--danger-bg);  color: var(--danger); }
+  .ponto { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  .mapa-erp textarea { width: 100%; min-height: 130px; font-family: var(--mono);
+                       font-size: 12px; }
 </style>
 {% endblock %}
 
@@ -37,13 +81,22 @@
 
 {% if aviso %}<div class="aviso full">{{ aviso }}</div>{% endif %}
 
+{% if not estrutura_ok %}
+<div class="alertx full" style="margin-bottom:18px">
+  <div><b>Estrutura merceológica não carregada.</b> {{ estrutura_erro }}
+  A curadoria fica bloqueada até <code>dados/estrutura_grupos.json</code> voltar:
+  sem ela nenhum trio pode ser validado.</div>
+</div>
+{% endif %}
+
 {% if token_novo %}
 <div class="token-box full">
   <div style="font-weight:650">Token de <b>{{ nome_novo }}</b></div>
   <code class="token-val">{{ token_novo }}</code>
   <div class="ev">
-    Cole na aba <b>Configuração</b> do programa de mesa, no campo Token.
-    Ele aparece <b>uma vez só</b> — se perder, gere outro (o antigo deixa de valer).
+    Cole no <code>config.json</code> da máquina do operador, no campo
+    <b>token</b> — junto do endereço do servidor, é a única coisa que fica lá.
+    Ele aparece <b>uma vez só</b>; se perder, gere outro (o antigo deixa de valer).
   </div>
 </div>
 {% endif %}
@@ -55,19 +108,23 @@
     <div class="stat-l">No lote</div>
   </div>
   <div class="stat-card s-success">
-    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('concluido', 0)).replace(",", ".") }}</div>
+    <div class="stat-v num" id="k-concluido">{{ "{:,}".format(resumo.por_estado.get('concluido', 0)).replace(",", ".") }}</div>
     <div class="stat-l">Concluídos</div>
   </div>
   <div class="stat-card">
-    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('livre', 0)).replace(",", ".") }}</div>
-    <div class="stat-l">Na fila</div>
+    <div class="stat-v num" id="k-prontos">{{ "{:,}".format(resumo.prontos).replace(",", ".") }}</div>
+    <div class="stat-l">Prontos p/ o agente</div>
   </div>
   <div class="stat-card s-amber">
-    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('reservado', 0)).replace(",", ".") }}</div>
+    <div class="stat-v num" id="k-curadoria">{{ "{:,}".format(resumo.aguardando_curadoria).replace(",", ".") }}</div>
+    <div class="stat-l">Esperando curadoria</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num" id="k-reservado">{{ "{:,}".format(resumo.por_estado.get('reservado', 0)).replace(",", ".") }}</div>
     <div class="stat-l">Em mãos agora</div>
   </div>
   <div class="stat-card {% if resumo.por_estado.get('falhou', 0) %}s-danger{% endif %}">
-    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('falhou', 0)).replace(",", ".") }}</div>
+    <div class="stat-v num" id="k-falhou">{{ "{:,}".format(resumo.por_estado.get('falhou', 0)).replace(",", ".") }}</div>
     <div class="stat-l">Falharam</div>
   </div>
   <div class="stat-card">
@@ -75,21 +132,35 @@
     <div class="stat-l">Simulados</div>
   </div>
   <div class="stat-card">
-    <div class="stat-v num">{{ "{:,}".format(resumo.por_estado.get('sem_destino', 0)).replace(",", ".") }}</div>
-    <div class="stat-l">Sem destino</div>
+    <div class="stat-v num">{{ "{:,}".format(curadoria.descartados).replace(",", ".") }}</div>
+    <div class="stat-l">Descartados</div>
   </div>
 </div>
 
-<!-- Operadores -->
+{% if resumo.aguardando_curadoria %}
+<div class="card full" style="border-color:var(--accent)">
+  <div class="card-title">Antes de ligar as máquinas</div>
+  <p style="font-size:14px;margin:0 0 14px">
+    <b>{{ "{:,}".format(resumo.aguardando_curadoria).replace(",", ".") }}</b> produtos
+    esperam alguém decidir o destino. Enquanto não forem decididos, eles não são
+    oferecidos a nenhum agente — a rodada no ERP só executa o que já foi
+    resolvido no navegador, e por isso nunca para para perguntar.
+  </p>
+  <a class="btn btn-primary" href="/reclassificacao/curadoria"
+     style="width:auto">Abrir a curadoria</a>
+</div>
+{% endif %}
+
+<!-- Máquinas / agentes -->
 <div class="card card-flush full">
   <div class="card-head">
-    <div class="ttl">Operadores</div>
-    <div class="hint">cada um precisa de um token para o programa de mesa conectar</div>
+    <div class="ttl">Máquinas</div>
+    <div class="hint">o programa da máquina não tem tela: ligar, pausar e configurar é aqui</div>
   </div>
   <div class="card-body">
     <form method="post" action="/reclassificacao/operadores" class="linha-form">
       <div>
-        <label for="nome">Nome do operador</label>
+        <label for="nome">Cadastrar operador (gera o token da máquina)</label>
         <input type="text" id="nome" name="nome" placeholder="ex.: Daniel" required>
       </div>
       <div style="flex:0 0 auto">
@@ -98,48 +169,92 @@
     </form>
   </div>
 
-  {% if operadores %}
-  <table class="tbl">
-    <thead>
-      <tr>
-        <th>Operador</th><th>Máquina</th><th>Token</th>
-        <th class="num">Em mãos</th><th class="num">Concluídos</th><th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for o in operadores %}
-      <tr>
-        <td><b>{{ o.nome }}</b></td>
-        <td class="ev">{{ o.maquina or "—" }}</td>
-        <td class="ev">
-          {% if o.tem_token %}ativo{% else %}<span style="color:var(--danger)">sem token</span>{% endif %}
-        </td>
-        <td class="num">{{ o.reservados }}</td>
-        <td class="num">{{ o.concluidos }}</td>
-        <td style="text-align:right; white-space:nowrap">
-          {% if o.reservados %}
-          <form method="post" action="/reclassificacao/liberar" style="display:inline">
+  <div class="card-body" style="padding-top:0">
+    {% for o in operadores %}
+    <div class="maquina" data-op="{{ o.nome }}">
+      <div class="maq-topo">
+        <div>
+          <div class="maq-nome">{{ o.nome }}</div>
+          <div class="maq-pc">{{ o.maquina or "máquina ainda não identificada" }}</div>
+        </div>
+        <span class="est e-parado" data-campo="estado"><span class="ponto"></span>—</span>
+        <div class="maq-acts">
+          {% for cmd, rotulo, classe in [('rodar', 'Iniciar', 'btn-primary'),
+                                         ('pausar', 'Pausar', 'btn-secondary'),
+                                         ('parar', 'Parar', 'btn-danger')] %}
+          <form method="post" action="/reclassificacao/agente/comando" style="display:inline">
             <input type="hidden" name="operador" value="{{ o.nome }}">
-            <button class="btn btn-secondary btn-sm" type="submit"
-                    title="Devolve à fila os produtos que estão com esta pessoa">
-              Devolver à fila
+            <input type="hidden" name="comando" value="{{ cmd }}">
+            <button class="btn {{ classe }} btn-sm" type="submit"
+                    {% if o.comando == cmd %}disabled title="já é o comando atual"{% endif %}>
+              {{ rotulo }}
             </button>
           </form>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="maq-corpo">
+        <div class="maq-linha" data-campo="msg">
+          Comando atual: <b>{{ o.comando }}</b>{% if o.comando_por %} (por {{ o.comando_por }}){% endif %}.
+          {% if not o.tem_token %}
+          <span style="color:var(--danger)">Sem token — o agente não consegue conectar.</span>
+          {% endif %}
+        </div>
+        <div class="maq-linha ev">
+          <span data-campo="feitos">{{ o.agente_feitos }}</span> produtos nesta sessão ·
+          em mãos agora: <span data-campo="reservados">{{ o.reservados }}</span> ·
+          concluídos no total: <b>{{ o.concluidos }}</b>
+        </div>
+
+        <form method="post" action="/reclassificacao/agente/parametros" class="params">
+          <input type="hidden" name="operador" value="{{ o.nome }}">
+          <div class="campo">
+            <label>Bloco</label>
+            <input type="number" name="bloco" min="1" max="500" value="{{ o.bloco }}">
+          </div>
+          <div class="campo">
+            <label>Limiar da descrição</label>
+            <input type="number" name="limiar" min="0" max="1" step="0.05" value="{{ o.limiar }}">
+          </div>
+          <label class="caixa">
+            <input type="checkbox" name="so_ativos" value="1" {% if o.so_ativos %}checked{% endif %}>
+            Só ativos
+          </label>
+          <label class="caixa">
+            <input type="checkbox" name="pular_certos" value="1" {% if o.pular_certos %}checked{% endif %}>
+            Pular os já corretos
+          </label>
+          <label class="caixa">
+            <input type="checkbox" name="simular" value="1" {% if o.simular %}checked{% endif %}>
+            Simular (não grava no ERP)
+          </label>
+          <button class="btn btn-secondary btn-sm" type="submit">Salvar</button>
+          {% if o.reservados %}
+          <button class="btn btn-secondary btn-sm" type="submit"
+                  formaction="/reclassificacao/liberar" name="operador" value="{{ o.nome }}"
+                  title="Devolve à fila os produtos que estão com esta pessoa">
+            Devolver {{ o.reservados }} à fila
+          </button>
           {% endif %}
           {% if o.tem_token %}
-          <form method="post" action="/reclassificacao/operadores/revogar" style="display:inline">
-            <input type="hidden" name="nome" value="{{ o.nome }}">
-            <button class="btn btn-danger btn-sm" type="submit">Revogar</button>
-          </form>
+          <button class="btn btn-danger btn-sm" type="submit"
+                  formaction="/reclassificacao/operadores/revogar" name="nome" value="{{ o.nome }}">
+            Revogar token
+          </button>
           {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="sem">Nenhum operador cadastrado ainda.</div>
-  {% endif %}
+        </form>
+
+        <div class="log" data-campo="log"><span class="h">sem log ainda</span></div>
+      </div>
+    </div>
+    {% else %}
+    <div class="sem">
+      Nenhum operador cadastrado. Cadastre um acima para receber o token — é a
+      única coisa que precisa ser configurada na máquina dele.
+    </div>
+    {% endfor %}
+  </div>
 </div>
 
 <!-- Ações do lote -->
@@ -158,8 +273,9 @@
   </form>
   <div class="ev" style="margin-bottom:18px">
     Reimportar é seguro: só acrescenta código que ainda não está no lote e não
-    encosta em nada já trabalhado. Itens em REVISAR entram sem destino e nunca
-    são oferecidos a ninguém.
+    encosta em nada já trabalhado. Entram liberados só os de confiança
+    <b>ALTA</b>; <b>MÉDIA</b>, <b>BAIXA</b> e <b>REVISAR</b> vão para a
+    curadoria e esperam decisão.
   </div>
 
   <div class="linha-form">
@@ -179,11 +295,37 @@
       </button>
     </form>
     {% endif %}
+    {% if curadoria.descartados %}
+    <form method="post" action="/reclassificacao/curadoria/reverter-descartes"
+          style="flex:0 0 auto">
+      <button class="btn btn-secondary btn-sm" type="submit">
+        Trazer de volta os {{ curadoria.descartados }} descartados
+      </button>
+    </form>
+    {% endif %}
   </div>
   <div class="ev" style="margin-top:10px">
     Produto <b>concluído</b> não volta: é o que impede que um cadastro já editado
     seja reaberto por outra pessoa.
   </div>
+</div>
+
+<!-- Mapa do ERP -->
+<div class="card full mapa-erp">
+  <div class="card-title">Mapa do ERP</div>
+  <div class="ev" style="margin-bottom:12px">
+    Onde ficam os campos do RADGe (classes, âncoras, botões e esperas). Fica no
+    servidor para que instalar uma máquina nova seja só colar o token, e para que
+    recalibrar depois de uma atualização do ERP seja editar aqui em vez de ir de
+    PC em PC. <b>Vazio = cada agente usa o <code>config.json</code> local.</b>
+  </div>
+  <form method="post" action="/reclassificacao/erp/mapa">
+    <textarea name="mapa" spellcheck="false"
+              placeholder='{"controles": {...}, "botoes": {...}, "espera_salvar_s": 1.5}'>{{ mapa_erp }}</textarea>
+    <button class="btn btn-secondary btn-sm" type="submit" style="margin-top:10px">
+      Salvar mapa
+    </button>
+  </form>
 </div>
 
 <!-- Últimos eventos -->
@@ -209,4 +351,70 @@
   {% endif %}
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Atualização ao vivo. O agente não tem tela: sem isto o coordenador teria de
+// recarregar a página para saber se a máquina do operador ainda está de pé.
+const CLASSE_EST = { rodando: "e-rodando", pausado: "e-pausado", parado: "e-parado",
+                     erro: "e-erro", "sem contato": "e-sem" };
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function hora(epoch) {
+  const d = new Date((epoch || 0) * 1000);
+  return d.toLocaleTimeString("pt-BR", { hour12: false });
+}
+
+async function atualizar() {
+  let d;
+  try {
+    const res = await fetch("/reclassificacao/painel/api/estado?limite=200");
+    if (!res.ok) return;
+    d = await res.json();
+  } catch (e) { return; }   // servidor caiu ou rede oscilou: tenta de novo depois
+
+  const n = v => (v || 0).toLocaleString("pt-BR");
+  document.getElementById("k-concluido").textContent = n(d.por_estado.concluido);
+  document.getElementById("k-reservado").textContent = n(d.por_estado.reservado);
+  document.getElementById("k-falhou").textContent = n(d.por_estado.falhou);
+  document.getElementById("k-prontos").textContent = n(d.prontos);
+  document.getElementById("k-curadoria").textContent = n(d.aguardando_curadoria);
+
+  const porOperador = {};
+  (d.log || []).forEach(l => (porOperador[l.operador] ||= []).push(l));
+
+  d.operadores.forEach(o => {
+    const bloco = document.querySelector(`.maquina[data-op="${CSS.escape(o.nome)}"]`);
+    if (!bloco) return;
+
+    const est = o.agente_estado || "parado";
+    const pill = bloco.querySelector('[data-campo="estado"]');
+    pill.className = "est " + (CLASSE_EST[est] || "e-parado");
+    pill.innerHTML = '<span class="ponto"></span>' + esc(est) +
+      (o.silencio_s != null && !o.vivo ? ` · ${o.silencio_s}s sem falar` : "");
+
+    bloco.querySelector('[data-campo="feitos"]').textContent = o.agente_feitos || 0;
+    bloco.querySelector('[data-campo="reservados"]').textContent = o.reservados || 0;
+    bloco.querySelector('[data-campo="msg"]').innerHTML =
+      `Comando atual: <b>${esc(o.comando)}</b>` +
+      (o.comando_por ? ` (por ${esc(o.comando_por)})` : "") +
+      (o.agente_msg ? ` · ${esc(o.agente_msg)}` : "") +
+      (o.agente_atual ? ` · agora: <span class="atual">${esc(o.agente_atual)}</span>` : "");
+
+    const linhas = (porOperador[o.nome] || []);
+    const caixa = bloco.querySelector('[data-campo="log"]');
+    caixa.innerHTML = linhas.length
+      ? linhas.map(l => `<span class="h">${hora(l.quando)}</span>  ${esc(l.texto)}`).join("\n")
+      : '<span class="h">sem log ainda</span>';
+  });
+}
+
+atualizar();
+setInterval(atualizar, 4000);
+</script>
 {% endblock %}

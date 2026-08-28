@@ -92,7 +92,8 @@ sistema_ferramentas_refatorado/
 │   ├── curva_abc.py           # EXTRAÇÃO TESTADA de PDF Curva ABC (NÃO ALTERAR — seção 7)
 │   ├── relatorios_vendas.py   # lógica + persistência (SQLite) de relatórios
 │   ├── relatorios_routes.py   # Blueprint /relatorios
-│   ├── reclassificacao.py     # fila do lote de reclassificação (seção 10-B)
+│   ├── reclassificacao.py     # fila + curadoria + controle do agente (seção 10-B)
+│   ├── reclassificacao_estrutura.py  # estrutura merceológica e validação do trio
 │   └── reclassificacao_routes.py  # Blueprint /reclassificacao + API por token
 │
 ├── templates/             # CAMADA DE VIEW (Jinja2, todas estendem base.html)
@@ -103,7 +104,7 @@ sistema_ferramentas_refatorado/
 │   ├── debitos/               # debitos_index, debitos_empresa
 │   ├── layouts/               # index, cadastrar, gerar
 │   ├── relatorios/            # index (processar PDFs + consultar por código de barras)
-│   └── reclassificacao/       # painel do lote, operadores e tokens
+│   └── reclassificacao/       # painel do lote + console das máquinas, curadoria
 │
 ├── assets/                # estáticos servidos em /assets/<arquivo>
 │   ├── *.ttf                  # fontes das placas (Anton, ChelseaMarket, impact)
@@ -113,6 +114,7 @@ sistema_ferramentas_refatorado/
 ├── dados/                 # dados de runtime
 │   ├── debitos.xlsx           # base de débitos/bonificações
 │   ├── reclassificacao.db     # estado do lote de reclassificação (seção 10-B)
+│   ├── estrutura_grupos.json  # departamentos > seções > subseções (referência)
 │   └── relatorios/            # criado em runtime pelo módulo de relatórios
 │       ├── entrada/  processados/  saida/   # fluxo de PDFs
 │       └── vendas.db          # banco SQLite consolidado
@@ -295,10 +297,11 @@ pagamento (bonificação/troca/desconto) para a capa do PDF. A unidade é a
 
 ### Reclassificação merceológica — Blueprint `/reclassificacao` (ver seção 10-B)
 
-Fila do lote de reclassificação do cadastro. Metade servidor de um sistema cuja
-outra metade é um programa de mesa que roda na máquina do operador e controla o
-ERP. **A seção 10-B tem o contrato da API que esse programa consome** — mudar
-campo ali quebra ele sem aviso.
+Fila do lote de reclassificação do cadastro, **a curadoria dos destinos** e o
+**console das máquinas**. A outra metade é um agente sem tela que roda na máquina
+do operador e controla o ERP; ele obedece ao que é decidido aqui. **A seção 10-B
+tem o contrato da API que esse agente consome** — mudar campo ali quebra ele sem
+aviso.
 
 ---
 
@@ -316,6 +319,7 @@ Não há um banco único. Cada módulo persiste de um jeito:
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
 | Relatórios venda  | `dados/relatorios/vendas.db`  | SQLite |
 | Reclassificação merceológica | `dados/reclassificacao.db` | SQLite |
+| Estrutura merceológica (referência, versionada) | `dados/estrutura_grupos.json` | JSON |
 | Backups           | `backups/<banco>/*.db`        | cópias SQLite datadas |
 | Uploads temporários | `uploads/`                  | arquivos soltos |
 | Saídas geradas    | `outputs/`                    | PDF/imagens |
@@ -544,24 +548,56 @@ Desses, 16.852 são ALTA (podem rodar no automático) e 9.244 são MÉDIA/BAIXA,
 exigem confirmação humana e são o gargalo de verdade. O departamento 12 sozinho
 é 47% do lote. A ~3 s por produto, são mais de 21 horas de máquina.
 
+### A inversão (28/08/2026) — leia antes de tudo
+
+O sistema tinha duas metades: esta, web, e um **programa de mesa** com janela
+tkinter na máquina do operador. A janela sumiu. Não foi maquiagem:
+
+```
+ANTES  reservar -> [o operador confirma produto a produto, ERP parado] -> gravar
+AGORA  curadoria no navegador -> reservar -> gravar sem perguntar nada
+```
+
+A decisão sobre o destino **saiu de dentro da rodada**. Antes ela acontecia com
+o ERP travado esperando uma pessoa; agora acontece antes, na tela `/curadoria`,
+em lote e longe do ERP. Três consequências que explicam quase todo o desenho
+atual:
+
+1. **`itens.pronto` é a fronteira.** `reservar` só entrega `pronto=1`. Na
+   importação, só ALTA com destino nasce pronta (era o que já rodava no
+   automático); MÉDIA, BAIXA e REVISAR nascem `pronto=0` e esperam curadoria.
+2. **O programa da máquina virou um agente sem tela.** Ele pergunta o que fazer,
+   executa e conta o que aconteceu. Ligar, pausar, configurar, ver o log: tudo
+   no navegador.
+3. **O gargalo virou trabalho paralelizável.** Os 9.244 MÉDIA/BAIXA não precisam
+   mais de um operador sentado ao lado do ERP; qualquer pessoa cura de qualquer
+   tela, inclusive fora do horário da loja.
+
 ### O que este módulo NÃO faz
 
-**Ele não mexe no ERP.** Quem edita o RADGe é um **programa de mesa** (tkinter +
-pywinauto) que roda na máquina de cada operador e controla a janela do ERP por
-Win32 — coisa que servidor web não alcança. Esse programa continua em
-`C:\dev\pythonprojects\reclassificador` e tem CLAUDE.md próprio, com tudo sobre
-o driver do ERP.
+**Ele não mexe no ERP.** Quem edita o RADGe é um **agente** (pywinauto) que roda
+na máquina de cada operador e controla a janela do ERP por Win32 — coisa que
+servidor web não alcança. Esse agente continua em
+`C:\dev\pythonprojects\reclassificador` (`reclassificador/agente.py` +
+`erp.py`), tem CLAUDE.md próprio, e é a **única** parte que não pôde subir para
+a web. Tudo o mais migrou.
 
-Aqui fica só a metade que decide **quem fica com qual produto**. Ela não sabe
-nada de ERP nem de interface gráfica: é só estado. Foi por isso que coube aqui.
+Na máquina do operador ficou: `servidor_url` e `token` no `config.json`. Só.
+Bloco, simulação, limiar e até o **mapa dos campos do RADGe** vêm do servidor.
 
 ### Arquivos
 
-- `scripts/reclassificacao.py` — fila, máquina de estados, tokens, leitura do
-  xlsx e exportação do resultado. Sem Flask.
-- `scripts/reclassificacao_routes.py` — blueprint: páginas do coordenador + API
-  do programa de mesa.
-- `templates/reclassificacao/index.html` — painel.
+- `scripts/reclassificacao.py` — fila, máquina de estados, curadoria, controle
+  remoto do agente, tokens, leitura do xlsx e exportação. Sem Flask.
+- `scripts/reclassificacao_estrutura.py` — a estrutura merceológica válida e a
+  validação do trio (ver a armadilha abaixo). Sem Flask.
+- `dados/estrutura_grupos.json` — 8 departamentos, 35 seções, 114 subseções.
+  Mesmo arquivo do agente; é dado de referência e **está no git**.
+- `scripts/reclassificacao_routes.py` — blueprint: páginas das pessoas + API do
+  agente.
+- `templates/reclassificacao/index.html` — painel do lote e **console das
+  máquinas** (estado ao vivo, botões, parâmetros, log).
+- `templates/reclassificacao/curadoria.html` — a bancada de decisão.
 - `dados/reclassificacao.db` — estado do lote. Entra no backup automático
   sozinho, porque o agendador varre todo `.db` dentro de `dados/`.
 
@@ -582,12 +618,15 @@ com significados diferentes:**
 Também colidem `6`, `7` e `9` entre departamento e seção/subseção.
 
 Consequência: **um trio na ordem errada produz cadastro que o ERP aceita sem
-reclamar e que está semanticamente errado.** A validação da hierarquia hoje mora
-no programa de mesa (`estrutura_grupos.json`: 8 departamentos, 35 seções, 114
-subseções). Se um dia este módulo ganhar tela para editar destino — a curadoria
-dos 4.003 em REVISAR é o candidato óbvio —, **traga o `estrutura_grupos.json`
-junto e valide aqui também**. Não confie em `<select>` do navegador: quem grava
-é a API.
+reclamar e que está semanticamente errado.**
+
+Isto **agora é validado no servidor**, em `reclassificacao_estrutura.Estrutura.
+validar()`, chamada dentro de `curar` e de `aceitar_sugestao` — não na tela. O
+`<select>` em cascata do navegador ajuda o curador a escolher certo; ele não é
+quem garante. Quem grava é a API. Se o JSON sumir, `carregada` fica falso,
+`validar` reprova tudo com mensagem clara e a curadoria trava — de propósito:
+melhor recusar do que aceitar trio não verificado. (Conferido: os 61.871
+destinos sugeridos pela planilha passam todos na validação.)
 
 ### Contrato da planilha de entrada
 
@@ -606,25 +645,53 @@ Reimportar é seguro — só acrescenta código que ainda não está lá e não 
 nada já trabalhado.
 
 Duas armadilhas conhecidas: itens **REVISAR não têm destino** e entram como
-`sem_destino`, fora da fila para sempre; e há **dois códigos de barras
+`sem_destino` (e caem na curadoria, sem sugestão); e há **dois códigos de barras
 repetidos** (`7898056270316`, `7896183901325`). Como `cod` é chave primária, a
 segunda linha é descartada. Hoje os destinos das duplicatas são idênticos, então
 não há perda — **se uma planilha futura trouxer duplicata com destinos
 diferentes, isso precisa virar erro em vez de descarte silencioso.**
 
+### A curadoria (`/reclassificacao/curadoria`)
+
+É a metade que antes era o painel de confirmação do programa de mesa.
+
+```
+sem_destino ─┐
+             ├─curar / aceitar_sugestao─> livre + pronto=1  (agente pode pegar)
+livre p=0   ─┘
+             └─descartar────────────────> descartado        (fora do lote)
+```
+
+- **`aceitar_sugestao(cods)`** confirma o destino que a planilha sugeriu. Passa
+  pela validação mesmo assim: aceitar em lote é exatamente onde um trio inválido
+  passaria batido. O que não valida volta em `recusados`, com o motivo.
+- **`curar(cods, dep, sec, sub)`** grava um destino escolhido à mão. É o caminho
+  dos 4.003 REVISAR, que não têm sugestão.
+- **`descartar(cods, motivo)`** tira do lote sem editar no ERP; some da vista,
+  não da história (`reverter_descarte` traz todos de volta).
+- A lista sai **na mesma ordem da fila de execução** (confiança, depois
+  destino), de propósito: o lote vem agrupado por destino — num bloco de 100
+  medido, os 68 primeiros iam para o mesmo lugar. `iguais_a_seguir` conta quantos
+  itens seguidos compartilham o destino e alimenta o botão **"Aceitar os N"**.
+  Foi assim que o "confirmar em série" saiu do papel.
+- **Concorrência entre curadores** é resolvida por não-sobrescrita, não por
+  trava: `_aplicar_curadoria` só mexe em item ainda pendente e devolve
+  `ja_curados` para o resto. Duas pessoas na mesma lista se atrapalham um pouco;
+  nunca se apagam. Os filtros por departamento existem para elas se dividirem.
+
 ### A fila
 
 ```
-livre ──reservar──> reservado ──> concluido   (terminal)
-                        │      └─> falhou     (pilha à parte, não volta sozinho)
-                        │      └─> simulado   (não contou como feito)
-                        └──prazo vence──> livre
+livre(pronto=1) ──reservar──> reservado ──> concluido   (terminal)
+                                  │      └─> falhou     (pilha à parte, não volta sozinho)
+                                  │      └─> simulado   (não contou como feito)
+                                  └──prazo vence──> livre
 ```
 
-O operador pede um bloco (padrão 100); o servidor seleciona e marca como dele
-**na mesma transação**. A reserva é um **prazo, não uma trava**: vale 20 minutos
-e o programa de mesa renova a cada 3 enquanto roda. Se a máquina travar, os itens
-voltam sozinhos. A varredura de vencidos roda preguiçosamente na próxima
+O agente pede um bloco (padrão 100, definido no painel); o servidor seleciona e
+marca como dele **na mesma transação**. A reserva é um **prazo, não uma trava**:
+vale 20 minutos e o agente renova a cada 3 enquanto roda. Se a máquina travar, os
+itens voltam sozinhos. A varredura de vencidos roda preguiçosamente na próxima
 reserva, então não há timer no servidor.
 
 Se o bloco vier todo de retomada, ele é **completado** com itens novos até a
@@ -636,37 +703,62 @@ marcá-la como concluído faria a rodada de verdade pular o produto. Também nã
 volta sozinha à fila, senão a simulação giraria nos mesmos itens — o painel tem
 botão para devolvê-la.
 
-O bloco sai **ordenado por confiança e destino**, o que agrupa naturalmente:
-num bloco de 100 medido, os **68 primeiros iam todos para o mesmo destino**.
-Isso é de propósito (reduz o custo mental da conferência), e já foi relatado como
-defeito por parecer que a tela travou.
+### O controle remoto do agente
+
+O agente não tem tela, então o painel é o console. Mora tudo em colunas de
+`operadores`:
+
+- **`comando`** (`rodar` | `pausar` | `parar`) — o que o agente deve fazer.
+- **parâmetros da rodada**: `bloco`, `so_ativos`, `simular`, `pular_certos`,
+  `limiar` (similaridade mínima entre a descrição na tela do ERP e a da
+  planilha).
+- **telemetria devolvida**: `agente_estado`, `agente_msg`, `agente_feitos`,
+  `agente_atual`, `agente_em`. `listar_operadores` deriva `vivo` (falou há menos
+  de 90 s) e troca o estado por `sem contato` quando o agente sumiu — sem isso
+  um programa fechado no meio da rodada ficaria "rodando" para sempre na tela.
+- **`agente_log`** — o log que antes rolava na janela do programa. Aparado em
+  `APARA_LOG` (400) linhas por operador.
+- **`config.mapa_erp`** — o mapa dos campos do RADGe, guardado no servidor.
+  Instalar uma máquina nova passa a ser colar o token; recalibrar depois de uma
+  atualização do ERP é editar um campo no painel em vez de ir de PC em PC.
+  Vazio = cada agente usa o `config.json` local (rede de segurança).
+
+O painel atualiza sozinho a cada 4 s (`/painel/api/estado`).
 
 ### As duas autenticações
 
-As páginas do coordenador usam a guarda de sessão normal. A API do programa de
-mesa **não pode** usar sessão de navegador: autentica por **token** no cabeçalho
-`X-Token`, gerado no painel. Por isso os endpoints dela começam com `api_` e o
-prefixo `reclassificacao.api_` está em `PREFIXOS_PUBLICOS` (`auth_routes.py`),
-isentando-os da guarda de sessão — eles têm guarda própria em `_guarda_token`.
+As páginas das pessoas (painel e curadoria) usam a guarda de sessão normal. A
+API do agente **não pode** usar sessão de navegador: autentica por **token** no
+cabeçalho `X-Token`, gerado no painel. Por isso os endpoints dela começam com
+`api_` e o prefixo `reclassificacao.api_` está em `PREFIXOS_PUBLICOS`
+(`auth_routes.py`), isentando-os da guarda de sessão — eles têm guarda própria em
+`_guarda_token`.
 
 **Nunca ponha em `PREFIXOS_PUBLICOS` uma rota que não cheque credencial
 própria.** O prefixo isenta da sessão; não substitui autenticação.
+
+**Corolário que morde:** nenhum endpoint que não seja do agente pode se chamar
+`api_*`. Um `api_curar` ficaria gravável sem login. Os da curadoria se chamam
+`cur_*`, com `/api/` só no **caminho** (assim um fetch deslogado recebe 401 JSON
+em vez de um redirecionamento para a tela de login).
 
 **O nome do operador vem do token, nunca do corpo da requisição.** Se viesse do
 corpo, qualquer um se diria outro e fecharia produto alheio — e `concluido` é
 terminal, não tem desfazer.
 
 O token aparece **uma vez só**, na volta do *Gerar token*. Gerar de novo
-invalida o anterior. Revogar zera o token e o programa de mesa passa a receber
-401 com mensagem pedindo outro ao coordenador.
+invalida o anterior. Revogar zera o token e o agente passa a receber 401 com
+mensagem pedindo outro ao coordenador.
 
-### Contrato da API (consumido pelo programa de mesa)
+### Contrato da API (consumido pelo agente)
 
 Base: `http://<servidor>/reclassificacao`. Todas exigem `X-Token`, menos `ping`.
 
 | Rota | Corpo / query | Devolve |
 |---|---|---|
-| `GET /api/ping` | — | `{ok, servidor, agora}` — sem token, serve para o operador testar o endereço |
+| `GET /api/ping` | — | `{ok, servidor, agora}` — sem token, serve para testar o endereço |
+| `GET /api/config` | — | `{comando, bloco, so_ativos, simular, pular_certos, limiar, lease_s, batimento_s, mapa_erp}` |
+| `POST /api/status` | `{estado, msg, feitos, atual, maquina, log[]}` | o **mesmo corpo de `/api/config`** |
 | `GET /api/estado` | — | resumo do lote (ver `resumo()`) |
 | `GET /api/eventos` | `limite` | lista de eventos recentes |
 | `GET /api/item` | `cod` | `{existe, meu, estado, operador}` |
@@ -676,15 +768,23 @@ Base: `http://<servidor>/reclassificacao`. Todas exigem `X-Token`, menos `ping`.
 | `POST /api/concluir` | `{cod, situacao, dep, sec, sub, detalhe}` | `{ok, estado}` ou `{ok:false, motivo}` |
 | `POST /api/liberar` | `{cods}` (ou nulo = tudo) | `{liberados}` |
 
+`/api/status` responder o mesmo que `/api/config` é de propósito: o agente faz
+uma ida por produto para reportar **e** receber ordem nova. Duas chamadas
+dobrariam a conversa num laço que roda a cada 3 segundos.
+
 `situacao` aceita `alterado`, `ja_correto`, `pulado` (viram `concluido`),
 `simulado` e `erro` (vira `falhou`). Cada item devolvido em `reservar` tem
 `cod, linha, produto, ativo, ano, dep_atual, sec_atual, sub_atual, dep_novo,
-sec_novo, sub_novo, confianca, base`.
+sec_novo, sub_novo, confianca, base` (mais `estado`, `pronto` e `curado_por`,
+que a tela de curadoria usa e o agente ignora).
 
-**Mudar nome de campo, formato ou semântica aqui quebra o programa de mesa sem
-aviso**, porque ele está noutro repositório e ninguém vai ver o erro até um
-operador tentar trabalhar. Se precisar mudar, mude os dois lados na mesma
-sessão.
+**Duas mudanças de semântica em `reservar`** (o agente foi reescrito junto):
+`confiancas` **vazio agora significa TODAS** — o agente não escolhe mais nada,
+quem filtra é o painel; e a seleção passou a exigir **`pronto=1`**.
+
+**Mudar nome de campo, formato ou semântica aqui quebra o agente sem aviso**,
+porque ele está noutro repositório e ninguém vai ver o erro até um operador
+tentar trabalhar. Se precisar mudar, mude os dois lados na mesma sessão.
 
 ### O que não pode ser refatorado
 
@@ -699,64 +799,85 @@ sessão.
    cadastro já editado é exatamente o que a fila existe para impedir. Só
    `falhou` e `simulado` voltam à fila.
 4. **Só o dono da reserva fecha o item** (`concluir` recusa os demais).
-5. **O `.db` fica atrás deste processo, nunca numa pasta de rede.** O travamento
+5. **`reservar` só entrega `pronto=1`.** É o que garante que a rodada automática
+   nunca grave um destino que ninguém olhou. Tirar esse filtro devolve ao agente
+   a decisão que a curadoria existe para tomar antes.
+6. **A validação do trio mora no servidor.** Não confie no `<select>`.
+7. **O `.db` fica atrás deste processo, nunca numa pasta de rede.** O travamento
    do SQLite depende de file locks pouco confiáveis sobre SMB e o modo WAL nem
    funciona em rede. Todo mundo fala HTTP com este processo, que é o único
    escritor.
 
+### O que se perdeu junto com a janela (e por quê)
+
+- **Marca.** O campo só existia para o operador digitar no painel de
+  confirmação. Sem painel, o agente não encosta nele. Se voltar a ser preciso, o
+  lugar é a curadoria — e aí `_aplicar_marca` no `app.py` antigo é a referência.
+- **Pausa pedindo socorro na recusa do ERP.** Antes o programa parava e mostrava
+  a caixa ("O código do NCM não foi informado…", visto no 7898586613799).
+  Agora o agente registra o produto como `erro` com o texto exato, **fecha a
+  caixa** e segue — deixá-la aberta travaria o ERP para todos os produtos
+  seguintes. Os falhados ficam na pilha à parte e o coordenador devolve à fila
+  quando resolver a causa.
+- **Escolher confiança na máquina.** Virou consequência do `pronto`.
+
+Continua na máquina, porque não tem como não continuar: `python mapear.py`, o
+assistente que descobre onde ficam os campos do RADGe. É de **instalação**, não
+de operação, e o mapa que ele gera pode ser colado no painel para valer em todas
+as máquinas de uma vez. `reclassificador/app.py` (a janela antiga) segue no
+repositório como referência.
+
 ### Como testar
 
-O módulo inteiro é testável sem o ERP — e foi. Suba numa porta de
-desenvolvimento (**não** reinicie o serviço da porta 80 enquanto isso, senão
-ficam dois processos escrevendo no mesmo banco):
-
-```bat
-cd C:\dev\pythonprojects\sistema_ferramentas_refatorado
-python -c "from app import app; app.run(port=5001)"
-```
-
-Para as páginas do coordenador, use o `test_client` com sessão fingida:
+O módulo inteiro é testável sem o ERP — e foi. **Use sempre uma cópia do banco**
+(o serviço da porta 80 está com o `dados/reclassificacao.db` aberto; dois
+processos escrevendo nele é problema). Cópia consistente é pela API de backup do
+SQLite, nunca `shutil.copy` — num banco em WAL isso deixa um `-wal` órfão e o
+próximo open acusa `database disk image is malformed`:
 
 ```python
-c = app.test_client()
-with c.session_transaction() as s:
-    s['usuario'] = 'teste'
-c.post('/reclassificacao/operadores', data={'nome': 'ana'})   # token volta na URL
+o = sqlite3.connect("file:dados/reclassificacao.db?mode=ro", uri=True)
+d = sqlite3.connect(r"...\teste.db"); o.backup(d)
 ```
 
-Para a API, o próprio cliente do outro projeto serve:
+Depois aponte o módulo para ela **antes de importar o app** (o default de
+`FilaBanco.__init__` é avaliado no import, então trocar `BANCO` não adianta):
 
 ```python
-import sys; sys.path.insert(0, r'C:\dev\pythonprojects\reclassificador')
-from reclassificador.fila import Fila
-URL = "http://127.0.0.1:5001/reclassificacao"
-a, b = Fila(URL, "ana", token=TOKEN_A), Fila(URL, "bruno", token=TOKEN_B)
-ia, _ = a.reservar(50, True, ["ALTA"])
-ib, _ = b.reservar(50, True, ["ALTA"])
-assert not ({i.cod for i in ia} & {i.cod for i in ib})      # blocos disjuntos
-assert a.ainda_meu(ia[0].cod)[0] and not b.ainda_meu(ia[0].cod)[0]
-assert b.registrar(ia[0].cod, "alterado")["ok"] is False    # não é dele
+from scripts import reclassificacao as R
+R._banco = R.FilaBanco(COPIA)
+from app import app
 ```
 
-Verificado assim: importação com a planilha real (65.876 linhas · 65.874 novos ·
-2 já existiam · 4.003 sem destino), blocos disjuntos, recusa de conclusão por
-quem não é dono, token ausente/revogado devolvendo 401, painel renderizando com
-dados reais, e **seis operadores simultâneos: 1.440 entregas, 1.440 produtos
-distintos, zero duplicados, a 405 itens/s** — ordens de grandeza acima do
-necessário para dois a seis operadores.
+Para as páginas, `test_client` com sessão fingida (`s['usuario']='teste'`). Para
+o agente, o próprio `Agente` do outro projeto com um driver de mentira:
+
+```python
+agente = Agente({"servidor_url": URL, "operador": "Ana", "token": TOKEN})
+agente.garantir_erp = lambda: (setattr(agente, "drv", DriverFake()), True)[1]
+threading.Thread(target=agente.rodar, daemon=True).start()
+```
+
+Verificado assim (28/08/2026, contra os 65.874 itens reais): migração do banco
+antigo (38.504 ALTA viraram `pronto=1`, 27.370 foram para a curadoria); aceite em
+série de 38 produtos do mesmo destino num clique; recusa do trio invertido
+(`7/22/22` → "subseção 22 (Bovinos) pertence à seção 13"); agente ocioso
+aparecendo **vivo** no painel; **Iniciar** no navegador fazendo 565 produtos
+rodarem sem nenhuma interação na máquina; **Pausar** interrompendo o bloco e
+devolvendo o resto à fila; log do agente chegando no painel; e fila e ERP
+batendo (565 fechados = 565 escritos).
+
+Anteriormente verificado e ainda válido: importação com a planilha real (65.876
+linhas · 65.874 novos · 2 já existiam · 4.003 sem destino), blocos disjuntos,
+recusa de conclusão por quem não é dono, token ausente/revogado devolvendo 401, e
+**seis operadores simultâneos: 1.440 entregas, 1.440 produtos distintos, zero
+duplicados, a 405 itens/s**.
 
 Depois de testar, **limpe o resíduo**: item deixado em `concluido` por teste faz
 a rodada de verdade pular aquele produto para sempre.
 
 ### Pendências e ideias
 
-- **Curar os 4.003 em REVISAR.** Não têm destino e nunca entram na fila. É
-  trabalho puro de dado, sem ERP, e fica melhor no navegador do que no programa
-  de mesa. Exige trazer `estrutura_grupos.json` para cá e validar o trio no
-  servidor (ver "armadilha dos códigos").
-- **Confirmar em série.** Como o bloco vem agrupado por destino (68 seguidos no
-  mesmo lugar, medido), um botão "aceitar os próximos com este mesmo destino"
-  ataca direto os 9.244 MÉDIA/BAIXA que são o gargalo.
 - **Corte por dia ou turno no painel.** Hoje ele mostra só o acumulado do lote;
   não dá para acompanhar ritmo.
 - **Auditoria no padrão da seção 6.** Os eventos usam epoch float e tabela
@@ -764,6 +885,9 @@ a rodada de verdade pular aquele produto para sempre.
   destoa da convenção; vale alinhar se alguém for mexer ali.
 - **Sem reatribuição dirigida** (passar o bloco de A para B). Hoje é liberar e
   deixar a fila redistribuir.
+- **Curadoria sem reserva.** Dois curadores na mesma faixa se atrapalham (um vê
+  "já decidido por outro"). Se virar incômodo, o caminho é um lease curto por
+  bloco de curadoria, como o da fila de execução.
 - **A fila coordena a equipe, não a loja.** Ninguém enxerga o pessoal do balcão
   editando cadastro pelo ERP durante o expediente; num Delphi CRUD comum o
   último que salva vence, silenciosamente. Mitigação é rodar fora do horário.

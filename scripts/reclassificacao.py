@@ -13,6 +13,19 @@ Por que a divisão: o programa de mesa precisa da área de trabalho do Windows c
 o ERP aberto, coisa que um servidor web não alcança. Já a fila não sabe nada de
 ERP nem de interface — é só estado. Esta metade cabe aqui; a outra não.
 
+TODA A INTERFACE MORA AQUI. O programa de mesa virou um **agente sem tela**: ele
+pergunta o que fazer (`config_do_agente`), executa e conta o que aconteceu
+(`reportar_status`). Quem liga, pausa, configura e vê o log é o navegador. Isso
+só é possível porque a decisão saiu de dentro da rodada:
+
+    ANTES  reservar -> [operador confirma produto a produto, ERP parado] -> gravar
+    AGORA  curadoria no navegador -> reservar -> gravar sem perguntar nada
+
+`itens.pronto` é a fronteira. Na importação, só ALTA com destino nasce pronta —
+era o que já rodava no automático. MÉDIA, BAIXA e REVISAR ficam esperando um
+humano na tela de curadoria, que é onde a decisão passou a ser tomada: em lote,
+por destino, longe do ERP e paralelizável. `reservar` só entrega `pronto=1`.
+
 A atomicidade da reserva é a garantia inteira do sistema: selecionar e marcar
 acontecem na MESMA transação. Separar em "buscar livres" e depois "marcar"
 reabre a corrida que a fila existe para fechar. Não refatore isso.
@@ -23,13 +36,18 @@ vários processos worker, a atomicidade cai e a fila precisa de outra trava.
 
 Estados do item:
 
-    livre -> reservado -> concluido    (terminal, nunca volta)
-                       -> falhou       (pilha à parte, não volta sozinho)
-                       -> simulado     (não contou como feito)
-    reservado -> livre                 (quando o prazo vence)
+    sem_destino ─curadoria─┐
+    livre (pronto=0) ──────┴─> livre (pronto=1) ─reservar─> reservado
+                           └─> descartado        (fora do lote, guarda o motivo)
+
+    reservado -> concluido    (terminal, nunca volta)
+              -> falhou       (pilha à parte, não volta sozinho)
+              -> simulado     (não contou como feito)
+              -> livre        (quando o prazo vence)
 """
 from __future__ import annotations
 
+import json
 import secrets
 import sqlite3
 import threading
@@ -46,6 +64,14 @@ CONCLUIDO = "concluido"
 FALHOU = "falhou"
 SIMULADO = "simulado"
 SEM_DESTINO = "sem_destino"
+DESCARTADO = "descartado"      # curador decidiu que este produto não entra no lote
+
+# Comandos que o painel dá ao agente de cada máquina. O agente não tem tela:
+# ele pergunta ("GET /api/config") e obedece. Ver `config_do_agente`.
+RODAR = "rodar"
+PAUSAR = "pausar"
+PARAR = "parar"
+COMANDOS = (RODAR, PAUSAR, PARAR)
 
 # Como cada resultado enviado pelo programa de mesa cai na máquina de estados.
 # `simulado` é separado porque uma rodada em simulação não grava nada no ERP:
@@ -98,8 +124,16 @@ CREATE TABLE IF NOT EXISTS itens (
     situacao     TEXT,
     dep_grav     TEXT, sec_grav TEXT, sub_grav TEXT,
     detalhe      TEXT,
-    concluido_em REAL
+    concluido_em REAL,
+    -- Curadoria: `pronto` é o que separa o que o agente pode executar sozinho
+    -- do que ainda espera decisão humana no navegador.
+    pronto       INTEGER NOT NULL DEFAULT 0,
+    curado_em    REAL,
+    curado_por   TEXT,
+    curado_nota  TEXT
 );
+-- Os índices que citam `pronto` são criados em `_migrar`, DEPOIS do ALTER
+-- TABLE: num banco antigo esta seção roda antes de a coluna existir.
 CREATE INDEX IF NOT EXISTS ix_fila
     ON itens(estado, ordem_conf, dep_novo, sec_novo, sub_novo);
 CREATE INDEX IF NOT EXISTS ix_expira ON itens(estado, expira_em);
@@ -124,10 +158,48 @@ CREATE TABLE IF NOT EXISTS operadores (
     token      TEXT,
     criado_em  TEXT,
     criado_por TEXT,
-    revogado_em TEXT
+    revogado_em TEXT,
+    -- Controle remoto do agente daquela máquina (o programa de mesa não tem
+    -- tela: quem liga, pausa e configura é o painel).
+    comando     TEXT NOT NULL DEFAULT 'parar',
+    comando_em  REAL,
+    comando_por TEXT,
+    bloco        INTEGER NOT NULL DEFAULT 100,
+    so_ativos    INTEGER NOT NULL DEFAULT 1,
+    simular      INTEGER NOT NULL DEFAULT 0,
+    pular_certos INTEGER NOT NULL DEFAULT 1,
+    limiar       REAL    NOT NULL DEFAULT 0.8,
+    -- Telemetria devolvida pelo agente (é o que o painel mostra ao vivo).
+    agente_estado TEXT,
+    agente_msg    TEXT,
+    agente_feitos INTEGER NOT NULL DEFAULT 0,
+    agente_atual  TEXT,
+    agente_em     REAL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_token ON operadores(token);
+
+-- Log do agente. Ele não tem janela para escrever, então escreve aqui e o
+-- painel lê. Aparado em APARA_LOG linhas por operador a cada gravação.
+CREATE TABLE IF NOT EXISTS agente_log (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    quando   REAL,
+    operador TEXT,
+    texto    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_log_oper ON agente_log(operador, id);
+
+-- Configuração global do lote, inclusive o MAPA DO ERP (nomes de classe e
+-- âncoras dos campos do RADGe). Fica no servidor para que instalar uma máquina
+-- nova seja só colar o token: o resto o agente baixa.
+CREATE TABLE IF NOT EXISTS config (
+    chave TEXT PRIMARY KEY,
+    valor TEXT,
+    em    TEXT,
+    por   TEXT
+);
 """
+
+APARA_LOG = 400          # linhas de log mantidas por operador
 
 
 # ── leitura da planilha ───────────────────────────────────────────────────────
@@ -223,11 +295,48 @@ class FilaBanco:
     def _migrar(self):
         """Acrescenta colunas novas em banco antigo. Idempotente."""
         tem = {r[1] for r in self.con.execute("PRAGMA table_info(operadores)")}
-        for coluna, tipo in (("token", "TEXT"), ("criado_em", "TEXT"),
-                             ("criado_por", "TEXT"), ("revogado_em", "TEXT")):
+        for coluna, tipo in (
+                ("token", "TEXT"), ("criado_em", "TEXT"),
+                ("criado_por", "TEXT"), ("revogado_em", "TEXT"),
+                ("comando", "TEXT NOT NULL DEFAULT 'parar'"),
+                ("comando_em", "REAL"), ("comando_por", "TEXT"),
+                ("bloco", "INTEGER NOT NULL DEFAULT 100"),
+                ("so_ativos", "INTEGER NOT NULL DEFAULT 1"),
+                ("simular", "INTEGER NOT NULL DEFAULT 0"),
+                ("pular_certos", "INTEGER NOT NULL DEFAULT 1"),
+                ("limiar", "REAL NOT NULL DEFAULT 0.8"),
+                ("agente_estado", "TEXT"), ("agente_msg", "TEXT"),
+                ("agente_feitos", "INTEGER NOT NULL DEFAULT 0"),
+                ("agente_atual", "TEXT"), ("agente_em", "REAL")):
             if coluna not in tem:
                 self.con.execute(
                     f"ALTER TABLE operadores ADD COLUMN {coluna} {tipo}")
+
+        tem_i = {r[1] for r in self.con.execute("PRAGMA table_info(itens)")}
+        novas_curadoria = "pronto" not in tem_i
+        for coluna, tipo in (("pronto", "INTEGER NOT NULL DEFAULT 0"),
+                             ("curado_em", "REAL"), ("curado_por", "TEXT"),
+                             ("curado_nota", "TEXT")):
+            if coluna not in tem_i:
+                self.con.execute(f"ALTER TABLE itens ADD COLUMN {coluna} {tipo}")
+
+        if novas_curadoria:
+            # Backfill da regra de sempre: ALTA com destino já era executada no
+            # automático antes desta mudança, então continua liberada. MÉDIA,
+            # BAIXA e REVISAR ficam com pronto=0 — é exatamente o trabalho que
+            # antes era feito produto a produto no painel do programa de mesa e
+            # que agora acontece no navegador, antes da rodada.
+            self.con.execute(
+                "UPDATE itens SET pronto=1 WHERE confianca='ALTA'"
+                " AND estado NOT IN (?,?)", (SEM_DESTINO, DESCARTADO))
+            # Item já trabalhado não volta para a fila de curadoria.
+            self.con.execute(
+                "UPDATE itens SET pronto=1 WHERE estado IN (?,?,?)",
+                (CONCLUIDO, FALHOU, SIMULADO))
+
+        self.con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_curadoria"
+            " ON itens(pronto, estado, ordem_conf, dep_novo, sec_novo, sub_novo)")
 
     # ── apoio ────────────────────────────────────────────────────────────────
     def _evento(self, acao, cod="", operador="", detalhe="",
@@ -274,6 +383,10 @@ class FilaBanco:
             "dep_novo": r["dep_novo"] or "", "sec_novo": r["sec_novo"] or "",
             "sub_novo": r["sub_novo"] or "",
             "confianca": r["confianca"] or "", "base": r["base"] or "",
+            # Acrescentados para a tela de curadoria. O agente ignora o que não
+            # conhece, então o contrato de `reservar` continua valendo.
+            "estado": r["estado"], "pronto": bool(r["pronto"]),
+            "curado_por": r["curado_por"] or "",
         }
 
     # ── operadores e tokens ──────────────────────────────────────────────────
@@ -329,15 +442,29 @@ class FilaBanco:
 
     def listar_operadores(self) -> list[dict]:
         with self.lock:
-            return [dict(r) for r in self.con.execute(
+            linhas = [dict(r) for r in self.con.execute(
                 "SELECT nome, maquina, visto_em, criado_em, criado_por,"
                 " revogado_em, (token IS NOT NULL) AS tem_token,"
+                " comando, comando_em, comando_por, bloco, so_ativos, simular,"
+                " pular_certos, limiar, agente_estado, agente_msg,"
+                " agente_feitos, agente_atual, agente_em,"
                 " (SELECT COUNT(*) FROM itens i WHERE i.operador=o.nome"
                 "   AND i.estado='reservado') AS reservados,"
                 " (SELECT COUNT(*) FROM itens i WHERE i.operador=o.nome"
                 "   AND i.estado='concluido') AS concluidos"
                 " FROM operadores o ORDER BY o.nome"
             )]
+        agora = time.time()
+        for o in linhas:
+            # "Vivo" é o agente que falou com o servidor há pouco. Sem isso, um
+            # programa fechado no meio da rodada continuaria escrito "rodando"
+            # no painel para sempre.
+            desde = agora - (o["agente_em"] or 0)
+            o["vivo"] = bool(o["agente_em"]) and desde < 90
+            o["silencio_s"] = int(desde) if o["agente_em"] else None
+            if not o["vivo"] and (o["agente_estado"] or "") in ("rodando", "pausado"):
+                o["agente_estado"] = "sem contato"
+        return linhas
 
     # ── importação ───────────────────────────────────────────────────────────
     def semear(self, itens, recriar: bool = False) -> dict:
@@ -353,7 +480,7 @@ class FilaBanco:
                 self.con.commit()
 
             existentes = {r[0] for r in self.con.execute("SELECT cod FROM itens")}
-            novos = ignorados = sem_destino = 0
+            novos = ignorados = sem_destino = curadoria = 0
             for it in itens:
                 if it.cod in existentes:
                     ignorados += 1
@@ -361,23 +488,29 @@ class FilaBanco:
                 tem_destino = bool(it.dep_novo and it.sec_novo and it.sub_novo)
                 if not tem_destino:
                     sem_destino += 1
+                # Só ALTA com destino entra liberada para o agente. O resto
+                # espera um humano no navegador — é a inversão que faz a
+                # rodada no ERP ser 100% automática (ver docstring do módulo).
+                pronto = int(tem_destino and it.confianca == "ALTA")
+                if tem_destino and not pronto:
+                    curadoria += 1
                 self.con.execute(
                     "INSERT INTO itens (cod, linha, produto, ativo, ano,"
                     " dep_atual, sec_atual, sub_atual, dep_novo, sec_novo,"
-                    " sub_novo, confianca, ordem_conf, base, estado)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " sub_novo, confianca, ordem_conf, base, estado, pronto)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (it.cod, it.linha, it.produto, int(it.ativo), it.ano,
                      it.dep_atual, it.sec_atual, it.sub_atual,
                      it.dep_novo, it.sec_novo, it.sub_novo,
                      it.confianca, ORDEM_CONF.get(it.confianca, 9), it.base,
-                     LIVRE if tem_destino else SEM_DESTINO),
+                     LIVRE if tem_destino else SEM_DESTINO, pronto),
                 )
                 existentes.add(it.cod)
                 novos += 1
             self._evento("importou", "", "", f"{novos} novos, {ignorados} já existiam")
             self.con.commit()
             return {"novos": novos, "ja_existiam": ignorados,
-                    "sem_destino": sem_destino}
+                    "sem_destino": sem_destino, "para_curadoria": curadoria}
 
     # ── operações da fila ────────────────────────────────────────────────────
     def reservar(self, operador: str, quantidade: int, so_ativos: bool,
@@ -422,12 +555,21 @@ class FilaBanco:
                 # feche: receberia sempre os mesmos e nunca avançaria.
                 faltam = quantidade - len(pendentes)
                 escolhidos = []
+                # `pronto=1` é a trava nova: o agente só recebe o que já foi
+                # decidido (ALTA na importação, ou curado no navegador). Sem
+                # ela, um item de confiança MÉDIA cairia numa rodada automática
+                # sem ninguém ter olhado o destino.
+                # Lista de confianças vazia agora significa TODAS — o agente não
+                # escolhe mais nada, quem filtra é o painel.
                 confs = [c for c in (confiancas or []) if c in ORDEM_CONF]
-                if faltam > 0 and confs:
-                    marcadores = ",".join("?" * len(confs))
+                if faltam > 0:
+                    filtro_conf = ""
+                    if confs:
+                        filtro_conf = (" AND confianca IN ("
+                                       + ",".join("?" * len(confs)) + ")")
                     sql = (
-                        "SELECT * FROM itens WHERE estado=?"
-                        f" AND confianca IN ({marcadores})"
+                        "SELECT * FROM itens WHERE estado=? AND pronto=1"
+                        + filtro_conf
                         + (" AND ativo=1" if so_ativos else "")
                         + " ORDER BY ordem_conf, dep_novo, sec_novo, sub_novo,"
                           " produto LIMIT ?"
@@ -562,6 +704,370 @@ class FilaBanco:
             self.con.commit()
             return cur.rowcount
 
+    # ── curadoria (a decisão humana, no navegador) ───────────────────────────
+    # Antes, o operador decidia produto a produto DURANTE a gravação, com o ERP
+    # travado esperando. Agora ele decide antes, aqui, e a rodada no ERP não
+    # pergunta nada. `pronto=1` é a fronteira entre os dois mundos.
+
+    def _filtro_curadoria(self, confianca="", dep="", busca="",
+                          incluir_sem_destino=True):
+        onde = ["pronto=0", "estado IN ({})".format(
+            ",".join("?" * (2 if incluir_sem_destino else 1)))]
+        params: list = [LIVRE] + ([SEM_DESTINO] if incluir_sem_destino else [])
+        if confianca:
+            onde.append("confianca=?")
+            params.append(confianca)
+        if dep:
+            onde.append("dep_novo=?")
+            params.append(str(dep))
+        if busca:
+            onde.append("(produto LIKE ? OR cod LIKE ?)")
+            params += [f"%{busca}%", f"%{busca}%"]
+        return " AND ".join(onde), params
+
+    def fila_curadoria(self, limite: int = 60, confianca: str = "",
+                       dep: str = "", busca: str = "",
+                       incluir_sem_destino: bool = True) -> dict:
+        """Próximos itens que esperam decisão humana.
+
+        Sai na MESMA ordem da fila de execução (confiança, depois destino), e é
+        de propósito: o lote vem agrupado por destino — num bloco de 100 medido,
+        os 68 primeiros iam para o mesmo lugar. Com a lista agrupada, o curador
+        aceita dezenas de uma vez em lugar de uma por uma.
+        """
+        limite = max(1, min(int(limite), 300))
+        onde, params = self._filtro_curadoria(confianca, dep, busca,
+                                              incluir_sem_destino)
+        with self.lock:
+            linhas = self.con.execute(
+                f"SELECT * FROM itens WHERE {onde}"
+                " ORDER BY ordem_conf, dep_novo, sec_novo, sub_novo, produto"
+                " LIMIT ?", [*params, limite]).fetchall()
+            total = self.con.execute(
+                f"SELECT COUNT(*) FROM itens WHERE {onde}", params).fetchone()[0]
+        itens = [self._linha_item(r) for r in linhas]
+
+        # Quantos, a partir de cada posição, compartilham o mesmo destino
+        # sugerido. É o que alimenta o botão "aceitar os próximos N iguais".
+        for i, it in enumerate(itens):
+            destino = (it["dep_novo"], it["sec_novo"], it["sub_novo"])
+            n = 0
+            if all(destino):
+                for outro in itens[i:]:
+                    if (outro["dep_novo"], outro["sec_novo"],
+                            outro["sub_novo"]) != destino:
+                        break
+                    n += 1
+            it["iguais_a_seguir"] = n
+        return {"itens": itens, "total": total, "mostrando": len(itens)}
+
+    def resumo_curadoria(self) -> dict:
+        with self.lock:
+            por_conf = dict(self.con.execute(
+                "SELECT confianca, COUNT(*) FROM itens WHERE pronto=0"
+                " AND estado IN (?,?) GROUP BY confianca",
+                (LIVRE, SEM_DESTINO)).fetchall())
+            por_dep = [
+                {"dep": r[0] or "", "n": r[1]} for r in self.con.execute(
+                    "SELECT dep_novo, COUNT(*) FROM itens WHERE pronto=0"
+                    " AND estado=? GROUP BY dep_novo ORDER BY 2 DESC",
+                    (LIVRE,)).fetchall()]
+            pendentes = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE pronto=0 AND estado IN (?,?)",
+                (LIVRE, SEM_DESTINO)).fetchone()[0]
+            curados = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE curado_em IS NOT NULL"
+            ).fetchone()[0]
+            descartados = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE estado=?",
+                (DESCARTADO,)).fetchone()[0]
+        return {"pendentes": pendentes, "por_confianca": por_conf,
+                "por_departamento": por_dep, "curados": curados,
+                "descartados": descartados}
+
+    def _aplicar_curadoria(self, cods, dep, sec, sub, por, nota,
+                           acao) -> dict:
+        """Grava o destino e libera para o agente. Só mexe em item pendente.
+
+        Quem já foi curado por outra pessoa entre a tela ter sido carregada e o
+        clique não é sobrescrito — volta no contador `ja_curados`. Dois
+        curadores na mesma lista se atrapalham, mas nunca se apagam.
+        """
+        aplicados = ja = 0
+        agora = time.time()
+        with self.lock:
+            self.con.execute("BEGIN IMMEDIATE")
+            try:
+                for cod in cods:
+                    r = self.con.execute(
+                        "SELECT estado, pronto FROM itens WHERE cod=?",
+                        (cod,)).fetchone()
+                    if r is None:
+                        continue
+                    if r["pronto"] or r["estado"] not in (LIVRE, SEM_DESTINO):
+                        ja += 1
+                        continue
+                    self.con.execute(
+                        "UPDATE itens SET dep_novo=?, sec_novo=?, sub_novo=?,"
+                        " estado=?, pronto=1, curado_em=?, curado_por=?,"
+                        " curado_nota=? WHERE cod=?",
+                        (dep, sec, sub, LIVRE, agora, por, nota or None, cod))
+                    aplicados += 1
+                if aplicados:
+                    self._evento(acao, "", por, f"{aplicados} itens -> {dep}/{sec}/{sub}",
+                                 depois=(dep, sec, sub))
+                self.con.commit()
+            except Exception:
+                self.con.rollback()
+                raise
+        return {"ok": True, "aplicados": aplicados, "ja_curados": ja}
+
+    def curar(self, cods: list, dep: str, sec: str, sub: str,
+              por: str = "", nota: str = "") -> dict:
+        """Define o destino de um ou vários produtos e libera para execução.
+
+        O trio é validado contra a estrutura merceológica AQUI, no servidor: os
+        códigos se repetem entre níveis e um trio na ordem errada gera cadastro
+        que o ERP aceita e que está semanticamente errado. O `<select>` da tela
+        ajuda, mas não é ele quem garante.
+        """
+        from scripts.reclassificacao_estrutura import estrutura
+
+        cods = [c for c in (cods or []) if c]
+        if not cods:
+            return {"ok": False, "erro": "nenhum produto selecionado"}
+        dep, sec, sub = str(dep).strip(), str(sec).strip(), str(sub).strip()
+        ok, motivo = estrutura().validar(dep, sec, sub)
+        if not ok:
+            return {"ok": False, "erro": motivo}
+        return self._aplicar_curadoria(cods, dep, sec, sub, por, nota, "curou")
+
+    def aceitar_sugestao(self, cods: list, por: str = "") -> dict:
+        """Confirma o destino que a planilha já sugeriu, em lote.
+
+        Ainda passa pela validação: uma planilha futura pode trazer trio que não
+        existe na estrutura, e aceitar em lote é justamente onde isso passaria
+        despercebido. O que não valida volta em `recusados`, com o motivo.
+        """
+        from scripts.reclassificacao_estrutura import estrutura
+
+        cods = [c for c in (cods or []) if c]
+        if not cods:
+            return {"ok": False, "erro": "nenhum produto selecionado"}
+        est = estrutura()
+        grupos: dict[tuple, list] = {}
+        recusados = []
+        with self.lock:
+            for cod in cods:
+                r = self.con.execute(
+                    "SELECT dep_novo, sec_novo, sub_novo FROM itens WHERE cod=?",
+                    (cod,)).fetchone()
+                if r is None:
+                    continue
+                trio = (r["dep_novo"] or "", r["sec_novo"] or "",
+                        r["sub_novo"] or "")
+                if not all(trio):
+                    recusados.append({"cod": cod, "motivo": "sem destino sugerido"})
+                    continue
+                grupos.setdefault(trio, []).append(cod)
+
+        aplicados = ja = 0
+        for (dep, sec, sub), lista in grupos.items():
+            ok, motivo = est.validar(dep, sec, sub)
+            if not ok:
+                recusados += [{"cod": c, "motivo": motivo} for c in lista]
+                continue
+            res = self._aplicar_curadoria(lista, dep, sec, sub, por, "", "aceitou")
+            aplicados += res["aplicados"]
+            ja += res["ja_curados"]
+        return {"ok": True, "aplicados": aplicados, "ja_curados": ja,
+                "recusados": recusados}
+
+    def descartar(self, cods: list, por: str = "", motivo: str = "") -> dict:
+        """Tira produtos do lote sem editá-los no ERP.
+
+        Existe para os REVISAR que, olhados de perto, não devem mesmo ser
+        reclassificados. Sai da fila de curadoria e da fila de execução, mas
+        continua no banco com o motivo — some da vista, não da história.
+        """
+        cods = [c for c in (cods or []) if c]
+        if not cods:
+            return {"ok": False, "erro": "nenhum produto selecionado"}
+        n = 0
+        with self.lock:
+            for cod in cods:
+                cur = self.con.execute(
+                    "UPDATE itens SET estado=?, pronto=0, curado_em=?,"
+                    " curado_por=?, curado_nota=? WHERE cod=? AND estado IN (?,?)",
+                    (DESCARTADO, time.time(), por, motivo or None, cod,
+                     LIVRE, SEM_DESTINO))
+                n += cur.rowcount
+            if n:
+                self._evento("descartou", "", por, f"{n} itens: {motivo}")
+            self.con.commit()
+        return {"ok": True, "descartados": n}
+
+    def reverter_descarte(self, por: str = "") -> int:
+        """Devolve todos os descartados à fila de curadoria."""
+        with self.lock:
+            cur = self.con.execute(
+                "UPDATE itens SET estado=CASE WHEN dep_novo<>'' AND sec_novo<>''"
+                " AND sub_novo<>'' THEN ? ELSE ? END, pronto=0, curado_em=NULL,"
+                " curado_por=NULL, curado_nota=NULL WHERE estado=?",
+                (LIVRE, SEM_DESTINO, DESCARTADO))
+            if cur.rowcount:
+                self._evento("devolveu", "", por or "painel",
+                             f"{cur.rowcount} descartados voltaram à curadoria")
+            self.con.commit()
+            return cur.rowcount
+
+    # ── controle remoto do agente ────────────────────────────────────────────
+    # O programa de mesa não tem tela: ele pergunta o que fazer e obedece.
+    # Ligar, pausar, parar e configurar acontecem no navegador.
+
+    def definir_comando(self, operador: str, comando: str, por: str = "") -> dict:
+        if comando not in COMANDOS:
+            raise ValueError(f"comando inválido: {comando}")
+        with self.lock:
+            cur = self.con.execute(
+                "UPDATE operadores SET comando=?, comando_em=?, comando_por=?"
+                " WHERE nome=?", (comando, time.time(), por, operador))
+            if not cur.rowcount:
+                raise ValueError(f"operador {operador} não existe")
+            self._evento("comando", "", operador, f"{comando} (por {por})")
+            self.con.commit()
+        return {"ok": True, "operador": operador, "comando": comando}
+
+    def definir_parametros(self, operador: str, por: str = "", **p) -> dict:
+        """Parâmetros da rodada daquela máquina. Só o painel escreve aqui."""
+        campos = {
+            "bloco": lambda v: max(1, min(int(v), 500)),
+            "so_ativos": lambda v: int(bool(v)),
+            "simular": lambda v: int(bool(v)),
+            "pular_certos": lambda v: int(bool(v)),
+            "limiar": lambda v: max(0.0, min(float(v), 1.0)),
+        }
+        sets, vals = [], []
+        for chave, converte in campos.items():
+            if chave in p and p[chave] is not None and p[chave] != "":
+                sets.append(f"{chave}=?")
+                vals.append(converte(p[chave]))
+        if not sets:
+            return {"ok": True, "alterados": 0}
+        with self.lock:
+            cur = self.con.execute(
+                f"UPDATE operadores SET {', '.join(sets)} WHERE nome=?",
+                [*vals, operador])
+            if not cur.rowcount:
+                raise ValueError(f"operador {operador} não existe")
+            self._evento("parametros", "", operador,
+                         ", ".join(f"{k}={v}" for k, v in zip(
+                             [s[:-2] for s in sets], vals)) + f" (por {por})")
+            self.con.commit()
+        return {"ok": True, "alterados": len(sets)}
+
+    def config_do_agente(self, operador: str) -> dict:
+        """Tudo o que o agente precisa saber para a próxima volta do laço.
+
+        Inclui o MAPA DO ERP: instalar uma máquina nova passa a ser colar o
+        token, e recalibrar o RADGe depois de uma atualização é editar um campo
+        no painel em vez de mexer no config.json de cada PC.
+        """
+        with self.lock:
+            r = self.con.execute(
+                "SELECT comando, bloco, so_ativos, simular, pular_certos, limiar"
+                " FROM operadores WHERE nome=?", (operador,)).fetchone()
+            mapa = self._config_bruta("mapa_erp")
+        if r is None:
+            return {"comando": PARAR, "erro": "operador não existe"}
+        return {
+            "comando": r["comando"] or PARAR,
+            "bloco": r["bloco"], "so_ativos": bool(r["so_ativos"]),
+            "simular": bool(r["simular"]),
+            "pular_certos": bool(r["pular_certos"]),
+            "limiar": r["limiar"],
+            "lease_s": LEASE_PADRAO_S,
+            "batimento_s": max(30, LEASE_PADRAO_S // 6),
+            "mapa_erp": mapa,
+        }
+
+    def reportar_status(self, operador: str, estado: str = "", msg: str = "",
+                        feitos: int = 0, atual: str = "", maquina: str = "",
+                        log: list | None = None) -> dict:
+        """O agente conta o que está fazendo; o painel mostra.
+
+        É a única janela que o coordenador tem para dentro da máquina do
+        operador, já que lá não há mais nada para olhar.
+        """
+        agora = time.time()
+        with self.lock:
+            self.con.execute(
+                "UPDATE operadores SET agente_estado=?, agente_msg=?,"
+                " agente_feitos=?, agente_atual=?, agente_em=?, visto_em=?"
+                + (", maquina=?" if maquina else "") + " WHERE nome=?",
+                [str(estado)[:40], str(msg)[:300], int(feitos or 0),
+                 str(atual)[:40], agora, agora]
+                + ([maquina] if maquina else []) + [operador])
+            for linha in (log or [])[:50]:
+                self.con.execute(
+                    "INSERT INTO agente_log (quando, operador, texto)"
+                    " VALUES (?,?,?)", (agora, operador, str(linha)[:400]))
+            if log:
+                self.con.execute(
+                    "DELETE FROM agente_log WHERE operador=? AND id NOT IN"
+                    " (SELECT id FROM agente_log WHERE operador=?"
+                    "  ORDER BY id DESC LIMIT ?)",
+                    (operador, operador, APARA_LOG))
+            self.con.commit()
+        # A resposta já traz o comando: um POST por volta do laço basta para o
+        # agente reportar e receber ordem nova, sem uma segunda ida ao servidor.
+        return {"ok": True, **self.config_do_agente(operador)}
+
+    def log_do_agente(self, operador: str = "", limite: int = 80) -> list:
+        limite = max(1, min(int(limite), 400))
+        with self.lock:
+            if operador:
+                linhas = self.con.execute(
+                    "SELECT quando, operador, texto FROM agente_log"
+                    " WHERE operador=? ORDER BY id DESC LIMIT ?",
+                    (operador, limite)).fetchall()
+            else:
+                linhas = self.con.execute(
+                    "SELECT quando, operador, texto FROM agente_log"
+                    " ORDER BY id DESC LIMIT ?", (limite,)).fetchall()
+        return [dict(r) for r in linhas]
+
+    # ── configuração global (inclui o mapa do ERP) ───────────────────────────
+    def _config_bruta(self, chave: str):
+        r = self.con.execute("SELECT valor FROM config WHERE chave=?",
+                             (chave,)).fetchone()
+        if not r or not r["valor"]:
+            return None
+        try:
+            return json.loads(r["valor"])
+        except (ValueError, TypeError):
+            return None
+
+    def ler_config(self, chave: str):
+        with self.lock:
+            return self._config_bruta(chave)
+
+    def gravar_config(self, chave: str, valor, por: str = "") -> dict:
+        """Valor é serializado em JSON. Texto vazio apaga a chave."""
+        with self.lock:
+            if valor in (None, "", {}, []):
+                self.con.execute("DELETE FROM config WHERE chave=?", (chave,))
+            else:
+                self.con.execute(
+                    "INSERT INTO config (chave, valor, em, por) VALUES (?,?,?,?)"
+                    " ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor,"
+                    " em=excluded.em, por=excluded.por",
+                    (chave, json.dumps(valor, ensure_ascii=False),
+                     time.strftime("%Y-%m-%d %H:%M:%S"), por))
+            self._evento("config", "", por, chave)
+            self.con.commit()
+        return {"ok": True, "chave": chave}
+
     # ── consultas ────────────────────────────────────────────────────────────
     def resumo(self) -> dict:
         with self.lock:
@@ -583,12 +1089,26 @@ class FilaBanco:
             livres_ativos = self.con.execute(
                 "SELECT COUNT(*) FROM itens WHERE estado='livre' AND ativo=1"
             ).fetchone()[0]
+            # A fila que o agente enxerga agora é só a parte já decidida.
+            prontos = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE estado=? AND pronto=1",
+                (LIVRE,)).fetchone()[0]
+            prontos_ativos = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE estado=? AND pronto=1"
+                " AND ativo=1", (LIVRE,)).fetchone()[0]
+            aguardando = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE pronto=0 AND estado IN (?,?)",
+                (LIVRE, SEM_DESTINO)).fetchone()[0]
+            no_lote = total - por_estado.get(SEM_DESTINO, 0) \
+                - por_estado.get(DESCARTADO, 0)
             return {
                 "total": total,
-                "no_lote": total - por_estado.get(SEM_DESTINO, 0),
+                "no_lote": no_lote,
                 "por_estado": por_estado, "por_situacao": por_situacao,
                 "operadores": self.listar_operadores(),
                 "livres_ativos": livres_ativos,
+                "prontos": prontos, "prontos_ativos": prontos_ativos,
+                "aguardando_curadoria": aguardando,
                 "agora": time.time(),
             }
 

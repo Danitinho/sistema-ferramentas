@@ -1,0 +1,726 @@
+{
+ "subsecoes": {
+  "208": {
+   "sec": "51",
+   "dep": "6",
+   "nome": "Arroz e Grãos"
+  },
+  "203": {
+   "sec": "51",
+   "dep": "6",
+   "nome": "Açúcar e Adoçantes"
+  },
+  "196": {
+   "sec": "51",
+   "dep": "6",
+   "nome": "Óleos e Azeites"
+  },
+  "201": {
+   "sec": "51",
+   "dep": "6",
+   "nome": "Farinhas e Grãos"
+  },
+  "274": {
+   "sec": "51",
+   "dep": "6",
+   "nome": "Fermentos e Complementos"
+  },
+  "238": {
+   "sec": "49",
+   "dep": "6",
+   "nome": "Massas"
+  },
+  "209": {
+   "sec": "49",
+   "dep": "6",
+   "nome": "Salgadinhos e Snacks"
+  },
+  "194": {
+   "sec": "49",
+   "dep": "6",
+   "nome": "Molhos e Condimentos"
+  },
+  "241": {
+   "sec": "49",
+   "dep": "6",
+   "nome": "Temperos e especiarias"
+  },
+  "1457": {
+   "sec": "49",
+   "dep": "6",
+   "nome": "Enlatados e Conservas"
+  },
+  "28": {
+   "sec": "34",
+   "dep": "6",
+   "nome": "Alimentos Naturais"
+  },
+  "100": {
+   "sec": "34",
+   "dep": "6",
+   "nome": "Compostos Naturais"
+  },
+  "145": {
+   "sec": "21",
+   "dep": "6",
+   "nome": "Biscoitos e Bolachas"
+  },
+  "1460": {
+   "sec": "21",
+   "dep": "6",
+   "nome": "Matinais"
+  },
+  "164": {
+   "sec": "21",
+   "dep": "6",
+   "nome": "Doces e Sobremesas"
+  },
+  "167": {
+   "sec": "40",
+   "dep": "6",
+   "nome": "Leites e Fórmulas"
+  },
+  "213": {
+   "sec": "24",
+   "dep": "7",
+   "nome": "Águas e Chás"
+  },
+  "233": {
+   "sec": "24",
+   "dep": "7",
+   "nome": "Energeticos e isotonicos"
+  },
+  "137": {
+   "sec": "24",
+   "dep": "7",
+   "nome": "Refrigerantes"
+  },
+  "82": {
+   "sec": "24",
+   "dep": "7",
+   "nome": "Sucos e Néctares"
+  },
+  "259": {
+   "sec": "22",
+   "dep": "7",
+   "nome": "Cervejas Comuns (Mainstream)"
+  },
+  "260": {
+   "sec": "22",
+   "dep": "7",
+   "nome": "Cervejas Especiais/Artesanais"
+  },
+  "174": {
+   "sec": "44",
+   "dep": "7",
+   "nome": "Destilados"
+  },
+  "202": {
+   "sec": "44",
+   "dep": "7",
+   "nome": "Vinhos e Espumantes"
+  },
+  "22": {
+   "sec": "13",
+   "dep": "17",
+   "nome": "Bovinos"
+  },
+  "242": {
+   "sec": "13",
+   "dep": "17",
+   "nome": "Aves e Peixes"
+  },
+  "23": {
+   "sec": "13",
+   "dep": "17",
+   "nome": "Suínos"
+  },
+  "243": {
+   "sec": "13",
+   "dep": "17",
+   "nome": "Embutidos a Granel"
+  },
+  "426": {
+   "sec": "13",
+   "dep": "17",
+   "nome": "Ovos"
+  },
+  "244": {
+   "sec": "73",
+   "dep": "17",
+   "nome": "Derivados do Leite"
+  },
+  "251": {
+   "sec": "73",
+   "dep": "17",
+   "nome": "Queijos Especiais"
+  },
+  "257": {
+   "sec": "73",
+   "dep": "17",
+   "nome": "Frios Fatiados/Peça"
+  },
+  "258": {
+   "sec": "30",
+   "dep": "17",
+   "nome": "Frutas"
+  },
+  "266": {
+   "sec": "30",
+   "dep": "17",
+   "nome": "Legumes e Verduras"
+  },
+  "270": {
+   "sec": "30",
+   "dep": "17",
+   "nome": "Processados"
+  },
+  "218": {
+   "sec": "62",
+   "dep": "17",
+   "nome": "Pratos Prontos"
+  },
+  "272": {
+   "sec": "62",
+   "dep": "17",
+   "nome": "Vegetais e Batatas"
+  },
+  "273": {
+   "sec": "62",
+   "dep": "17",
+   "nome": "Sobremesas e Polpas"
+  },
+  "134": {
+   "sec": "57",
+   "dep": "17",
+   "nome": "Pães Produção"
+  },
+  "7": {
+   "sec": "57",
+   "dep": "17",
+   "nome": "Pães Empacotados"
+  },
+  "217": {
+   "sec": "57",
+   "dep": "17",
+   "nome": "Confeitaria"
+  },
+  "36": {
+   "sec": "57",
+   "dep": "17",
+   "nome": "Salgados"
+  },
+  "177": {
+   "sec": "47",
+   "dep": "11",
+   "nome": "Shampoo e Condicionador"
+  },
+  "200": {
+   "sec": "47",
+   "dep": "11",
+   "nome": "Finalizadores e Tinturas"
+  },
+  "181": {
+   "sec": "3",
+   "dep": "11",
+   "nome": "Sabonetes e Banhos"
+  },
+  "125": {
+   "sec": "3",
+   "dep": "11",
+   "nome": "Desodorantes"
+  },
+  "9": {
+   "sec": "3",
+   "dep": "11",
+   "nome": "Higiene Oral"
+  },
+  "337": {
+   "sec": "3",
+   "dep": "11",
+   "nome": "Preservativos"
+  },
+  "172": {
+   "sec": "3",
+   "dep": "11",
+   "nome": "Papel Higiênico"
+  },
+  "214": {
+   "sec": "58",
+   "dep": "11",
+   "nome": "Corpo e Rosto"
+  },
+  "224": {
+   "sec": "58",
+   "dep": "11",
+   "nome": "Acessorios"
+  },
+  "279": {
+   "sec": "58",
+   "dep": "11",
+   "nome": "Higiene Íntima e Absorventes"
+  },
+  "327": {
+   "sec": "82",
+   "dep": "11",
+   "nome": "Manicure e Pedicure"
+  },
+  "1509": {
+   "sec": "82",
+   "dep": "11",
+   "nome": "Maquiagens"
+  },
+  "392": {
+   "sec": "82",
+   "dep": "11",
+   "nome": "Perfumaria"
+  },
+  "280": {
+   "sec": "52",
+   "dep": "11",
+   "nome": "Fraldas e Lenços"
+  },
+  "187": {
+   "sec": "52",
+   "dep": "11",
+   "nome": "Banho e Pós-Banho"
+  },
+  "282": {
+   "sec": "52",
+   "dep": "11",
+   "nome": "Puericultura"
+  },
+  "120": {
+   "sec": "32",
+   "dep": "9",
+   "nome": "Lavagem"
+  },
+  "334": {
+   "sec": "32",
+   "dep": "9",
+   "nome": "Conservaçao de calçados"
+  },
+  "124": {
+   "sec": "32",
+   "dep": "9",
+   "nome": "Acabamento"
+  },
+  "136": {
+   "sec": "36",
+   "dep": "9",
+   "nome": "Louças"
+  },
+  "132": {
+   "sec": "28",
+   "dep": "9",
+   "nome": "Pisos e Superfícies"
+  },
+  "163": {
+   "sec": "28",
+   "dep": "9",
+   "nome": "Inseticidas e Aromatizantes"
+  },
+  "148": {
+   "sec": "28",
+   "dep": "9",
+   "nome": "Limpadores Multiuso"
+  },
+  "157": {
+   "sec": "28",
+   "dep": "9",
+   "nome": "Limpeza Sanitária"
+  },
+  "207": {
+   "sec": "28",
+   "dep": "9",
+   "nome": "Acessórios de Limpeza"
+  },
+  "3": {
+   "sec": "28",
+   "dep": "9",
+   "nome": "Controle de Pragas"
+  },
+  "339": {
+   "sec": "6",
+   "dep": "12",
+   "nome": "Esporte e Lazer"
+  },
+  "1435": {
+   "sec": "6",
+   "dep": "12",
+   "nome": "Brinquedos"
+  },
+  "204": {
+   "sec": "15",
+   "dep": "12",
+   "nome": "Cozinha e Mesa"
+  },
+  "285": {
+   "sec": "15",
+   "dep": "12",
+   "nome": "Organização"
+  },
+  "1477": {
+   "sec": "15",
+   "dep": "12",
+   "nome": "Armarinho"
+  },
+  "8": {
+   "sec": "42",
+   "dep": "12",
+   "nome": "Descartáveis"
+  },
+  "286": {
+   "sec": "42",
+   "dep": "12",
+   "nome": "Embalagems e conservaçao"
+  },
+  "1475": {
+   "sec": "42",
+   "dep": "12",
+   "nome": "Festas"
+  },
+  "239": {
+   "sec": "69",
+   "dep": "12",
+   "nome": "Alimentos"
+  },
+  "287": {
+   "sec": "69",
+   "dep": "12",
+   "nome": "Acessórios e Higiene"
+  },
+  "381": {
+   "sec": "69",
+   "dep": "12",
+   "nome": "Farmacia Animal"
+  },
+  "669": {
+   "sec": "75",
+   "dep": "12",
+   "nome": "Cadernos"
+  },
+  "288": {
+   "sec": "75",
+   "dep": "12",
+   "nome": "Caligrafia"
+  },
+  "1494": {
+   "sec": "75",
+   "dep": "12",
+   "nome": "Bolsas e Mochilas"
+  },
+  "275": {
+   "sec": "75",
+   "dep": "12",
+   "nome": "Utilidades p/ Escritorio"
+  },
+  "386": {
+   "sec": "75",
+   "dep": "12",
+   "nome": "Pinturas e Artes"
+  },
+  "1473": {
+   "sec": "60",
+   "dep": "12",
+   "nome": "Calçados"
+  },
+  "97": {
+   "sec": "60",
+   "dep": "12",
+   "nome": "Cama, Mesa e Banho"
+  },
+  "359": {
+   "sec": "60",
+   "dep": "12",
+   "nome": "Lãs Linhas e Barbantes"
+  },
+  "230": {
+   "sec": "60",
+   "dep": "12",
+   "nome": "Acessórios e vestuario"
+  },
+  "372": {
+   "sec": "113",
+   "dep": "12",
+   "nome": "Fumos e Acessórios"
+  },
+  "291": {
+   "sec": "77",
+   "dep": "18",
+   "nome": "Cozinha"
+  },
+  "292": {
+   "sec": "77",
+   "dep": "18",
+   "nome": "Cuidados Pessoais"
+  },
+  "294": {
+   "sec": "77",
+   "dep": "18",
+   "nome": "Casa"
+  },
+  "296": {
+   "sec": "78",
+   "dep": "18",
+   "nome": "Celulares"
+  },
+  "314": {
+   "sec": "78",
+   "dep": "18",
+   "nome": "Áudio e Vídeo"
+  },
+  "223": {
+   "sec": "64",
+   "dep": "18",
+   "nome": "Pilhas e baterias"
+  },
+  "277": {
+   "sec": "27",
+   "dep": "10",
+   "nome": "Lubrificantes e Fluidos"
+  },
+  "227": {
+   "sec": "27",
+   "dep": "10",
+   "nome": "Limpeza e Estética Auto"
+  },
+  "232": {
+   "sec": "27",
+   "dep": "10",
+   "nome": "Acessórios e Peças"
+  },
+  "315": {
+   "sec": "27",
+   "dep": "10",
+   "nome": "Vestuarios"
+  },
+  "155": {
+   "sec": "27",
+   "dep": "10",
+   "nome": "Pneus"
+  },
+  "235": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Básico e Acabamento"
+  },
+  "318": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Hidráulica (Encanamento)"
+  },
+  "319": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "EPI"
+  },
+  "364": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Tintas e Sprays"
+  },
+  "276": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Elétrica Predial"
+  },
+  "321": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Iluminação"
+  },
+  "340": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Colas e Vedação"
+  },
+  "377": {
+   "sec": "67",
+   "dep": "10",
+   "nome": "Fechaduras e Segurança"
+  },
+  "322": {
+   "sec": "79",
+   "dep": "10",
+   "nome": "Ferramentas Manuais"
+  },
+  "323": {
+   "sec": "79",
+   "dep": "10",
+   "nome": "Ferramentas Elétricas"
+  },
+  "324": {
+   "sec": "79",
+   "dep": "10",
+   "nome": "Ferragens e Fixação"
+  },
+  "325": {
+   "sec": "29",
+   "dep": "10",
+   "nome": "Manutenção de Jardim"
+  },
+  "326": {
+   "sec": "29",
+   "dep": "10",
+   "nome": "Camping e Lazer"
+  },
+  "135": {
+   "sec": "29",
+   "dep": "10",
+   "nome": "Piscinas e Tratamento"
+  }
+ },
+ "secoes": {
+  "51": {
+   "dep": "6",
+   "nome": "Mercearia Básica"
+  },
+  "49": {
+   "dep": "6",
+   "nome": "Mercearia Salgada"
+  },
+  "34": {
+   "dep": "6",
+   "nome": "Produtos Naturais"
+  },
+  "21": {
+   "dep": "6",
+   "nome": "Mercearia Doce"
+  },
+  "40": {
+   "dep": "6",
+   "nome": "Nutrição Infantil"
+  },
+  "24": {
+   "dep": "7",
+   "nome": "Não Alcoólicas"
+  },
+  "22": {
+   "dep": "7",
+   "nome": "Cervejas"
+  },
+  "44": {
+   "dep": "7",
+   "nome": "Vinhos e Destilados"
+  },
+  "13": {
+   "dep": "17",
+   "nome": "Açougue"
+  },
+  "73": {
+   "dep": "17",
+   "nome": "Frios e Laticínios"
+  },
+  "30": {
+   "dep": "17",
+   "nome": "Hortifrúti (FLV)"
+  },
+  "62": {
+   "dep": "17",
+   "nome": "Congelados"
+  },
+  "57": {
+   "dep": "17",
+   "nome": "Padaria e Confeitaria"
+  },
+  "47": {
+   "dep": "11",
+   "nome": "Cabelos"
+  },
+  "3": {
+   "dep": "11",
+   "nome": "Higiene Pessoal"
+  },
+  "58": {
+   "dep": "11",
+   "nome": "Cuidados Específicos"
+  },
+  "82": {
+   "dep": "11",
+   "nome": "Cosméticos e Perfumaria"
+  },
+  "52": {
+   "dep": "11",
+   "nome": "Infantil"
+  },
+  "32": {
+   "dep": "9",
+   "nome": "Roupas"
+  },
+  "36": {
+   "dep": "9",
+   "nome": "Cozinha"
+  },
+  "28": {
+   "dep": "9",
+   "nome": "Casa Geral"
+  },
+  "6": {
+   "dep": "12",
+   "nome": "Brinquedos e Lazer"
+  },
+  "15": {
+   "dep": "12",
+   "nome": "Utilidades Domésticas"
+  },
+  "42": {
+   "dep": "12",
+   "nome": "Descartáveis e Festas"
+  },
+  "69": {
+   "dep": "12",
+   "nome": "Pet Shop"
+  },
+  "75": {
+   "dep": "12",
+   "nome": "Papelaria e Escritório"
+  },
+  "60": {
+   "dep": "12",
+   "nome": "Textil"
+  },
+  "113": {
+   "dep": "12",
+   "nome": "Tabacaria"
+  },
+  "77": {
+   "dep": "18",
+   "nome": "Eletroportáteis"
+  },
+  "78": {
+   "dep": "18",
+   "nome": "Telefonia e Áudio"
+  },
+  "64": {
+   "dep": "18",
+   "nome": "Acessorios e perifericos"
+  },
+  "27": {
+   "dep": "10",
+   "nome": "Automotivo (Carro e Moto)"
+  },
+  "67": {
+   "dep": "10",
+   "nome": "Material de Construção"
+  },
+  "79": {
+   "dep": "10",
+   "nome": "Ferramentas e Ferragens"
+  },
+  "29": {
+   "dep": "10",
+   "nome": "Jardinagem e Camping"
+  }
+ },
+ "departamentos": {
+  "6": "Mercearia (Alimentos Secos)",
+  "7": "Bebidas",
+  "17": "Perecíveis (Frescos e Refrigerados)",
+  "11": "Higiene, Saúde e Beleza",
+  "9": "Limpeza",
+  "12": "Bazar e Utilidades",
+  "18": "Eletro e Eletrônicos",
+  "10": "Automotivo e Manutenção"
+ }
+}
