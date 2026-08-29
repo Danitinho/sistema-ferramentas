@@ -41,6 +41,7 @@
 
   .conf { display: inline-block; font-size: 10.5px; font-weight: 700;
           letter-spacing: .06em; padding: 2px 7px; border-radius: 3px; }
+  .c-ALTA    { background: var(--success-bg);  color: var(--success); }
   .c-MEDIA   { background: var(--accent-soft); color: var(--accent); }
   .c-BAIXA   { background: var(--warning-bg);  color: var(--warning); }
   .c-REVISAR { background: var(--danger-bg);   color: var(--danger); }
@@ -62,6 +63,10 @@
   .trio-res.ok  { background: var(--success-bg); border-color: var(--success); }
   .trio-res b { font-family: var(--mono); }
   .nota-rodape { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+  .caixa-ativos { display: flex; align-items: center; gap: 6px; margin: 0;
+                  font-size: 13px; text-transform: none; letter-spacing: 0;
+                  color: var(--ink-2); font-weight: 600; }
+  .caixa-ativos input { width: 15px; height: 15px; margin: 0; }
 </style>
 {% endblock %}
 
@@ -80,23 +85,28 @@
 <div class="painel full" style="display:grid;
      grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px;margin-bottom:18px">
   <div class="stat-card s-amber">
-    <div class="stat-v num" id="kpi-pendentes">{{ "{:,}".format(curadoria.pendentes).replace(",", ".") }}</div>
-    <div class="stat-l">Esperando decisão</div>
+    <div class="stat-v num" id="kpi-pendentes">{{ "{:,}".format(curadoria.pendentes_ativos).replace(",", ".") }}</div>
+    <div class="stat-l">Ativos a confirmar</div>
   </div>
   <div class="stat-card s-success">
     <div class="stat-v num" id="kpi-curados">{{ "{:,}".format(curadoria.curados).replace(",", ".") }}</div>
-    <div class="stat-l">Já decididos</div>
+    <div class="stat-l">Já confirmados</div>
+  </div>
+  {% set ca = curadoria.por_confianca_ativos %}
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(ca.get('ALTA', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Alta</div>
   </div>
   <div class="stat-card">
-    <div class="stat-v num">{{ "{:,}".format(curadoria.por_confianca.get('MÉDIA', 0) + curadoria.por_confianca.get('MEDIA', 0)).replace(",", ".") }}</div>
+    <div class="stat-v num">{{ "{:,}".format(ca.get('MÉDIA', 0) + ca.get('MEDIA', 0)).replace(",", ".") }}</div>
     <div class="stat-l">Média</div>
   </div>
   <div class="stat-card">
-    <div class="stat-v num">{{ "{:,}".format(curadoria.por_confianca.get('BAIXA', 0)).replace(",", ".") }}</div>
+    <div class="stat-v num">{{ "{:,}".format(ca.get('BAIXA', 0)).replace(",", ".") }}</div>
     <div class="stat-l">Baixa</div>
   </div>
   <div class="stat-card">
-    <div class="stat-v num">{{ "{:,}".format(curadoria.por_confianca.get('REVISAR', 0)).replace(",", ".") }}</div>
+    <div class="stat-v num">{{ "{:,}".format(ca.get('REVISAR', 0)).replace(",", ".") }}</div>
     <div class="stat-l">Revisar (sem sugestão)</div>
   </div>
   <div class="stat-card">
@@ -105,20 +115,35 @@
   </div>
 </div>
 
+<div class="alertx full" style="margin-bottom:18px">
+  <div>
+    <b>Nenhum produto vai para o ERP sem passar por aqui</b>, inclusive os de
+    confiança ALTA. A confiança é só um indicativo de quanto o palpite da
+    planilha merece atenção — ela ordena a fila e escolhe a cor do rótulo, não
+    autoriza gravação. Os números acima contam só os <b>ativos</b>
+    ({{ "{:,}".format(curadoria.pendentes).replace(",", ".") }} no total, com os
+    inativos).
+  </div>
+</div>
+
 <div class="card card-flush full">
   <div class="card-head">
     <div class="ttl">Fila de curadoria</div>
-    <div class="hint">o que for decidido aqui roda sozinho no ERP depois</div>
+    <div class="hint">nada chega ao ERP sem passar por aqui</div>
   </div>
   <div class="card-body">
 
     <div class="barra-filtros">
       <div class="fseg" id="f-conf">
         <button class="on" data-v="">Todas</button>
+        <button data-v="ALTA">Alta</button>
         <button data-v="MÉDIA">Média</button>
         <button data-v="BAIXA">Baixa</button>
         <button data-v="REVISAR">Revisar</button>
       </div>
+      <label class="caixa-ativos">
+        <input type="checkbox" id="f-ativos" checked> Só ativos
+      </label>
       <select id="f-dep">
         <option value="">Todos os departamentos sugeridos</option>
         {% for d in departamentos %}
@@ -156,7 +181,7 @@
     <button class="btn btn-secondary btn-sm" onclick="abrirDescartar()">Descartar…</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirDestino()">Mudar destino…</button>
     <button class="btn btn-primary btn-sm" id="btn-aceitar" onclick="aceitar()">
-      Aceitar a sugestão
+      Confirmar a sugestão
     </button>
   </div>
 </div>
@@ -245,6 +270,7 @@ function filtros() {
     dep: document.getElementById("f-dep").value,
     busca: document.getElementById("f-busca").value.trim(),
     limite: document.getElementById("f-limite").value,
+    so_ativos: document.getElementById("f-ativos").checked ? "1" : "",
   });
 }
 
@@ -290,8 +316,14 @@ function desenhar() {
             Selecionar ${temDestino ? n : "os visíveis"}
           </button>
           ${temDestino && n > 1
-            ? `<button class="btn btn-primary btn-sm" onclick="aceitarGrupo(${i})">
-                 Aceitar os ${n}</button>`
+            ? `<button class="btn btn-secondary btn-sm" onclick="aceitarGrupo(${i})">
+                 Confirmar estes ${n}</button>`
+            : ""}
+          ${temDestino && it.no_destino > n
+            ? `<button class="btn btn-primary btn-sm"
+                 title="Vale para o destino inteiro, não só o que está na tela"
+                 onclick="aceitarDestino(${i})">
+                 Confirmar todos os ${it.no_destino.toLocaleString("pt-BR")}</button>`
             : ""}
         </div>
       </div><div class="lista">`;
@@ -363,7 +395,7 @@ function pintarSelecao() {
 function atualizarBarra() {
   document.getElementById("n-sel").textContent = _sel.size;
   document.getElementById("barra-acao").style.display = _sel.size ? "flex" : "none";
-  // "Aceitar a sugestão" só faz sentido se todo o selecionado tiver sugestão.
+  // "Confirmar a sugestão" só faz sentido se todo o selecionado tiver sugestão.
   const semSugestao = _itens.filter(i => _sel.has(i.cod))
                             .some(i => !(i.dep_novo && i.sec_novo && i.sub_novo));
   const b = document.getElementById("btn-aceitar");
@@ -394,6 +426,31 @@ async function aceitar() {
   if (!_sel.size) return;
   await aplicar("/reclassificacao/curadoria/api/aceitar", { cods: cods() },
                 "liberados com o destino sugerido");
+}
+
+async function aceitarDestino(i) {
+  const it = _itens[i];
+  const conf = document.querySelector("#f-conf .on").dataset.v;
+  const ativos = document.getElementById("f-ativos").checked;
+  // O texto repete os filtros de propósito: o número do botão vale sob eles, e
+  // confirmar centenas de produtos de uma vez não pode depender de o curador
+  // lembrar que marcou "só ativos" três minutos atrás.
+  const recorte = [ativos ? "ativos" : null, conf ? `de confiança ${conf}` : null]
+                    .filter(Boolean).join(", ");
+  if (!confirm(
+      `Confirmar o destino de ${it.no_destino} produtos`
+      + (recorte ? ` (${recorte})` : "")
+      + `
+
+para  ${it.destino_nome}
+
+`
+      + `Vale para o lote inteiro, não só para o que está na tela. `
+      + `Depois disso eles ficam liberados para o agente gravar no ERP.`)) return;
+  await aplicar("/reclassificacao/curadoria/api/aceitar-destino", {
+    dep: it.dep_novo, sec: it.sec_novo, sub: it.sub_novo,
+    confianca: conf, so_ativos: ativos,
+  }, "confirmados e liberados");
 }
 
 async function aceitarGrupo(i) {
@@ -485,6 +542,7 @@ document.querySelectorAll("#f-conf button").forEach(b => b.onclick = () => {
   carregar();
 });
 document.getElementById("f-dep").onchange = carregar;
+document.getElementById("f-ativos").onchange = carregar;
 document.getElementById("f-limite").onchange = carregar;
 let _t;
 document.getElementById("f-busca").oninput = () => {

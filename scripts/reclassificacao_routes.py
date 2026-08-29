@@ -7,8 +7,9 @@ Duas plateias no mesmo módulo:
 
 * **As pessoas**, pelo navegador: o coordenador importa a planilha, acompanha o
   lote, gera tokens, LIGA E PARA o agente de cada máquina e vê o log dele; o
-  curador decide o destino dos produtos de confiança MÉDIA/BAIXA/REVISAR em
-  `/curadoria`. Protegido pela guarda de login do sistema, como todo o resto.
+  curador confirma o destino dos produtos em `/curadoria` — de TODOS eles, pois
+  nada é gravado no ERP sem uma pessoa passar antes. Protegido pela guarda de
+  login do sistema, como todo o resto.
 
 * **O agente de cada operador**, por HTTP: pergunta o que fazer
   (`/api/config`), reserva blocos, fecha itens e conta o que aconteceu
@@ -215,10 +216,10 @@ def importar():
     return redirect(url_for(
         ".index",
         aviso=(f"Planilha lida: {len(itens):,} linhas · {res['novos']:,} novos · "
-               f"{res['ja_existiam']:,} já estavam · "
-               f"{res['para_curadoria']:,} vão para a curadoria · "
-               f"{res['sem_destino']:,} sem destino (também caem na "
-               "curadoria, sem sugestão).").replace(",", ".")))
+               f"{res['ja_existiam']:,} já estavam. Todos vão para a curadoria "
+               f"({res['sem_destino']:,} deles sem sugestão de destino) — "
+               "nenhum produto é liberado sem confirmação."
+               ).replace(",", ".")))
 
 
 @reclassificacao_bp.post("/operadores")
@@ -294,6 +295,7 @@ def cur_fila():
         confianca=request.args.get("confianca", ""),
         dep=request.args.get("dep", ""),
         busca=(request.args.get("busca", "") or "").strip(),
+        so_ativos=request.args.get("so_ativos") == "1",
     )
     # Os nomes vêm prontos do servidor: a tela não deve ter de saber a
     # hierarquia para escrever "Bebidas › Não Alcoólicas › Sucos".
@@ -409,3 +411,12 @@ def erp_mapa():
     r.banco().gravar_config("mapa_erp", valor, _usuario())
     return redirect(url_for(".index", aviso="Mapa do ERP salvo. Cada agente "
                                             "recebe na próxima volta do laço."))
+
+
+@reclassificacao_bp.post("/curadoria/api/aceitar-destino")
+def cur_aceitar_destino():
+    """Confirma de uma vez todos os pendentes de um destino, não só os da tela."""
+    d = _corpo()
+    return jsonify(r.banco().aceitar_destino(
+        d.get("dep", ""), d.get("sec", ""), d.get("sub", ""), por=_usuario(),
+        confianca=d.get("confianca", ""), so_ativos=bool(d.get("so_ativos"))))

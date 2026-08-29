@@ -555,23 +555,40 @@ tkinter na máquina do operador. A janela sumiu. Não foi maquiagem:
 
 ```
 ANTES  reservar -> [o operador confirma produto a produto, ERP parado] -> gravar
-AGORA  curadoria no navegador -> reservar -> gravar sem perguntar nada
+AGORA  curadoria no navegador -> reservar -> gravar sem parar para perguntar
 ```
 
-A decisão sobre o destino **saiu de dentro da rodada**. Antes ela acontecia com
-o ERP travado esperando uma pessoa; agora acontece antes, na tela `/curadoria`,
-em lote e longe do ERP. Três consequências que explicam quase todo o desenho
+A confirmação humana **não desapareceu; mudou de momento**. Continua havendo uma
+pessoa por trás de cada gravação — só que ela decide antes, em lote, e não com o
+ERP travado esperando. Três consequências que explicam quase todo o desenho
 atual:
 
-1. **`itens.pronto` é a fronteira.** `reservar` só entrega `pronto=1`. Na
-   importação, só ALTA com destino nasce pronta (era o que já rodava no
-   automático); MÉDIA, BAIXA e REVISAR nascem `pronto=0` e esperam curadoria.
+1. **`itens.pronto` é a fronteira, e ela é intransponível sem uma pessoa.**
+   `reservar` só entrega `pronto=1`, e **nada nasce pronto** — nem os de
+   confiança ALTA. Todo produto do lote espera confirmação em `/curadoria`.
 2. **O programa da máquina virou um agente sem tela.** Ele pergunta o que fazer,
    executa e conta o que aconteceu. Ligar, pausar, configurar, ver o log: tudo
    no navegador.
-3. **O gargalo virou trabalho paralelizável.** Os 9.244 MÉDIA/BAIXA não precisam
-   mais de um operador sentado ao lado do ERP; qualquer pessoa cura de qualquer
-   tela, inclusive fora do horário da loja.
+3. **O gargalo virou trabalho paralelizável.** Ninguém mais precisa ficar
+   sentado ao lado do ERP; qualquer pessoa cura de qualquer tela, inclusive fora
+   do horário da loja.
+
+### A confiança é indicativa, não é autorização
+
+Decisão explícita do usuário (29/08/2026), depois de uma versão que liberava os
+ALTA sozinhos: **nenhum produto é gravado no ERP sem alguém confirmar.**
+ALTA/MÉDIA/BAIXA/REVISAR ordena a fila, escolhe a cor do rótulo e diz o quanto o
+palpite da planilha merece atenção — só isso.
+
+O porquê: o palpite acerta muito, mas "muito" não é "sempre", e `concluido` é
+terminal. Um cadastro gravado errado no automático não tem desfazer, e ninguém
+saberia que ele existe. 38.504 produtos ALTA gravados sem revisão é uma aposta
+grande demais para um ganho que a curadoria em lote já entrega barato.
+
+`_migrar` tem uma migração de uma vez só (marcada em
+`config.migracao_curadoria_total`) que devolveu à curadoria os `pronto=1` sem
+`curado_em` — isto é, os que a versão anterior tinha liberado sem ninguém olhar.
+Itens já trabalhados e já curados não foram tocados.
 
 ### O que este módulo NÃO faz
 
@@ -662,18 +679,31 @@ livre p=0   ─┘
              └─descartar────────────────> descartado        (fora do lote)
 ```
 
-- **`aceitar_sugestao(cods)`** confirma o destino que a planilha sugeriu. Passa
-  pela validação mesmo assim: aceitar em lote é exatamente onde um trio inválido
-  passaria batido. O que não valida volta em `recusados`, com o motivo.
+- **`aceitar_sugestao(cods)`** confirma o destino que a planilha sugeriu, para
+  os itens marcados na tela. Passa pela validação mesmo assim: aceitar em lote é
+  exatamente onde um trio inválido passaria batido. O que não valida volta em
+  `recusados`, com o motivo.
+- **`aceitar_destino(dep, sec, sub, confianca, so_ativos)`** confirma **todos**
+  os pendentes daquele destino, no lote inteiro — não só os da página. Existe
+  porque os grupos são grandes: o maior tem 1.216 itens e nenhuma página cabe
+  isso. Os filtros passados são os mesmos da tela, e por isso o número do botão
+  bate com o que a ação faz (verificado nas três combinações). O texto de
+  confirmação repete os filtros em voz alta: confirmar centenas de produtos não
+  pode depender de o curador lembrar que marcou "só ativos" minutos atrás.
 - **`curar(cods, dep, sec, sub)`** grava um destino escolhido à mão. É o caminho
   dos 4.003 REVISAR, que não têm sugestão.
 - **`descartar(cods, motivo)`** tira do lote sem editar no ERP; some da vista,
   não da história (`reverter_descarte` traz todos de volta).
 - A lista sai **na mesma ordem da fila de execução** (confiança, depois
-  destino), de propósito: o lote vem agrupado por destino — num bloco de 100
-  medido, os 68 primeiros iam para o mesmo lugar. `iguais_a_seguir` conta quantos
-  itens seguidos compartilham o destino e alimenta o botão **"Aceitar os N"**.
-  Foi assim que o "confirmar em série" saiu do papel.
+  destino), de propósito: o lote vem agrupado por destino. Duas contagens por
+  grupo, e elas querem dizer coisas diferentes: `iguais_a_seguir` é o que dá para
+  marcar **nesta página**; `no_destino` é o tamanho do grupo **no lote inteiro**,
+  e é ele que aparece no botão "Confirmar todos os N". Foi assim que o
+  "confirmar em série" saiu do papel.
+- **A tela começa escondendo os inativos** (`so_ativos`, marcado por padrão).
+  Dois terços da fila são produtos inativos (38.462 de 65.874) e o agente nunca
+  os pede — a rodada tem "só ativos" ligado. Curá-los é trabalho que não
+  desbloqueia nada. Os números do topo contam só os ativos, com o total ao lado.
 - **Concorrência entre curadores** é resolvida por não-sobrescrita, não por
   trava: `_aplicar_curadoria` só mexe em item ainda pendente e devolve
   `ja_curados` para o resto. Duas pessoas na mesma lista se atrapalham um pouco;
@@ -799,9 +829,10 @@ tentar trabalhar. Se precisar mudar, mude os dois lados na mesma sessão.
    cadastro já editado é exatamente o que a fila existe para impedir. Só
    `falhou` e `simulado` voltam à fila.
 4. **Só o dono da reserva fecha o item** (`concluir` recusa os demais).
-5. **`reservar` só entrega `pronto=1`.** É o que garante que a rodada automática
-   nunca grave um destino que ninguém olhou. Tirar esse filtro devolve ao agente
-   a decisão que a curadoria existe para tomar antes.
+5. **`reservar` só entrega `pronto=1`, e nada nasce `pronto`.** É o que garante
+   que a rodada nunca grave um destino que ninguém olhou. Tirar esse filtro — ou
+   voltar a liberar alguma faixa de confiança na importação — devolve ao agente
+   uma decisão que é da pessoa. Foi pedido explicitamente que não fosse assim.
 6. **A validação do trio mora no servidor.** Não confie no `<select>`.
 7. **O `.db` fica atrás deste processo, nunca numa pasta de rede.** O travamento
    do SQLite depende de file locks pouco confiáveis sobre SMB e o modo WAL nem
@@ -858,8 +889,12 @@ agente.garantir_erp = lambda: (setattr(agente, "drv", DriverFake()), True)[1]
 threading.Thread(target=agente.rodar, daemon=True).start()
 ```
 
-Verificado assim (28/08/2026, contra os 65.874 itens reais): migração do banco
-antigo (38.504 ALTA viraram `pronto=1`, 27.370 foram para a curadoria); aceite em
+Verificado assim (29/08/2026, contra os 65.874 itens reais): a migração devolveu
+os 38.504 ALTA à curadoria (`prontos=0`, 65.874 esperando, 27.412 deles ativos);
+`reservar` devolvendo **zero** itens enquanto ninguém confirmou nada; o número do
+botão "Confirmar todos os N" batendo com o que a ação faz nas três combinações de
+filtro (ALTA+ativos: 71/71 · todas+ativos: 91/91 · todas+inativos: 185/185); o
+agente voltando a receber trabalho assim que um destino é confirmado; aceite em
 série de 38 produtos do mesmo destino num clique; recusa do trio invertido
 (`7/22/22` → "subseção 22 (Bovinos) pertence à seção 13"); agente ocioso
 aparecendo **vivo** no painel; **Iniciar** no navegador fazendo 565 produtos
@@ -888,6 +923,10 @@ a rodada de verdade pular aquele produto para sempre.
 - **Curadoria sem reserva.** Dois curadores na mesma faixa se atrapalham (um vê
   "já decidido por outro"). Se virar incômodo, o caminho é um lease curto por
   bloco de curadoria, como o da fila de execução.
+- **O volume da curadoria cresceu 4x** ao trazer os ALTA (27.412 ativos, não
+  10.562). Os grupos grandes seguram bem — 10 destinos cobrem 46% dos ativos com
+  sugestão —, mas se o ritmo incomodar, o caminho é uma visão de conferência por
+  amostragem: mostrar N produtos de um destino, e o botão confirmar o resto.
 - **A fila coordena a equipe, não a loja.** Ninguém enxerga o pessoal do balcão
   editando cadastro pelo ERP durante o expediente; num Delphi CRUD comum o
   último que salva vence, silenciosamente. Mitigação é rodar fora do horário.

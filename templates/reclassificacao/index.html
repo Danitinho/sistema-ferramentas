@@ -113,11 +113,11 @@
   </div>
   <div class="stat-card">
     <div class="stat-v num" id="k-prontos">{{ "{:,}".format(resumo.prontos).replace(",", ".") }}</div>
-    <div class="stat-l">Prontos p/ o agente</div>
+    <div class="stat-l">Confirmados, na fila</div>
   </div>
   <div class="stat-card s-amber">
     <div class="stat-v num" id="k-curadoria">{{ "{:,}".format(resumo.aguardando_curadoria).replace(",", ".") }}</div>
-    <div class="stat-l">Esperando curadoria</div>
+    <div class="stat-l">A confirmar</div>
   </div>
   <div class="stat-card">
     <div class="stat-v num" id="k-reservado">{{ "{:,}".format(resumo.por_estado.get('reservado', 0)).replace(",", ".") }}</div>
@@ -141,10 +141,12 @@
 <div class="card full" style="border-color:var(--accent)">
   <div class="card-title">Antes de ligar as máquinas</div>
   <p style="font-size:14px;margin:0 0 14px">
-    <b>{{ "{:,}".format(resumo.aguardando_curadoria).replace(",", ".") }}</b> produtos
-    esperam alguém decidir o destino. Enquanto não forem decididos, eles não são
-    oferecidos a nenhum agente — a rodada no ERP só executa o que já foi
-    resolvido no navegador, e por isso nunca para para perguntar.
+    <b>{{ "{:,}".format(curadoria.pendentes_ativos).replace(",", ".") }}</b> produtos
+    ativos esperam confirmação
+    ({{ "{:,}".format(resumo.aguardando_curadoria).replace(",", ".") }} contando
+    os inativos). <b>Nenhum produto é gravado no ERP sem alguém confirmar</b>,
+    inclusive os de confiança ALTA — ela é indicativa, não autoriza gravação.
+    Enquanto não forem confirmados, não são oferecidos a nenhum agente.
   </p>
   <a class="btn btn-primary" href="/reclassificacao/curadoria"
      style="width:auto">Abrir a curadoria</a>
@@ -273,9 +275,9 @@
   </form>
   <div class="ev" style="margin-bottom:18px">
     Reimportar é seguro: só acrescenta código que ainda não está no lote e não
-    encosta em nada já trabalhado. Entram liberados só os de confiança
-    <b>ALTA</b>; <b>MÉDIA</b>, <b>BAIXA</b> e <b>REVISAR</b> vão para a
-    curadoria e esperam decisão.
+    encosta em nada já trabalhado. <b>Todo produto entra esperando confirmação</b>
+    — a confiança da planilha ordena a fila e sugere o destino, mas não libera
+    ninguém para gravar.
   </div>
 
   <div class="linha-form">

@@ -19,12 +19,22 @@ pergunta o que fazer (`config_do_agente`), executa e conta o que aconteceu
 só é possível porque a decisão saiu de dentro da rodada:
 
     ANTES  reservar -> [operador confirma produto a produto, ERP parado] -> gravar
-    AGORA  curadoria no navegador -> reservar -> gravar sem perguntar nada
+    AGORA  curadoria no navegador -> reservar -> gravar sem parar para perguntar
 
-`itens.pronto` é a fronteira. Na importação, só ALTA com destino nasce pronta —
-era o que já rodava no automático. MÉDIA, BAIXA e REVISAR ficam esperando um
-humano na tela de curadoria, que é onde a decisão passou a ser tomada: em lote,
-por destino, longe do ERP e paralelizável. `reservar` só entrega `pronto=1`.
+A confirmação humana não desapareceu: ela mudou de momento. Continua havendo uma
+pessoa por trás de cada gravação — só que ela decide antes, em lote, e não com o
+ERP travado esperando.
+
+`itens.pronto` é a fronteira, e ela é **intransponível sem uma pessoa**: nenhum
+produto nasce pronto, nem os de confiança ALTA. Todo item espera alguém confirmar
+na tela de curadoria — em lote, por destino, longe do ERP e paralelizável — e só
+então `reservar` o entrega ao agente, que grava pelo driver do ERP.
+
+**A confiança é indicativa, não é autorização.** ALTA/MÉDIA/BAIXA/REVISAR ordena
+a fila, escolhe a cor do rótulo e diz o quanto o palpite da planilha merece
+atenção. Não libera gravação. Foi uma decisão explícita: o palpite acerta muito,
+mas "muito" não é "sempre", e `concluido` é terminal — um cadastro gravado errado
+no automático não tem desfazer.
 
 A atomicidade da reserva é a garantia inteira do sistema: selecionar e marcar
 acontecem na MESMA transação. Separar em "buscar livres" e depois "marcar"
@@ -321,14 +331,6 @@ class FilaBanco:
                 self.con.execute(f"ALTER TABLE itens ADD COLUMN {coluna} {tipo}")
 
         if novas_curadoria:
-            # Backfill da regra de sempre: ALTA com destino já era executada no
-            # automático antes desta mudança, então continua liberada. MÉDIA,
-            # BAIXA e REVISAR ficam com pronto=0 — é exatamente o trabalho que
-            # antes era feito produto a produto no painel do programa de mesa e
-            # que agora acontece no navegador, antes da rodada.
-            self.con.execute(
-                "UPDATE itens SET pronto=1 WHERE confianca='ALTA'"
-                " AND estado NOT IN (?,?)", (SEM_DESTINO, DESCARTADO))
             # Item já trabalhado não volta para a fila de curadoria.
             self.con.execute(
                 "UPDATE itens SET pronto=1 WHERE estado IN (?,?,?)",
@@ -337,6 +339,27 @@ class FilaBanco:
         self.con.execute(
             "CREATE INDEX IF NOT EXISTS ix_curadoria"
             " ON itens(pronto, estado, ordem_conf, dep_novo, sec_novo, sub_novo)")
+
+        # Uma versão anterior liberava sozinha os de confiança ALTA. A regra
+        # mudou: NENHUM produto é gravado sem uma pessoa confirmar, e confiança
+        # é só indicativa. Isto devolve à curadoria o que foi liberado sem
+        # ninguém olhar — reconhecível por `pronto=1` sem `curado_em`. Roda uma
+        # vez; itens já trabalhados e já curados não são tocados.
+        marca = self.con.execute(
+            "SELECT valor FROM config WHERE chave='migracao_curadoria_total'"
+        ).fetchone()
+        if not marca:
+            cur = self.con.execute(
+                "UPDATE itens SET pronto=0 WHERE pronto=1 AND curado_em IS NULL"
+                " AND estado IN (?,?)", (LIVRE, SEM_DESTINO))
+            self.con.execute(
+                "INSERT INTO config (chave, valor, em, por) VALUES (?,?,?,?)",
+                ("migracao_curadoria_total", json.dumps(cur.rowcount),
+                 time.strftime("%Y-%m-%d %H:%M:%S"), "migracao"))
+            if cur.rowcount:
+                self._evento("migrou", "", "",
+                             f"{cur.rowcount} itens voltaram para a curadoria "
+                             "(nada mais e liberado automaticamente)")
 
     # ── apoio ────────────────────────────────────────────────────────────────
     def _evento(self, acao, cod="", operador="", detalhe="",
@@ -488,12 +511,11 @@ class FilaBanco:
                 tem_destino = bool(it.dep_novo and it.sec_novo and it.sub_novo)
                 if not tem_destino:
                     sem_destino += 1
-                # Só ALTA com destino entra liberada para o agente. O resto
-                # espera um humano no navegador — é a inversão que faz a
-                # rodada no ERP ser 100% automática (ver docstring do módulo).
-                pronto = int(tem_destino and it.confianca == "ALTA")
-                if tem_destino and not pronto:
-                    curadoria += 1
+                # NADA nasce liberado. Todo produto passa por uma pessoa antes
+                # de ser gravado no ERP — inclusive os de confiança ALTA. A
+                # confiança é indicativa: ordena a fila e sugere o destino, mas
+                # não autoriza gravação (ver docstring do módulo).
+                curadoria += 1
                 self.con.execute(
                     "INSERT INTO itens (cod, linha, produto, ativo, ano,"
                     " dep_atual, sec_atual, sub_atual, dep_novo, sec_novo,"
@@ -503,7 +525,7 @@ class FilaBanco:
                      it.dep_atual, it.sec_atual, it.sub_atual,
                      it.dep_novo, it.sec_novo, it.sub_novo,
                      it.confianca, ORDEM_CONF.get(it.confianca, 9), it.base,
-                     LIVRE if tem_destino else SEM_DESTINO, pronto),
+                     LIVRE if tem_destino else SEM_DESTINO, 0),
                 )
                 existentes.add(it.cod)
                 novos += 1
@@ -710,7 +732,7 @@ class FilaBanco:
     # pergunta nada. `pronto=1` é a fronteira entre os dois mundos.
 
     def _filtro_curadoria(self, confianca="", dep="", busca="",
-                          incluir_sem_destino=True):
+                          incluir_sem_destino=True, so_ativos=False):
         onde = ["pronto=0", "estado IN ({})".format(
             ",".join("?" * (2 if incluir_sem_destino else 1)))]
         params: list = [LIVRE] + ([SEM_DESTINO] if incluir_sem_destino else [])
@@ -723,11 +745,17 @@ class FilaBanco:
         if busca:
             onde.append("(produto LIKE ? OR cod LIKE ?)")
             params += [f"%{busca}%", f"%{busca}%"]
+        if so_ativos:
+            # Dois terços da fila são produtos inativos, e o agente nunca os
+            # pede (o padrão da rodada é "só ativos"). Curá-los é trabalho que
+            # não desbloqueia nada, então a tela começa escondendo-os.
+            onde.append("ativo=1")
         return " AND ".join(onde), params
 
     def fila_curadoria(self, limite: int = 60, confianca: str = "",
                        dep: str = "", busca: str = "",
-                       incluir_sem_destino: bool = True) -> dict:
+                       incluir_sem_destino: bool = True,
+                       so_ativos: bool = False) -> dict:
         """Próximos itens que esperam decisão humana.
 
         Sai na MESMA ordem da fila de execução (confiança, depois destino), e é
@@ -737,7 +765,7 @@ class FilaBanco:
         """
         limite = max(1, min(int(limite), 300))
         onde, params = self._filtro_curadoria(confianca, dep, busca,
-                                              incluir_sem_destino)
+                                              incluir_sem_destino, so_ativos)
         with self.lock:
             linhas = self.con.execute(
                 f"SELECT * FROM itens WHERE {onde}"
@@ -747,8 +775,18 @@ class FilaBanco:
                 f"SELECT COUNT(*) FROM itens WHERE {onde}", params).fetchone()[0]
         itens = [self._linha_item(r) for r in linhas]
 
-        # Quantos, a partir de cada posição, compartilham o mesmo destino
-        # sugerido. É o que alimenta o botão "aceitar os próximos N iguais".
+        # Duas contagens por destino, e elas querem dizer coisas diferentes:
+        # `iguais_a_seguir` é o que dá para marcar NESTA página; `no_destino` é
+        # o tamanho real do grupo no lote inteiro. O maior bloco tem 1.216 itens
+        # e nenhuma página cabe isso — sem a contagem do servidor, liberar um
+        # destino grande viraria paginação a perder de vista.
+        with self.lock:
+            totais = {
+                (r[0] or "", r[1] or "", r[2] or ""): r[3]
+                for r in self.con.execute(
+                    f"SELECT dep_novo, sec_novo, sub_novo, COUNT(*)"
+                    f" FROM itens WHERE {onde} GROUP BY 1,2,3", params)
+            }
         for i, it in enumerate(itens):
             destino = (it["dep_novo"], it["sec_novo"], it["sub_novo"])
             n = 0
@@ -759,7 +797,38 @@ class FilaBanco:
                         break
                     n += 1
             it["iguais_a_seguir"] = n
+            it["no_destino"] = totais.get(destino, 0) if all(destino) else 0
         return {"itens": itens, "total": total, "mostrando": len(itens)}
+
+    def aceitar_destino(self, dep: str, sec: str, sub: str, por: str = "",
+                        confianca: str = "", so_ativos: bool = False) -> dict:
+        """Confirma o destino sugerido de TODOS os pendentes daquele destino.
+
+        Complementa `aceitar_sugestao`, que só alcança o que está na tela. Os
+        grupos grandes (1.216 no maior) são a maior parte do lote: 10 destinos
+        cobrem 46% dos ativos com sugestão. Sem esta porta, confirmar o lote
+        seria rolar página atrás de página.
+        """
+        from scripts.reclassificacao_estrutura import estrutura
+
+        dep, sec, sub = str(dep).strip(), str(sec).strip(), str(sub).strip()
+        if not (dep and sec and sub):
+            return {"ok": False, "erro": "destino incompleto"}
+        ok, motivo = estrutura().validar(dep, sec, sub)
+        if not ok:
+            return {"ok": False, "erro": motivo}
+
+        with self.lock:
+            sql = ("SELECT cod FROM itens WHERE pronto=0 AND estado=?"
+                   " AND dep_novo=? AND sec_novo=? AND sub_novo=?"
+                   + (" AND ativo=1" if so_ativos else "")
+                   + (" AND confianca=?" if confianca else ""))
+            p = [LIVRE, dep, sec, sub] + ([confianca] if confianca else [])
+            cods = [r[0] for r in self.con.execute(sql, p)]
+        if not cods:
+            return {"ok": True, "aplicados": 0, "ja_curados": 0}
+        return self._aplicar_curadoria(cods, dep, sec, sub, por, "",
+                                       "aceitou_destino")
 
     def resumo_curadoria(self) -> dict:
         with self.lock:
@@ -775,13 +844,22 @@ class FilaBanco:
             pendentes = self.con.execute(
                 "SELECT COUNT(*) FROM itens WHERE pronto=0 AND estado IN (?,?)",
                 (LIVRE, SEM_DESTINO)).fetchone()[0]
+            pendentes_ativos = self.con.execute(
+                "SELECT COUNT(*) FROM itens WHERE pronto=0 AND ativo=1"
+                " AND estado IN (?,?)", (LIVRE, SEM_DESTINO)).fetchone()[0]
+            por_conf_ativos = dict(self.con.execute(
+                "SELECT confianca, COUNT(*) FROM itens WHERE pronto=0 AND ativo=1"
+                " AND estado IN (?,?) GROUP BY confianca",
+                (LIVRE, SEM_DESTINO)).fetchall())
             curados = self.con.execute(
                 "SELECT COUNT(*) FROM itens WHERE curado_em IS NOT NULL"
             ).fetchone()[0]
             descartados = self.con.execute(
                 "SELECT COUNT(*) FROM itens WHERE estado=?",
                 (DESCARTADO,)).fetchone()[0]
-        return {"pendentes": pendentes, "por_confianca": por_conf,
+        return {"pendentes": pendentes, "pendentes_ativos": pendentes_ativos,
+                "por_confianca": por_conf,
+                "por_confianca_ativos": por_conf_ativos,
                 "por_departamento": por_dep, "curados": curados,
                 "descartados": descartados}
 
