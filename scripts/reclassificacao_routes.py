@@ -274,6 +274,7 @@ def exportar():
 
 @reclassificacao_bp.get("/curadoria")
 def cur_pagina():
+    """Conferência um a um — o caminho normal da curadoria."""
     b = r.banco()
     e = est.estrutura()
     return render_template(
@@ -420,3 +421,30 @@ def cur_aceitar_destino():
     return jsonify(r.banco().aceitar_destino(
         d.get("dep", ""), d.get("sec", ""), d.get("sub", ""), por=_usuario(),
         confianca=d.get("confianca", ""), so_ativos=bool(d.get("so_ativos"))))
+
+
+@reclassificacao_bp.get("/curadoria/lista")
+def cur_lista():
+    """A vista em lista, para achar um produto ou varrer um departamento.
+
+    A conferência um a um é o caminho normal; esta aqui é para quando se sabe o
+    que se procura. Ela também confirma em lote, e é de propósito: quem chega
+    por busca já sabe o que está olhando.
+    """
+    b = r.banco()
+    e = est.estrutura()
+    return render_template(
+        "reclassificacao/curadoria_lista.html",
+        curadoria=b.resumo_curadoria(),
+        arvore=e.arvore(),
+        estrutura_ok=e.carregada,
+        estrutura_erro=e.erro,
+        departamentos=e.lista_departamentos(),
+    )
+
+
+@reclassificacao_bp.post("/curadoria/api/desfazer")
+def cur_desfazer():
+    """Desfaz confirmações que ainda não viraram trabalho de nenhum agente."""
+    d = _corpo()
+    return jsonify(r.banco().descurar(d.get("cods") or [], _usuario()))

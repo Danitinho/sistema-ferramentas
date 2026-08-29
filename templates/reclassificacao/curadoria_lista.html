@@ -1,0 +1,555 @@
+{% extends "base.html" %}
+{% block title %}Curadoria em lista — Reclassificação{% endblock %}
+{% block header_title %}Curadoria em lista{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · <a href="/reclassificacao">Reclassificação</a> · <a href="/reclassificacao/curadoria">Curadoria</a> · Lista{% endblock %}
+
+{% block header_actions %}
+  <a class="btn btn-primary btn-sm" href="/reclassificacao/curadoria">Conferir um a um</a>
+  <a class="btn btn-secondary btn-sm" href="/reclassificacao">Painel do lote</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .barra-filtros { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+                   margin-bottom: 14px; }
+  .barra-filtros select { max-width: 260px; }
+
+  /* Cabeçalho de corrida: os itens vêm agrupados por destino, então uma faixa
+     por grupo deixa óbvio quantos produtos o mesmo clique resolve. */
+  .grupo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+           background: var(--surface-2); border: 1px solid var(--line);
+           border-bottom: none; padding: 10px 14px; margin-top: 14px;
+           border-radius: var(--radius) var(--radius) 0 0; }
+  .grupo .destino { font-weight: 650; font-size: 13.5px; color: var(--ink); }
+  .grupo .cods { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .grupo .acts { margin-left: auto; display: flex; gap: 8px; }
+  .grupo.sem-sugestao { background: var(--warning-bg); }
+
+  .lista { border: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius);
+           background: var(--surface); overflow: hidden; margin-bottom: 4px; }
+  .item { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px;
+          align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line);
+          cursor: pointer; user-select: none; }  /* shift-clique nao seleciona texto */
+  .item:last-child { border-bottom: none; }
+  .item:hover { background: var(--surface-2); }
+  .item.sel { background: var(--accent-soft); }
+  .item .nome { font-size: 13.5px; color: var(--ink); font-weight: 600; }
+  .item .sub  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .item .sub .cod { font-family: var(--mono); }
+  .item .dir { text-align: right; font-size: 12px; color: var(--muted);
+               white-space: nowrap; }
+  .item input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+
+  .conf { display: inline-block; font-size: 10.5px; font-weight: 700;
+          letter-spacing: .06em; padding: 2px 7px; border-radius: 3px; }
+  .c-ALTA    { background: var(--success-bg);  color: var(--success); }
+  .c-MEDIA   { background: var(--accent-soft); color: var(--accent); }
+  .c-BAIXA   { background: var(--warning-bg);  color: var(--warning); }
+  .c-REVISAR { background: var(--danger-bg);   color: var(--danger); }
+
+  /* Barra de ação fixa no rodapé: a seleção pode ter 200 itens, e o botão não
+     pode ficar a uma rolagem de distância do último clique. */
+  .acao-fixa { position: sticky; bottom: 0; z-index: 20; margin-top: 16px;
+               display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+               background: var(--surface); border: 1px solid var(--line-2);
+               border-radius: var(--radius); padding: 12px 16px;
+               box-shadow: 0 -2px 10px rgba(0,0,0,.06); }
+  .acao-fixa .cnt { font-weight: 650; font-size: 14px; }
+  .acao-fixa .cnt b { font-family: var(--mono); }
+  .acao-fixa .dir { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .trio { display: grid; gap: 10px; }
+  .trio-res { font-size: 13px; padding: 10px 12px; border-radius: var(--radius-sm);
+              background: var(--surface-2); border: 1px solid var(--line); }
+  .trio-res.ok  { background: var(--success-bg); border-color: var(--success); }
+  .trio-res b { font-family: var(--mono); }
+  .nota-rodape { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+  .caixa-ativos { display: flex; align-items: center; gap: 6px; margin: 0;
+                  font-size: 13px; text-transform: none; letter-spacing: 0;
+                  color: var(--ink-2); font-weight: 600; }
+  .caixa-ativos input { width: 15px; height: 15px; margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if not estrutura_ok %}
+<div class="alertx full">
+  <b>Estrutura merceológica não carregada.</b> {{ estrutura_erro }}<br>
+  Sem ela nenhum destino pode ser validado, e a curadoria fica bloqueada — é de
+  propósito: os códigos se repetem entre departamento, seção e subseção, e um
+  trio na ordem errada gera um cadastro que o ERP aceita e que está errado.
+  Reponha <code>dados/estrutura_grupos.json</code>.
+</div>
+{% endif %}
+
+<div class="painel full" style="display:grid;
+     grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px;margin-bottom:18px">
+  <div class="stat-card s-amber">
+    <div class="stat-v num" id="kpi-pendentes">{{ "{:,}".format(curadoria.pendentes_ativos).replace(",", ".") }}</div>
+    <div class="stat-l">Ativos a confirmar</div>
+  </div>
+  <div class="stat-card s-success">
+    <div class="stat-v num" id="kpi-curados">{{ "{:,}".format(curadoria.curados).replace(",", ".") }}</div>
+    <div class="stat-l">Já confirmados</div>
+  </div>
+  {% set ca = curadoria.por_confianca_ativos %}
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(ca.get('ALTA', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Alta</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(ca.get('MÉDIA', 0) + ca.get('MEDIA', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Média</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(ca.get('BAIXA', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Baixa</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num">{{ "{:,}".format(ca.get('REVISAR', 0)).replace(",", ".") }}</div>
+    <div class="stat-l">Revisar (sem sugestão)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-v num" id="kpi-descartados">{{ "{:,}".format(curadoria.descartados).replace(",", ".") }}</div>
+    <div class="stat-l">Descartados</div>
+  </div>
+</div>
+
+<div class="alertx full" style="margin-bottom:18px">
+  <div>
+    <b>Nenhum produto vai para o ERP sem passar por aqui</b>, inclusive os de
+    confiança ALTA. A confiança é só um indicativo de quanto o palpite da
+    planilha merece atenção — ela ordena a fila e escolhe a cor do rótulo, não
+    autoriza gravação. Os números acima contam só os <b>ativos</b>
+    ({{ "{:,}".format(curadoria.pendentes).replace(",", ".") }} no total, com os
+    inativos).
+  </div>
+</div>
+
+<div class="card card-flush full">
+  <div class="card-head">
+    <div class="ttl">Fila de curadoria</div>
+    <div class="hint">nada chega ao ERP sem passar por aqui</div>
+  </div>
+  <div class="card-body">
+
+    <div class="barra-filtros">
+      <div class="fseg" id="f-conf">
+        <button class="on" data-v="">Todas</button>
+        <button data-v="ALTA">Alta</button>
+        <button data-v="MÉDIA">Média</button>
+        <button data-v="BAIXA">Baixa</button>
+        <button data-v="REVISAR">Revisar</button>
+      </div>
+      <label class="caixa-ativos">
+        <input type="checkbox" id="f-ativos" checked> Só ativos
+      </label>
+      <select id="f-dep">
+        <option value="">Todos os departamentos sugeridos</option>
+        {% for d in departamentos %}
+        <option value="{{ d.cod }}">{{ d.cod }} — {{ d.nome }}</option>
+        {% endfor %}
+      </select>
+      <div class="search" style="flex:1 1 220px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input type="text" id="f-busca" placeholder="Produto ou código de barras">
+      </div>
+      <select id="f-limite" style="max-width:150px">
+        <option value="60">60 por vez</option>
+        <option value="120">120 por vez</option>
+        <option value="200">200 por vez</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="carregar()">Atualizar</button>
+    </div>
+
+    <div id="fila"><div class="empty-state"><span class="spinner"></span></div></div>
+
+    <div class="nota-rodape">
+      A lista sai na mesma ordem da fila de execução — confiança, depois destino
+      — então produtos que vão para o mesmo lugar aparecem juntos. Duas pessoas
+      podem curar ao mesmo tempo: se alguém já decidiu um item, ele não é
+      sobrescrito e volta no aviso como "já decidido por outro".
+    </div>
+  </div>
+</div>
+
+<div class="acao-fixa full" id="barra-acao" style="display:none">
+  <div class="cnt"><b id="n-sel">0</b> selecionados</div>
+  <div class="dir">
+    <button class="btn btn-secondary btn-sm" onclick="limparSelecao()">Limpar</button>
+    <button class="btn btn-secondary btn-sm" onclick="abrirDescartar()">Descartar…</button>
+    <button class="btn btn-secondary btn-sm" onclick="abrirDestino()">Mudar destino…</button>
+    <button class="btn btn-primary btn-sm" id="btn-aceitar" onclick="aceitar()">
+      Confirmar a sugestão
+    </button>
+  </div>
+</div>
+
+<!-- Modal: definir destino ---------------------------------------------------->
+<div class="modal-overlay" id="modal-destino" onclick="fecharSeFundo(event,'modal-destino')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title">Definir destino</div>
+      <button class="modal-close" onclick="fecharModal('modal-destino')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="d-contexto" style="font-size:13px;color:var(--muted);margin-bottom:14px"></div>
+      <div class="trio">
+        <div>
+          <label>Departamento</label>
+          <select id="d-dep" onchange="mudouDep()"><option value="">—</option></select>
+        </div>
+        <div>
+          <label>Seção</label>
+          <select id="d-sec" onchange="mudouSec()"><option value="">—</option></select>
+        </div>
+        <div>
+          <label>Subseção</label>
+          <select id="d-sub" onchange="mostrarTrio()"><option value="">—</option></select>
+        </div>
+        <div>
+          <label>Observação (opcional)</label>
+          <input type="text" id="d-nota" placeholder="por que este destino">
+        </div>
+      </div>
+      <div class="trio-res" id="d-res" style="margin-top:14px">Escolha a subseção.</div>
+      <div class="ev" style="font-size:12.5px;color:var(--muted);margin-top:12px">
+        A subseção determina a seção e o departamento — os três campos são
+        gravados juntos porque o mesmo número significa coisas diferentes em
+        cada nível. O servidor recusa qualquer trio que não bata.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-destino')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-destino" onclick="salvarDestino()">
+        Aplicar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: descartar ---------------------------------------------------------->
+<div class="modal-overlay" id="modal-descartar" onclick="fecharSeFundo(event,'modal-descartar')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title">Tirar do lote</div>
+      <button class="modal-close" onclick="fecharModal('modal-descartar')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="x-contexto" style="font-size:13px;color:var(--muted);margin-bottom:14px"></div>
+      <label>Motivo</label>
+      <input type="text" id="x-motivo" placeholder="ex.: produto fora de linha">
+      <div class="ev" style="font-size:12.5px;color:var(--muted);margin-top:12px">
+        O produto sai da curadoria e nunca é oferecido ao agente, mas continua no
+        banco com o motivo. Dá para trazer todos de volta pelo painel.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-descartar')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarDescartar()">Descartar</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const ARVORE = {{ arvore | tojson }};
+const ESTRUTURA_OK = {{ 'true' if estrutura_ok else 'false' }};
+
+let _itens = [];          // o que está na tela agora
+let _sel = new Set();     // códigos selecionados
+let _ultimoClique = null; // para o shift-clique de intervalo
+
+// ── carregar a fila ─────────────────────────────────────────────────────────
+function filtros() {
+  return new URLSearchParams({
+    confianca: document.querySelector("#f-conf .on").dataset.v,
+    dep: document.getElementById("f-dep").value,
+    busca: document.getElementById("f-busca").value.trim(),
+    limite: document.getElementById("f-limite").value,
+    so_ativos: document.getElementById("f-ativos").checked ? "1" : "",
+  });
+}
+
+async function carregar() {
+  document.getElementById("fila").innerHTML =
+    '<div class="empty-state"><span class="spinner"></span></div>';
+  _sel.clear(); _ultimoClique = null; atualizarBarra();
+  const res = await fetch("/reclassificacao/curadoria/api/fila?" + filtros());
+  const d = await res.json();
+  _itens = d.itens || [];
+  document.getElementById("kpi-pendentes").textContent =
+    (d.resumo.pendentes || 0).toLocaleString("pt-BR");
+  document.getElementById("kpi-curados").textContent =
+    (d.resumo.curados || 0).toLocaleString("pt-BR");
+  document.getElementById("kpi-descartados").textContent =
+    (d.resumo.descartados || 0).toLocaleString("pt-BR");
+  desenhar();
+}
+
+function desenhar() {
+  const alvo = document.getElementById("fila");
+  if (!_itens.length) {
+    alvo.innerHTML = '<div class="empty-state">Nada esperando decisão com estes filtros.</div>';
+    return;
+  }
+  let html = "", grupoAtual = null, aberto = false;
+  _itens.forEach((it, i) => {
+    const chave = it.dep_novo + "/" + it.sec_novo + "/" + it.sub_novo;
+    if (chave !== grupoAtual) {
+      if (aberto) html += "</div>";
+      grupoAtual = chave;
+      const temDestino = it.dep_novo && it.sec_novo && it.sub_novo;
+      const n = it.iguais_a_seguir;
+      html += `<div class="grupo ${temDestino ? "" : "sem-sugestao"}">
+        <div>
+          <div class="destino">${temDestino
+            ? escaparHtml(it.destino_nome || chave)
+            : "Sem sugestão — precisa de um destino escolhido à mão"}</div>
+          ${temDestino ? `<div class="cods">${chave}</div>` : ""}
+        </div>
+        <div class="acts">
+          <button class="btn btn-secondary btn-sm" onclick="selecionarGrupo(${i})">
+            Selecionar ${temDestino ? n : "os visíveis"}
+          </button>
+          ${temDestino && n > 1
+            ? `<button class="btn btn-secondary btn-sm" onclick="aceitarGrupo(${i})">
+                 Confirmar estes ${n}</button>`
+            : ""}
+          ${temDestino && it.no_destino > n
+            ? `<button class="btn btn-primary btn-sm"
+                 title="Vale para o destino inteiro, não só o que está na tela"
+                 onclick="aceitarDestino(${i})">
+                 Confirmar todos os ${it.no_destino.toLocaleString("pt-BR")}</button>`
+            : ""}
+        </div>
+      </div><div class="lista">`;
+      aberto = true;
+    }
+    const conf = (it.confianca || "").replace("É", "E");
+    html += `<label class="item" data-i="${i}" id="it-${i}">
+      <input type="checkbox" onclick="clicou(event, ${i})">
+      <div>
+        <div class="nome">${escaparHtml(it.produto || "(sem descrição)")}</div>
+        <div class="sub">
+          <span class="cod">${it.cod}</span> ·
+          <span class="conf c-${conf}">${it.confianca}</span>
+          ${it.ativo ? "" : ' · <span style="color:var(--muted)">inativo</span>'}
+          ${it.base ? " · " + escaparHtml(it.base) : ""}
+        </div>
+      </div>
+      <div class="dir">
+        hoje: ${escaparHtml(it.atual_nome || [it.dep_atual, it.sec_atual, it.sub_atual].join("/"))}
+      </div>
+    </label>`;
+  });
+  if (aberto) html += "</div>";
+  alvo.innerHTML = html;
+}
+
+function escaparHtml(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// ── seleção ─────────────────────────────────────────────────────────────────
+function clicou(ev, i) {
+  ev.stopPropagation();
+  const cod = _itens[i].cod;
+  // Shift-clique marca o intervalo: com dezenas de itens do mesmo destino
+  // seguidos, marcar um a um seria o gargalo que esta tela veio resolver.
+  if (ev.shiftKey && _ultimoClique !== null) {
+    const [a, b] = [Math.min(_ultimoClique, i), Math.max(_ultimoClique, i)];
+    for (let k = a; k <= b; k++) _sel.add(_itens[k].cod);
+  } else if (_sel.has(cod)) {
+    _sel.delete(cod);
+  } else {
+    _sel.add(cod);
+  }
+  _ultimoClique = i;
+  pintarSelecao();
+}
+
+function selecionarGrupo(i) {
+  const n = _itens[i].iguais_a_seguir || 1;
+  for (let k = i; k < i + n && k < _itens.length; k++) _sel.add(_itens[k].cod);
+  pintarSelecao();
+}
+
+function limparSelecao() { _sel.clear(); pintarSelecao(); }
+
+function pintarSelecao() {
+  _itens.forEach((it, i) => {
+    const el = document.getElementById("it-" + i);
+    if (!el) return;
+    const marcado = _sel.has(it.cod);
+    el.classList.toggle("sel", marcado);
+    el.querySelector("input").checked = marcado;
+  });
+  atualizarBarra();
+}
+
+function atualizarBarra() {
+  document.getElementById("n-sel").textContent = _sel.size;
+  document.getElementById("barra-acao").style.display = _sel.size ? "flex" : "none";
+  // "Confirmar a sugestão" só faz sentido se todo o selecionado tiver sugestão.
+  const semSugestao = _itens.filter(i => _sel.has(i.cod))
+                            .some(i => !(i.dep_novo && i.sec_novo && i.sub_novo));
+  const b = document.getElementById("btn-aceitar");
+  b.disabled = semSugestao || !ESTRUTURA_OK;
+  b.title = semSugestao
+    ? "Há itens sem destino sugerido na seleção — use \"Mudar destino\"."
+    : "";
+}
+
+// ── ações ───────────────────────────────────────────────────────────────────
+function cods() { return [..._sel]; }
+
+async function aplicar(url, corpo, verbo) {
+  const d = await postJSON(url, corpo);
+  if (d.erro) { alert(d.erro); return null; }
+  let msg = `${d.aplicados ?? d.descartados ?? 0} produtos ${verbo}.`;
+  if (d.ja_curados) msg += ` ${d.ja_curados} já tinham sido decididos por outra pessoa.`;
+  if (d.recusados && d.recusados.length) {
+    msg += `\n\n${d.recusados.length} recusados:\n` +
+      d.recusados.slice(0, 5).map(x => `· ${x.cod}: ${x.motivo}`).join("\n");
+  }
+  alert(msg);
+  await carregar();
+  return d;
+}
+
+async function aceitar() {
+  if (!_sel.size) return;
+  await aplicar("/reclassificacao/curadoria/api/aceitar", { cods: cods() },
+                "liberados com o destino sugerido");
+}
+
+async function aceitarDestino(i) {
+  const it = _itens[i];
+  const conf = document.querySelector("#f-conf .on").dataset.v;
+  const ativos = document.getElementById("f-ativos").checked;
+  // O texto repete os filtros de propósito: o número do botão vale sob eles, e
+  // confirmar centenas de produtos de uma vez não pode depender de o curador
+  // lembrar que marcou "só ativos" três minutos atrás.
+  const recorte = [ativos ? "ativos" : null, conf ? `de confiança ${conf}` : null]
+                    .filter(Boolean).join(", ");
+  if (!confirm(
+      `Confirmar o destino de ${it.no_destino} produtos`
+      + (recorte ? ` (${recorte})` : "")
+      + `
+
+para  ${it.destino_nome}
+
+`
+      + `Vale para o lote inteiro, não só para o que está na tela. `
+      + `Depois disso eles ficam liberados para o agente gravar no ERP.`)) return;
+  await aplicar("/reclassificacao/curadoria/api/aceitar-destino", {
+    dep: it.dep_novo, sec: it.sec_novo, sub: it.sub_novo,
+    confianca: conf, so_ativos: ativos,
+  }, "confirmados e liberados");
+}
+
+async function aceitarGrupo(i) {
+  const n = _itens[i].iguais_a_seguir || 1;
+  const lista = _itens.slice(i, i + n).map(x => x.cod);
+  await aplicar("/reclassificacao/curadoria/api/aceitar", { cods: lista },
+                "liberados com o destino sugerido");
+}
+
+// ── modal de destino ────────────────────────────────────────────────────────
+function abrirDestino() {
+  if (!_sel.size) return;
+  document.getElementById("d-contexto").textContent =
+    `${_sel.size} produto(s) selecionado(s). O destino escolhido vale para todos.`;
+  const dep = document.getElementById("d-dep");
+  dep.innerHTML = '<option value="">—</option>' +
+    ARVORE.map(d => `<option value="${d.cod}">${d.cod} — ${escaparHtml(d.nome)}</option>`).join("");
+  document.getElementById("d-sec").innerHTML = '<option value="">—</option>';
+  document.getElementById("d-sub").innerHTML = '<option value="">—</option>';
+  document.getElementById("d-nota").value = "";
+  mostrarTrio();
+  abrirModal("modal-destino");
+}
+
+function mudouDep() {
+  const d = ARVORE.find(x => x.cod === document.getElementById("d-dep").value);
+  document.getElementById("d-sec").innerHTML = '<option value="">—</option>' +
+    (d ? d.secoes.map(s => `<option value="${s.cod}">${s.cod} — ${escaparHtml(s.nome)}</option>`).join("") : "");
+  document.getElementById("d-sub").innerHTML = '<option value="">—</option>';
+  mostrarTrio();
+}
+
+function mudouSec() {
+  const d = ARVORE.find(x => x.cod === document.getElementById("d-dep").value);
+  const s = d && d.secoes.find(x => x.cod === document.getElementById("d-sec").value);
+  document.getElementById("d-sub").innerHTML = '<option value="">—</option>' +
+    (s ? s.subsecoes.map(u => `<option value="${u.cod}">${u.cod} — ${escaparHtml(u.nome)}</option>`).join("") : "");
+  mostrarTrio();
+}
+
+function trioEscolhido() {
+  return {
+    dep: document.getElementById("d-dep").value,
+    sec: document.getElementById("d-sec").value,
+    sub: document.getElementById("d-sub").value,
+  };
+}
+
+function mostrarTrio() {
+  const t = trioEscolhido();
+  const caixa = document.getElementById("d-res");
+  const completo = t.dep && t.sec && t.sub;
+  caixa.classList.toggle("ok", !!completo);
+  caixa.innerHTML = completo
+    ? `Vai gravar <b>CodGrp1=${t.dep}</b> · <b>CodGrp2=${t.sec}</b> · <b>CodGrp3=${t.sub}</b>`
+    : "Escolha a subseção.";
+  document.getElementById("btn-salvar-destino").disabled = !completo;
+}
+
+async function salvarDestino() {
+  const t = trioEscolhido();
+  if (!t.sub) return;
+  await aplicar("/reclassificacao/curadoria/api/curar", {
+    cods: cods(), ...t, nota: document.getElementById("d-nota").value.trim(),
+  }, "liberados com o destino escolhido");
+  fecharModal("modal-destino");
+}
+
+// ── modal de descarte ───────────────────────────────────────────────────────
+function abrirDescartar() {
+  if (!_sel.size) return;
+  document.getElementById("x-contexto").textContent =
+    `${_sel.size} produto(s) sairão do lote e não serão editados no ERP.`;
+  document.getElementById("x-motivo").value = "";
+  abrirModal("modal-descartar");
+}
+
+async function confirmarDescartar() {
+  await aplicar("/reclassificacao/curadoria/api/descartar", {
+    cods: cods(), motivo: document.getElementById("x-motivo").value.trim(),
+  }, "tirados do lote");
+  fecharModal("modal-descartar");
+}
+
+// ── filtros ─────────────────────────────────────────────────────────────────
+document.querySelectorAll("#f-conf button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#f-conf button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  carregar();
+});
+document.getElementById("f-dep").onchange = carregar;
+document.getElementById("f-ativos").onchange = carregar;
+document.getElementById("f-limite").onchange = carregar;
+let _t;
+document.getElementById("f-busca").oninput = () => {
+  clearTimeout(_t); _t = setTimeout(carregar, 400);
+};
+
+carregar();
+</script>
+{% endblock %}

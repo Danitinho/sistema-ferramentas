@@ -961,6 +961,41 @@ class FilaBanco:
         return {"ok": True, "aplicados": aplicados, "ja_curados": ja,
                 "recusados": recusados}
 
+    def descurar(self, cods: list, por: str = "") -> dict:
+        """Desfaz uma confirmação, enquanto ela ainda não virou trabalho.
+
+        Existe porque a conferência é dirigida por uma tecla só: com 27 mil
+        produtos, um Enter a mais é questão de tempo, e sem desfazer o curador
+        aprenderia a hesitar — que é justamente o que torna o fluxo lento.
+
+        Só desfaz o que ainda está `livre`. Assim que um agente reserva ou fecha
+        o produto, a janela fecha: `concluido` é terminal e voltar atrás no
+        banco não desfaz o que já foi escrito no ERP.
+        """
+        cods = [c for c in (cods or []) if c]
+        if not cods:
+            return {"ok": False, "erro": "nada para desfazer"}
+        desfeitos, tarde = 0, []
+        with self.lock:
+            for cod in cods:
+                r = self.con.execute(
+                    "SELECT estado, pronto FROM itens WHERE cod=?", (cod,)
+                ).fetchone()
+                if r is None or not r["pronto"]:
+                    continue
+                if r["estado"] != LIVRE:
+                    tarde.append({"cod": cod, "estado": r["estado"]})
+                    continue
+                self.con.execute(
+                    "UPDATE itens SET pronto=0, curado_em=NULL, curado_por=NULL,"
+                    " curado_nota=NULL WHERE cod=? AND estado=? AND pronto=1",
+                    (cod, LIVRE))
+                desfeitos += 1
+            if desfeitos:
+                self._evento("desfez", "", por, f"{desfeitos} confirmações desfeitas")
+            self.con.commit()
+        return {"ok": True, "desfeitos": desfeitos, "tarde_demais": tarde}
+
     def descartar(self, cods: list, por: str = "", motivo: str = "") -> dict:
         """Tira produtos do lote sem editá-los no ERP.
 

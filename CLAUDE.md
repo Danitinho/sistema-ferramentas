@@ -672,6 +672,43 @@ diferentes, isso precisa virar erro em vez de descarte silencioso.**
 
 É a metade que antes era o painel de confirmação do programa de mesa.
 
+**A unidade da decisão é o produto, não o grupo.** A tela principal é uma
+**conferência um a um**: um produto por vez, grande, com a classificação de hoje
+e o destino proposto lado a lado, e uma tecla por decisão — `Enter` aprova, `D`
+muda o destino, `P` pula, `X` descarta, `Z` desfaz o último.
+
+Foi uma correção de rumo. Uma versão anterior era só a lista com "Confirmar
+todos os N", e isso não é aprovação individual: é aprovação automática com um
+nome atribuído — o mesmo que se acabara de tirar dos ALTA, com um clique a mais.
+
+**O lote continua existindo, mas é oferecido, não oferecido de graça.** Depois de
+`SEGUIDOS_PARA_OFERECER` (3) aprovações **seguidas para o mesmo destino**,
+aparece "você aprovou 3 seguidos para X, faltam N iguais — aprovar o resto?"
+(tecla `L`). A sequência é do **destino**, não do produto, e **qualquer coisa que
+não seja aprovar a quebra** (`quebrarSequencia`): pular, corrigir o destino,
+descartar, trocar de filtro. A oferta afirma "você viu N deste grupo e estavam
+certos"; uma correção no meio torna essa afirmação falsa.
+
+Detalhes que fazem o fluxo aguentar 27 mil produtos:
+
+- **O `Enter` não espera a rede.** As aprovações entram numa fila local e sobem
+  em lotes de 8 (ou a cada 1,5 s). Se o navegador fechar antes de subir, o
+  produto continua pendente — o erro cai para o lado seguro, que é não aprovar
+  nada sem querer.
+- **A fila é buscada 200 por vez e recarregada quando faltam 25.** O `Enter`
+  nunca encosta na latência.
+- **`descurar(cods)` é o desfazer** e só funciona enquanto o item está `livre`.
+  Assim que um agente reserva ou fecha, a janela fecha: voltar atrás no banco não
+  desfaz o que já foi escrito no ERP. A tela mostra "tarde demais" com o estado.
+  Sem desfazer, um fluxo de uma tecla ensinaria o curador a hesitar — que é
+  exatamente o que o torna lento.
+- Os atalhos **não disparam com um modal aberto nem com o foco num campo**: o
+  "D" de "DOCE" digitado no motivo do descarte não pode abrir a tela de destino.
+
+A **vista em lista** (`/curadoria/lista`) continua, para achar um produto pelo
+nome ou varrer um departamento inteiro. Ela confirma em lote sem exigir a
+sequência, e é de propósito: quem chega por busca já sabe o que está olhando.
+
 ```
 sem_destino ─┐
              ├─curar / aceitar_sugestao─> livre + pronto=1  (agente pode pegar)
@@ -684,12 +721,15 @@ livre p=0   ─┘
   exatamente onde um trio inválido passaria batido. O que não valida volta em
   `recusados`, com o motivo.
 - **`aceitar_destino(dep, sec, sub, confianca, so_ativos)`** confirma **todos**
-  os pendentes daquele destino, no lote inteiro — não só os da página. Existe
+  os pendentes daquele destino, no lote inteiro — não só os da página. É o que a
+  tecla `L` chama, depois da sequência, e o que o botão da lista chama. Existe
   porque os grupos são grandes: o maior tem 1.216 itens e nenhuma página cabe
   isso. Os filtros passados são os mesmos da tela, e por isso o número do botão
   bate com o que a ação faz (verificado nas três combinações). O texto de
   confirmação repete os filtros em voz alta: confirmar centenas de produtos não
   pode depender de o curador lembrar que marcou "só ativos" minutos atrás.
+- **`descurar(cods)`** desfaz uma confirmação ainda não trabalhada. Recusa o que
+  já saiu de `livre` e devolve o estado em `tarde_demais`.
 - **`curar(cods, dep, sec, sub)`** grava um destino escolhido à mão. É o caminho
   dos 4.003 REVISAR, que não têm sugestão.
 - **`descartar(cods, motivo)`** tira do lote sem editar no ERP; some da vista,
@@ -894,8 +934,12 @@ os 38.504 ALTA à curadoria (`prontos=0`, 65.874 esperando, 27.412 deles ativos)
 `reservar` devolvendo **zero** itens enquanto ninguém confirmou nada; o número do
 botão "Confirmar todos os N" batendo com o que a ação faz nas três combinações de
 filtro (ALTA+ativos: 71/71 · todas+ativos: 91/91 · todas+inativos: 185/185); o
-agente voltando a receber trabalho assim que um destino é confirmado; aceite em
-série de 38 produtos do mesmo destino num clique; recusa do trio invertido
+agente voltando a receber trabalho assim que um destino é confirmado; o fluxo
+da conferência ponta a ponta (3 aprovações seguidas → oferta de lote com 88
+restantes → `Z` desfazendo a última, com `pronto` e `curado_em` voltando a nulo →
+`L` aprovando os 88 → `Z` recusado com `tarde_demais` depois de o agente ter
+reservado o produto); aceite em série de 38 produtos do mesmo destino num clique;
+recusa do trio invertido
 (`7/22/22` → "subseção 22 (Bovinos) pertence à seção 13"); agente ocioso
 aparecendo **vivo** no painel; **Iniciar** no navegador fazendo 565 produtos
 rodarem sem nenhuma interação na máquina; **Pausar** interrompendo o bloco e
@@ -924,9 +968,14 @@ a rodada de verdade pular aquele produto para sempre.
   "já decidido por outro"). Se virar incômodo, o caminho é um lease curto por
   bloco de curadoria, como o da fila de execução.
 - **O volume da curadoria cresceu 4x** ao trazer os ALTA (27.412 ativos, não
-  10.562). Os grupos grandes seguram bem — 10 destinos cobrem 46% dos ativos com
-  sugestão —, mas se o ritmo incomodar, o caminho é uma visão de conferência por
-  amostragem: mostrar N produtos de um destino, e o botão confirmar o resto.
+  10.562). A ~1 s por produto são ~7,6 h de leitura, divisíveis entre pessoas —
+  menos que as 22,8 h que o ERP gasta gravando de qualquer jeito, e em paralelo
+  com elas. O gargalo continua sendo a máquina.
+- **Sem "voltar" na conferência.** `Z` desfaz o último; não há navegação livre
+  para trás. Se incomodar, o caminho é uma pilha de desfazer em vez de um slot.
+- **A conferência não guarda onde parou.** Recarregar a página recomeça do topo
+  da fila — o que, como a fila encolhe, não repete trabalho, mas perde a posição
+  dentro de um destino grande.
 - **A fila coordena a equipe, não a loja.** Ninguém enxerga o pessoal do balcão
   editando cadastro pelo ERP durante o expediente; num Delphi CRUD comum o
   último que salva vence, silenciosamente. Mitigação é rodar fora do horário.
