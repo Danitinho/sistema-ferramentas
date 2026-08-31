@@ -828,7 +828,7 @@ Base: `http://<servidor>/reclassificacao`. Todas exigem `X-Token`, menos `ping`.
 |---|---|---|
 | `GET /api/ping` | — | `{ok, servidor, agora}` — sem token, serve para testar o endereço |
 | `GET /api/config` | — | `{comando, bloco, so_ativos, simular, pular_certos, limiar, lease_s, batimento_s, mapa_erp}` |
-| `POST /api/status` | `{estado, msg, feitos, atual, maquina, log[]}` | o **mesmo corpo de `/api/config`** |
+| `POST /api/status` | `{estado, msg, feitos, atual, maquina, log[], pedir_parada?}` | o **mesmo corpo de `/api/config`** |
 | `GET /api/estado` | — | resumo do lote (ver `resumo()`) |
 | `GET /api/eventos` | `limite` | lista de eventos recentes |
 | `GET /api/item` | `cod` | `{existe, meu, estado, operador}` |
@@ -841,6 +841,13 @@ Base: `http://<servidor>/reclassificacao`. Todas exigem `X-Token`, menos `ping`.
 `/api/status` responder o mesmo que `/api/config` é de propósito: o agente faz
 uma ida por produto para reportar **e** receber ordem nova. Duas chamadas
 dobrariam a conversa num laço que roda a cada 3 segundos.
+
+**`pedir_parada` é a única ordem que anda no sentido contrário** — do agente
+para o painel. É o **ESC segurado** na máquina do operador: o servidor vira o
+`comando` para `parar` e registra "parar (ESC segurado na maquina)". Sem isso a
+tecla de pânico não pararia nada por mais de um segundo: o painel continuaria
+dizendo `rodar` e o agente pegaria outro bloco na volta seguinte. Quem está na
+frente do ERP vendo dar errado tem de poder parar.
 
 `situacao` aceita `alterado`, `ja_correto`, `pulado` (viram `concluido`),
 `simulado` e `erro` (vira `falhou`). Cada item devolvido em `reservar` tem
@@ -884,6 +891,15 @@ tentar trabalhar. Se precisar mudar, mude os dois lados na mesma sessão.
 - **Marca.** O campo só existia para o operador digitar no painel de
   confirmação. Sem painel, o agente não encosta nele. Se voltar a ser preciso, o
   lugar é a curadoria — e aí `_aplicar_marca` no `app.py` antigo é a referência.
+- **A tecla ESC** ficou de fora na primeira reescrita e **voltou em
+  31/08/2026**: era a única parada que funciona com o ERP em primeiro plano, e é
+  aí que ela importa — quando o robô está digitando e a tela mostra algo errado,
+  achar e focar a janela do console para dar `Ctrl+C` custa segundos, com o
+  pywinauto ainda disputando o foco. Precisa ser **segurada** (`ESC_SEGURAR_S`,
+  0,6 s em 4 amostras), nunca tocada: o operador aperta ESC o tempo todo para
+  fechar caixa do ERP, e um toque solto não pode derrubar um lote de 100. A
+  leitura só vira amostragem quando a tecla já está pressionada, então o caso
+  comum não custa nada.
 - **Pausa pedindo socorro na recusa do ERP.** Antes o programa parava e mostrava
   a caixa ("O código do NCM não foi informado…", visto no 7898586613799).
   Agora o agente registra o produto como `erro` com o texto exato, **fecha a

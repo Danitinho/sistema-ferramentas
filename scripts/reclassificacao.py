@@ -1106,14 +1106,27 @@ class FilaBanco:
 
     def reportar_status(self, operador: str, estado: str = "", msg: str = "",
                         feitos: int = 0, atual: str = "", maquina: str = "",
-                        log: list | None = None) -> dict:
+                        log: list | None = None,
+                        pedir_parada: bool = False) -> dict:
         """O agente conta o que está fazendo; o painel mostra.
 
         É a única janela que o coordenador tem para dentro da máquina do
         operador, já que lá não há mais nada para olhar.
+
+        `pedir_parada` é a **única** ordem que anda no sentido contrário: o
+        operador segurou ESC na máquina e abortou o lote. Sem isso o painel
+        continuaria dizendo `rodar`, e o agente pegaria outro bloco na volta
+        seguinte — a tecla de pânico não pararia nada por mais de um segundo.
+        Quem está na frente do ERP vendo dar errado tem de poder parar.
         """
         agora = time.time()
         with self.lock:
+            if pedir_parada:
+                self.con.execute(
+                    "UPDATE operadores SET comando=?, comando_em=?, comando_por=?"
+                    " WHERE nome=?", (PARAR, agora, f"{operador} (ESC)", operador))
+                self._evento("comando", "", operador,
+                             "parar (ESC segurado na maquina)")
             self.con.execute(
                 "UPDATE operadores SET agente_estado=?, agente_msg=?,"
                 " agente_feitos=?, agente_atual=?, agente_em=?, visto_em=?"

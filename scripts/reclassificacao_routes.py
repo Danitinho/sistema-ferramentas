@@ -176,6 +176,9 @@ def api_status():
         estado=d.get("estado", ""), msg=d.get("msg", ""),
         feitos=d.get("feitos", 0), atual=d.get("atual", ""),
         maquina=d.get("maquina", ""), log=d.get("log") or [],
+        # ESC segurado na maquina do operador: a unica ordem que sobe em vez
+        # de descer. Ver `reportar_status`.
+        pedir_parada=bool(d.get("pedir_parada")),
     ))
 
 
