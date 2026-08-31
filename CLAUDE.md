@@ -746,8 +746,20 @@ livre p=0   ─┘
   desbloqueia nada. Os números do topo contam só os ativos, com o total ao lado.
 - **Concorrência entre curadores** é resolvida por não-sobrescrita, não por
   trava: `_aplicar_curadoria` só mexe em item ainda pendente e devolve
-  `ja_curados` para o resto. Duas pessoas na mesma lista se atrapalham um pouco;
-  nunca se apagam. Os filtros por departamento existem para elas se dividirem.
+  `ja_curados` para o resto. Os filtros por departamento existem para elas se
+  dividirem. Medido com dois curadores simultâneos (31/08/2026):
+  - **aprovar o mesmo produto**: exatamente uma aprovação conta, a outra volta
+    em `ja_curados`. Sem duplicar, sem apagar.
+  - **item já reservado por um agente**: protegido nos dois caminhos —
+    `descurar` devolve `tarde_demais`, `descartar` não altera nada.
+  - **`descurar` só desfaz o que é seu.** Isto foi um defeito real: as duas
+    telas entregam a MESMA lista, na mesma ordem, então ambas começam pelo mesmo
+    produto. O segundo Enter vira no-op — e o `Z` seguinte desfazia a aprovação
+    do primeiro, que não saberia de nada. Hoje `descurar` compara `curado_por` e
+    devolve `de_outro`.
+  - **A conferência mostra o trabalho perdido.** O contador desconta os
+    `ja_curados` e avisa: sem isso a segunda pessoa aperta Enter, vê o número
+    subir e descobre horas depois que não aprovou nada.
 
 ### A fila
 

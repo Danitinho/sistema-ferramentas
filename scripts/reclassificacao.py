@@ -975,16 +975,25 @@ class FilaBanco:
         cods = [c for c in (cods or []) if c]
         if not cods:
             return {"ok": False, "erro": "nada para desfazer"}
-        desfeitos, tarde = 0, []
+        desfeitos, tarde, alheios = 0, [], []
         with self.lock:
             for cod in cods:
                 r = self.con.execute(
-                    "SELECT estado, pronto FROM itens WHERE cod=?", (cod,)
-                ).fetchone()
+                    "SELECT estado, pronto, curado_por FROM itens WHERE cod=?",
+                    (cod,)).fetchone()
                 if r is None or not r["pronto"]:
                     continue
                 if r["estado"] != LIVRE:
                     tarde.append({"cod": cod, "estado": r["estado"]})
+                    continue
+                # Só se desfaz o que é seu. Dois curadores na mesma fila veem a
+                # MESMA lista e começam pelo mesmo produto: quando o segundo
+                # aperta Enter, a aprovação vira no-op (`ja_curados`) — e o `Z`
+                # seguinte estaria desfazendo o trabalho do primeiro, que não
+                # saberia de nada. O desfazer é do autor, não de quem passou por
+                # último.
+                if (r["curado_por"] or "") != (por or ""):
+                    alheios.append({"cod": cod, "de": r["curado_por"] or "outro"})
                     continue
                 self.con.execute(
                     "UPDATE itens SET pronto=0, curado_em=NULL, curado_por=NULL,"
@@ -994,7 +1003,8 @@ class FilaBanco:
             if desfeitos:
                 self._evento("desfez", "", por, f"{desfeitos} confirmações desfeitas")
             self.con.commit()
-        return {"ok": True, "desfeitos": desfeitos, "tarde_demais": tarde}
+        return {"ok": True, "desfeitos": desfeitos, "tarde_demais": tarde,
+                "de_outro": alheios}
 
     def descartar(self, cods: list, por: str = "", motivo: str = "") -> dict:
         """Tira produtos do lote sem editá-los no ERP.

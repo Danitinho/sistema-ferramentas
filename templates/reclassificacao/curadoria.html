@@ -243,6 +243,7 @@ let _seguidos = 0;            // aprovações seguidas no mesmo destino
 let _destinoSeguido = null;
 let _carregando = false;
 let _timerEnvio = null;
+let _dobrados = 0;         // produtos que outra pessoa ja tinha decidido
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -418,7 +419,14 @@ async function desfazer() {
     await carregar(false);
     return;
   }
-  if ((d.tarde_demais || []).length) {
+  if ((d.de_outro || []).length) {
+    alert(`Este produto foi decidido por ${d.de_outro[0].de}, não por você — `
+          + `vocês estão na mesma parte da fila.
+
+O desfazer só alcança as `
+          + `suas próprias decisões. Para não trombarem, dividam por `
+          + `departamento no filtro.`);
+  } else if ((d.tarde_demais || []).length) {
     alert(`Tarde demais: ${_ultimo.cod} já está com um agente `
           + `(${d.tarde_demais[0].estado}). Confirmação não se desfaz depois `
           + `que o ERP entrou na história.`);
@@ -473,6 +481,18 @@ async function enviarAgora() {
     if (d.erro) throw new Error(d.erro);
     if ((d.recusados || []).length) {
       mostrarEnvio(`${d.recusados.length} recusados: ${d.recusados[0].motivo}`, true);
+      return;
+    }
+    // Duas pessoas na mesma fila veem a MESMA lista e comecam pelo mesmo
+    // produto. Sem mostrar isto, a segunda aperta Enter, ve o contador subir e
+    // descobre horas depois que nao aprovou nada. O contador tem de dizer a
+    // verdade: so conta o que esta pessoa realmente decidiu.
+    if (d.ja_curados) {
+      _feitos = Math.max(0, _feitos - d.ja_curados);
+      _dobrados += d.ja_curados;
+      mostrarEnvio(`${_dobrados} produto(s) já tinham sido decididos por outra `
+                   + `pessoa — divida por departamento no filtro`, true);
+      desenhar();
       return;
     }
     mostrarEnvio("");
