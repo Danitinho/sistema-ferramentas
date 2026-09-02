@@ -66,22 +66,36 @@
   .c-BAIXA   { background: var(--warning-bg);  color: var(--warning); }
   .c-REVISAR { background: var(--danger-bg);   color: var(--danger); }
 
-  .teclas { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 20px;
+  /* Uma fileira só, que quebra alinhada à esquerda. O grupo da direita tinha
+     `margin-left:auto`: cabendo, ficava bonito; não cabendo — e com seis botões
+     em 760px nunca cabe — ele quebrava para a segunda linha AINDA empurrado
+     para a direita, desalinhado dos outros. Um separador marca os dois grupos
+     sem depender de eles caberem na mesma linha. */
+  .teclas { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch;
+            padding: 14px 20px; row-gap: 10px;
             border-top: 1px solid var(--line); background: var(--surface-2); }
-  .tecla { display: inline-flex; align-items: center; gap: 8px;
-           border-radius: var(--radius-sm); padding: 9px 14px; cursor: pointer;
+  .tecla { display: inline-flex; align-items: center; gap: 7px;
+           border-radius: var(--radius-sm); padding: 9px 13px; cursor: pointer;
            font-family: var(--sans); font-size: 13.5px; font-weight: 600;
            background: var(--surface); color: var(--ink-2);
-           border: 1px solid var(--line-2); }
+           border: 1px solid var(--line-2); white-space: nowrap; }
   .tecla:hover { background: var(--surface-3); }
   .tecla[disabled] { opacity: .45; cursor: default; }
   .tecla.prim { background: var(--brand); color: var(--on-brand);
                 border-color: var(--brand); }
   .tecla.prim:hover { background: var(--brand-2); }
+  /* As saídas (pular, descartar, desfazer, histórico) pesam menos que as duas
+     decisões, e a diferença de tamanho diz isso sem precisar de rótulo. */
+  .tecla.sec { padding: 8px 11px; font-size: 12.5px; color: var(--muted); }
+  /* `align-items: stretch` acima iguala a altura de todos: os secundários são
+     menores por dentro, não por fora. Dois pixels de diferença numa fileira de
+     botões já se lê como desalinhamento. */
+  .tecla.sec:hover { color: var(--ink-2); }
   .tecla kbd { font-family: var(--mono); font-size: 11px; font-weight: 700;
                background: color-mix(in srgb, currentColor 14%, transparent);
                border-radius: 3px; padding: 2px 6px; }
-  .teclas .dir { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .teclas .sep { width: 1px; align-self: stretch; background: var(--line-2);
+                 margin: 0 2px; }
 
   /* A oferta de lote só aparece depois de o curador ter aprovado alguns
      seguidos do mesmo destino. É o "consciente" do lote consciente. */
@@ -412,15 +426,12 @@ function desenhar() {
         ${temDestino(it)
           ? `<button class="tecla prim" onclick="aprovar()"><kbd>Enter</kbd> Aprovar</button>`
           : ""}
-        <button class="tecla" onclick="abrirDestino()"><kbd>D</kbd> Mudar destino</button>
-        <div class="dir">
-          <button class="tecla" onclick="pular()"><kbd>P</kbd> Pular</button>
-          <button class="tecla" onclick="abrirDescartar()"><kbd>X</kbd> Descartar</button>
-          <button class="tecla" onclick="desfazer()" ${_ultimo ? "" : "disabled"}>
-            <kbd>Z</kbd> Desfazer</button>
-          <button class="tecla" onclick="abrirHistorico()">
-            <kbd>H</kbd> Histórico</button>
-        </div>
+        <button class="tecla" onclick="abrirDestino()"><kbd>D</kbd> Destino</button>
+        <span class="sep"></span>
+        <button class="tecla sec" onclick="pular()"><kbd>P</kbd> Pular</button>
+        <button class="tecla sec" onclick="abrirDescartar()"><kbd>X</kbd> Descartar</button>
+        <button class="tecla sec" onclick="desfazer()" ${_ultimo ? "" : "disabled"}><kbd>Z</kbd> Desfazer</button>
+        <button class="tecla sec" onclick="abrirHistorico()"><kbd>H</kbd> Histórico</button>
       </div>
     </div>
     ${oferecer ? `
