@@ -450,4 +450,34 @@ def cur_lista():
 def cur_desfazer():
     """Desfaz confirmações que ainda não viraram trabalho de nenhum agente."""
     d = _corpo()
-    return jsonify(r.banco().descurar(d.get("cods") or [], _usuario()))
+    # `deliberado` vem da tela de histórico, onde a pessoa vê de quem é a
+    # decisão antes de clicar. O `Z` da conferência não manda nada e continua
+    # alcançando só o que é seu.
+    return jsonify(r.banco().descurar(d.get("cods") or [], _usuario(),
+                                      deliberado=bool(d.get("deliberado"))))
+
+
+@reclassificacao_bp.get("/curadoria/api/historico")
+def cur_historico():
+    """Trilha das últimas confirmações, da mais recente para a mais antiga."""
+    itens = r.banco().historico_curadoria(
+        limite=int(request.args.get("limite", 50)),
+        por=_usuario(),
+        so_meus=request.args.get("so_meus") == "1",
+    )
+    # Os nomes vêm prontos, como em `cur_fila`: reconhecer "Bebidas › Sucos" é
+    # o que faz um erro saltar aos olhos numa lista — "7/24/82" não faz.
+    e = est.estrutura()
+    for it in itens:
+        it["destino_nome"] = e.rotulo_curto(it["dep_novo"], it["sec_novo"],
+                                            it["sub_novo"])
+    return jsonify({"itens": itens})
+
+
+@reclassificacao_bp.post("/curadoria/api/corrigir")
+def cur_corrigir():
+    """Troca o destino de um item já confirmado que ninguém trabalhou ainda."""
+    d = _corpo()
+    return jsonify(r.banco().recurar(
+        d.get("cod", ""), d.get("dep", ""), d.get("sec", ""), d.get("sub", ""),
+        por=_usuario(), nota=d.get("nota", "")))

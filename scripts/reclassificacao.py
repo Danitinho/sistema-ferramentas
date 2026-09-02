@@ -961,8 +961,95 @@ class FilaBanco:
         return {"ok": True, "aplicados": aplicados, "ja_curados": ja,
                 "recusados": recusados}
 
-    def descurar(self, cods: list, por: str = "") -> dict:
+    def historico_curadoria(self, limite: int = 50, por: str = "",
+                            so_meus: bool = False) -> list:
+        """Últimos itens confirmados, do mais recente para o mais antigo.
+
+        Serve para consertar o erro que só se percebe dois produtos depois. O
+        `Z` da conferência alcança apenas o último; daqui se enxerga a trilha
+        inteira.
+
+        Cada linha carrega o **estado atual**, e não só o que foi decidido:
+        saber que um item já está com um agente é o que diz se ainda dá para
+        mexer nele. Sem isso a tela ofereceria um botão que vai falhar.
+        """
+        limite = max(1, min(int(limite), 200))
+        onde = "curado_em IS NOT NULL"
+        params: list = []
+        if so_meus and por:
+            onde += " AND curado_por=?"
+            params.append(por)
+        with self.lock:
+            linhas = self.con.execute(
+                f"SELECT cod, produto, ativo, confianca,"
+                f" dep_atual, sec_atual, sub_atual,"
+                f" dep_novo, sec_novo, sub_novo, estado, pronto,"
+                f" curado_em, curado_por, curado_nota, operador, situacao"
+                f" FROM itens WHERE {onde}"
+                f" ORDER BY curado_em DESC LIMIT ?", [*params, limite]
+            ).fetchall()
+        saida = []
+        for r in linhas:
+            d = dict(r)
+            d["ativo"] = bool(r["ativo"])
+            # Editável enquanto ninguém trabalhou nele. Assim que um agente
+            # reserva ou fecha, a janela se fecha: desfazer no banco não desfaz
+            # o que já foi escrito no ERP.
+            d["editavel"] = bool(r["pronto"]) and r["estado"] == LIVRE
+            d["meu"] = (r["curado_por"] or "") == (por or "")
+            saida.append(d)
+        return saida
+
+    def recurar(self, cod: str, dep: str, sec: str, sub: str,
+                por: str = "", nota: str = "") -> dict:
+        """Corrige o destino de um item JÁ confirmado, que ninguém trabalhou.
+
+        Existe porque `curar` recusa item confirmado de propósito (`pronto=1`
+        cai em `ja_curados`), e essa recusa é a proteção contra dois curadores
+        se sobrescreverem. Corrigir é outra intenção: veio da tela de histórico,
+        onde a pessoa vê o produto, o destino e **de quem foi a decisão** antes
+        de clicar. Uma ação deliberada e informada, não uma colisão cega.
+        """
+        from scripts.reclassificacao_estrutura import estrutura
+
+        dep, sec, sub = str(dep).strip(), str(sec).strip(), str(sub).strip()
+        ok, motivo = estrutura().validar(dep, sec, sub)
+        if not ok:
+            return {"ok": False, "erro": motivo}
+
+        with self.lock:
+            r = self.con.execute(
+                "SELECT estado, pronto, curado_por, dep_novo, sec_novo, sub_novo"
+                " FROM itens WHERE cod=?", (cod,)).fetchone()
+            if r is None:
+                return {"ok": False, "erro": "produto não está no lote"}
+            if not r["pronto"] or r["estado"] != LIVRE:
+                return {"ok": False, "erro": (
+                    f"tarde demais: o produto está em '{r['estado']}'. "
+                    "Depois que um agente pega, o que vale é o que foi escrito "
+                    "no ERP."), "estado": r["estado"]}
+
+            antes = (r["dep_novo"] or "", r["sec_novo"] or "", r["sub_novo"] or "")
+            self.con.execute(
+                "UPDATE itens SET dep_novo=?, sec_novo=?, sub_novo=?,"
+                " curado_em=?, curado_por=?, curado_nota=? WHERE cod=?",
+                (dep, sec, sub, time.time(), por, nota or None, cod))
+            self._evento("corrigiu", cod, por,
+                         f"destino corrigido (era de {r['curado_por'] or '—'})",
+                         antes=antes, depois=(dep, sec, sub))
+            self.con.commit()
+        return {"ok": True, "cod": cod, "antes": antes,
+                "depois": (dep, sec, sub), "era_de": r["curado_por"] or ""}
+
+    def descurar(self, cods: list, por: str = "",
+                 deliberado: bool = False) -> dict:
         """Desfaz uma confirmação, enquanto ela ainda não virou trabalho.
+
+        `deliberado` separa dois gestos que só parecem o mesmo. O `Z` da
+        conferência é **cego**: desfaz "o último", sem a pessoa ver de quem era
+        — e como as duas telas entregam a mesma fila, esse último pode ser de
+        outro curador. Já o botão do histórico mostra o produto, o destino e o
+        autor antes do clique. Um exige dono; o outro, não.
 
         Existe porque a conferência é dirigida por uma tecla só: com 27 mil
         produtos, um Enter a mais é questão de tempo, e sem desfazer o curador
@@ -992,7 +1079,7 @@ class FilaBanco:
                 # seguinte estaria desfazendo o trabalho do primeiro, que não
                 # saberia de nada. O desfazer é do autor, não de quem passou por
                 # último.
-                if (r["curado_por"] or "") != (por or ""):
+                if not deliberado and (r["curado_por"] or "") != (por or ""):
                     alheios.append({"cod": cod, "de": r["curado_por"] or "outro"})
                     continue
                 self.con.execute(
@@ -1001,7 +1088,9 @@ class FilaBanco:
                     (cod, LIVRE))
                 desfeitos += 1
             if desfeitos:
-                self._evento("desfez", "", por, f"{desfeitos} confirmações desfeitas")
+                self._evento("desfez", "", por,
+                             f"{desfeitos} confirmações desfeitas"
+                             + (" (pelo histórico)" if deliberado else ""))
             self.con.commit()
         return {"ok": True, "desfeitos": desfeitos, "tarde_demais": tarde,
                 "de_outro": alheios}

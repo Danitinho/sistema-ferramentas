@@ -96,6 +96,34 @@
   .fim h3 { font-size: 18px; margin: 0 0 8px; }
   .fim p { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
 
+  /* Histórico: a trilha do que já foi confirmado. O `Z` alcança só o último;
+     o erro que se percebe dois produtos depois precisa de uma lista. */
+  .hist-modal { max-width: 860px; width: 96vw; }
+  .hist-lista { max-height: 58vh; overflow-y: auto; margin: 0 -18px; }
+  .hist-linha { display: grid; grid-template-columns: 1fr auto; gap: 14px;
+                align-items: center; padding: 11px 18px;
+                border-bottom: 1px solid var(--line); }
+  .hist-linha:last-child { border-bottom: none; }
+  .hist-linha.travado { opacity: .62; }
+  .hist-nome { font-size: 14px; font-weight: 600; color: var(--ink);
+               line-height: 1.3; }
+  .hist-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .hist-sub .cod { font-family: var(--mono); }
+  .hist-destino { font-size: 13px; color: var(--success); font-weight: 600;
+                  margin-top: 4px; }
+  .hist-destino .trio { font-family: var(--mono); color: var(--muted);
+                        font-weight: 500; }
+  .hist-acts { display: flex; gap: 6px; flex-shrink: 0; }
+  .hist-quando { font-family: var(--mono); font-size: 11.5px;
+                 color: var(--muted); white-space: nowrap; }
+  .hist-tag { display: inline-block; font-size: 10.5px; font-weight: 700;
+              letter-spacing: .05em; padding: 2px 7px; border-radius: 3px;
+              background: var(--surface-3); color: var(--muted); }
+  .hist-tag.ok { background: var(--success-bg); color: var(--success); }
+  .hist-vazio { padding: 30px 18px; text-align: center; color: var(--muted); }
+  .hist-filtro { display: flex; gap: 10px; align-items: center;
+                 margin-bottom: 6px; font-size: 13px; }
+
   .rodape { font-size: 12.5px; color: var(--muted); margin-top: 16px;
             text-align: center; }
   .rodape kbd { font-family: var(--mono); background: var(--surface-3);
@@ -152,7 +180,8 @@
 
   <div class="rodape">
     <kbd>Enter</kbd> aprovar · <kbd>D</kbd> mudar destino · <kbd>P</kbd> pular ·
-    <kbd>X</kbd> descartar · <kbd>Z</kbd> desfazer o último
+    <kbd>X</kbd> descartar · <kbd>Z</kbd> desfazer o último ·
+    <kbd>H</kbd> histórico
   </div>
 </div>
 
@@ -195,6 +224,39 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-destino')">Cancelar</button>
       <button class="btn btn-primary" id="btn-salvar-destino" onclick="salvarDestino()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: histórico ---------------------------------------------------------->
+<div class="modal-overlay" id="modal-historico" onclick="fecharSeFundo(event,'modal-historico')">
+  <div class="modal hist-modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title">Confirmados recentemente</div>
+      <button class="modal-close" onclick="fecharModal('modal-historico')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="hist-filtro">
+        <label class="caixa-ativos">
+          <input type="checkbox" id="h-meus" onchange="carregarHistorico()"> Só os meus
+        </label>
+        <span style="color:var(--muted);font-size:12.5px">
+          do mais recente para o mais antigo
+        </span>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto;width:auto"
+                onclick="carregarHistorico()">Atualizar</button>
+      </div>
+      <div class="hist-lista" id="h-lista">
+        <div class="hist-vazio"><span class="spinner"></span></div>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:12px">
+        Só dá para mexer no que nenhum agente pegou ainda. Depois que o produto
+        é reservado, o que vale é o que foi escrito no ERP — e isso não tem
+        desfazer.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-historico')">Fechar</button>
     </div>
   </div>
 </div>
@@ -356,6 +418,8 @@ function desenhar() {
           <button class="tecla" onclick="abrirDescartar()"><kbd>X</kbd> Descartar</button>
           <button class="tecla" onclick="desfazer()" ${_ultimo ? "" : "disabled"}>
             <kbd>Z</kbd> Desfazer</button>
+          <button class="tecla" onclick="abrirHistorico()">
+            <kbd>H</kbd> Histórico</button>
         </div>
       </div>
     </div>
@@ -517,8 +581,123 @@ window.addEventListener("beforeunload", e => {
   }
 });
 
+// ── histórico ───────────────────────────────────────────────────────────────
+// O `Z` desfaz só o último. O erro que se percebe dois ou três produtos depois
+// precisa de uma trilha, e é isto.
+let _hist = [];
+
+async function abrirHistorico() {
+  await enviarAgora();          // o que ainda está na fila local não apareceria
+  abrirModal("modal-historico");
+  carregarHistorico();
+}
+
+async function carregarHistorico() {
+  const alvo = document.getElementById("h-lista");
+  alvo.innerHTML = '<div class="hist-vazio"><span class="spinner"></span></div>';
+  const meus = document.getElementById("h-meus").checked ? "1" : "";
+  try {
+    const d = await (await fetch(
+      `/reclassificacao/curadoria/api/historico?limite=60&so_meus=${meus}`)).json();
+    _hist = d.itens || [];
+  } catch (e) {
+    alvo.innerHTML = '<div class="hist-vazio">Não consegui carregar o histórico.</div>';
+    return;
+  }
+  desenharHistorico();
+}
+
+function quando(epoch) {
+  const d = new Date((epoch || 0) * 1000);
+  const hoje = new Date();
+  const hora = d.toLocaleTimeString("pt-BR", { hour12: false });
+  return d.toDateString() === hoje.toDateString()
+    ? hora
+    : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + hora;
+}
+
+function desenharHistorico() {
+  const alvo = document.getElementById("h-lista");
+  if (!_hist.length) {
+    alvo.innerHTML = '<div class="hist-vazio">Nada confirmado ainda.</div>';
+    return;
+  }
+  alvo.innerHTML = _hist.map((h, i) => {
+    const trio = [h.dep_novo, h.sec_novo, h.sub_novo].join("/");
+    // O estado atual é o que decide se ainda dá para mexer. Mostrar um botão
+    // que vai falhar seria pior do que não mostrar botão nenhum.
+    const travado = !h.editavel;
+    return `<div class="hist-linha ${travado ? "travado" : ""}">
+      <div>
+        <div class="hist-nome">${esc(h.produto || "(sem descrição)")}</div>
+        <div class="hist-sub">
+          <span class="cod">${esc(h.cod)}</span> ·
+          <span class="hist-quando">${quando(h.curado_em)}</span> ·
+          por <b>${esc(h.curado_por || "—")}</b>${h.meu ? " (você)" : ""}
+          ${h.ativo ? "" : " · inativo"}
+          ${travado ? ` · <span class="hist-tag">${esc(h.estado)}</span>`
+                    : ' · <span class="hist-tag ok">pode editar</span>'}
+        </div>
+        <div class="hist-destino">${esc(h.destino_nome || trio)}
+          <span class="trio">${esc(trio)}</span></div>
+        ${h.curado_nota ? `<div class="hist-sub">${esc(h.curado_nota)}</div>` : ""}
+      </div>
+      <div class="hist-acts">
+        ${travado ? "" : `
+          <button class="btn btn-secondary btn-sm" style="width:auto"
+                  onclick="corrigirDoHistorico(${i})">Corrigir destino</button>
+          <button class="btn btn-secondary btn-sm" style="width:auto"
+                  onclick="desfazerDoHistorico(${i})">Devolver à fila</button>`}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function desfazerDoHistorico(i) {
+  const h = _hist[i];
+  const aviso = h.meu ? "" :
+    `\n\nATENÇÃO: esta decisão é de ${h.curado_por}, não sua.`;
+  if (!confirm(`Devolver à fila?\n\n${h.produto}\n${h.cod}`
+      + `${aviso}\n\nEle volta a esperar decisão e some das confirmações.`)) return;
+  const d = await postJSON("/reclassificacao/curadoria/api/desfazer",
+                           { cods: [h.cod], deliberado: true });
+  if (d.desfeitos) {
+    _falta++; if (h.meu) _feitos = Math.max(0, _feitos - 1);
+    desenhar();
+    carregarHistorico();
+  } else if ((d.tarde_demais || []).length) {
+    alert(`Tarde demais: já está em '${d.tarde_demais[0].estado}'.`);
+    carregarHistorico();
+  }
+}
+
+// Corrigir reaproveita o modal de destino, em modo "corrigir": o mesmo seletor
+// em cascata, a mesma validação no servidor, outro destino de gravação.
+let _corrigindo = null;
+
+function corrigirDoHistorico(i) {
+  const h = _hist[i];
+  _corrigindo = h;
+  document.getElementById("d-contexto").innerHTML =
+    `<b>${esc(h.produto)}</b><br>${esc(h.cod)}<br>`
+    + `<span style="color:var(--muted)">hoje vai para `
+    + `${esc(h.destino_nome || [h.dep_novo, h.sec_novo, h.sub_novo].join("/"))}`
+    + `${h.meu ? "" : ` · decidido por ${esc(h.curado_por)}`}</span>`;
+  const dep = document.getElementById("d-dep");
+  dep.innerHTML = '<option value="">—</option>' +
+    ARVORE.map(d => `<option value="${d.cod}">${d.cod} — ${esc(d.nome)}</option>`).join("");
+  document.getElementById("d-sec").innerHTML = '<option value="">—</option>';
+  document.getElementById("d-sub").innerHTML = '<option value="">—</option>';
+  document.getElementById("d-nota").value = "";
+  mostrarTrio();
+  fecharModal("modal-historico");
+  abrirModal("modal-destino");
+  setTimeout(() => dep.focus(), 50);
+}
+
 // ── modal de destino ────────────────────────────────────────────────────────
 function abrirDestino() {
+  _corrigindo = null;
   const it = atual();
   if (!it) return;
   document.getElementById("d-contexto").innerHTML =
@@ -568,11 +747,28 @@ function mostrarTrio() {
 }
 
 async function salvarDestino() {
-  const it = atual();
   const t = trioEscolhido();
-  if (!it || !t.sub) return;
+  if (!t.sub) return;
+  const nota = document.getElementById("d-nota").value.trim();
+
+  // Modo corrigir: o produto já está confirmado, então o caminho é `corrigir`
+  // e não `curar` — este último recusa item confirmado de propósito, e é essa
+  // recusa que impede dois curadores de se sobrescreverem.
+  if (_corrigindo) {
+    const d = await postJSON("/reclassificacao/curadoria/api/corrigir",
+                             { cod: _corrigindo.cod, ...t, nota });
+    if (d.erro) { alert(d.erro); return; }
+    fecharModal("modal-destino");
+    _corrigindo = null;
+    abrirModal("modal-historico");
+    carregarHistorico();
+    return;
+  }
+
+  const it = atual();
+  if (!it) return;
   const d = await postJSON("/reclassificacao/curadoria/api/curar", {
-    cods: [it.cod], ...t, nota: document.getElementById("d-nota").value.trim(),
+    cods: [it.cod], ...t, nota,
   });
   if (d.erro) { alert(d.erro); return; }
   fecharModal("modal-destino");
@@ -620,6 +816,7 @@ document.addEventListener("keydown", e => {
   else if (k === "p")      { e.preventDefault(); pular(); }
   else if (k === "x")      { e.preventDefault(); abrirDescartar(); }
   else if (k === "z")      { e.preventDefault(); desfazer(); }
+  else if (k === "h")      { e.preventDefault(); abrirHistorico(); }
   else if (k === "l" && document.querySelector(".oferta")) {
     e.preventDefault(); aprovarLote();
   }

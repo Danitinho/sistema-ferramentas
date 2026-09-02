@@ -697,6 +697,20 @@ Detalhes que fazem o fluxo aguentar 27 mil produtos:
   nada sem querer.
 - **A fila é buscada 200 por vez e recarregada quando faltam 25.** O `Enter`
   nunca encosta na latência.
+- **O histórico (`H`) é a trilha das confirmações**, da mais recente para a
+  mais antiga (`historico_curadoria`). Existe porque o `Z` alcança só o último,
+  e o erro costuma ser percebido dois ou três produtos depois. Cada linha traz o
+  **estado atual**, não só o que foi decidido: é ele que diz se ainda dá para
+  mexer, e a tela **não oferece botão** no que já saiu de `livre` — mostrar um
+  botão que vai falhar é pior do que não mostrar nenhum.
+  - **`recurar(cod, dep, sec, sub)`** corrige o destino de um item **já
+    confirmado** e ainda não trabalhado. Precisou existir porque `curar` recusa
+    item confirmado de propósito (cai em `ja_curados`), e é essa recusa que
+    impede dois curadores de se sobrescreverem. Corrigir é outra intenção.
+  - **O desfazer do histórico passa `deliberado=True`.** O `Z` é cego (desfaz "o
+    último", sem ver de quem é) e por isso exige dono; o botão do histórico
+    mostra produto, destino e autor antes do clique, e avisa em voz alta quando
+    a decisão é de outra pessoa. Gestos diferentes, regras diferentes.
 - **`descurar(cods)` é o desfazer** e só funciona enquanto o item está `livre`.
   Assim que um agente reserva ou fecha, a janela fecha: voltar atrás no banco não
   desfaz o que já foi escrito no ERP. A tela mostra "tarde demais" com o estado.
