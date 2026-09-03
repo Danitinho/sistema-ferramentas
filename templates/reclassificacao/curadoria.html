@@ -135,6 +135,36 @@
               background: var(--surface-3); color: var(--muted); }
   .hist-tag.ok { background: var(--success-bg); color: var(--success); }
   .hist-vazio { padding: 30px 18px; text-align: center; color: var(--muted); }
+
+  /* Conferência do lote: a única ação que decide por centenas de produtos de
+     uma vez, e era a única feita às cegas. */
+  .lote-modal { max-width: 880px; width: 96vw; }
+  .lote-topo { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+               padding: 12px 14px; border-radius: var(--radius);
+               background: var(--accent-soft); margin-bottom: 12px; }
+  .lote-topo .destino { font-size: 15px; font-weight: 650; color: var(--ink);
+                        flex: 1 1 260px; line-height: 1.35; }
+  .lote-topo .trio { font-family: var(--mono); font-size: 12px;
+                     color: var(--muted); font-weight: 500; display: block; }
+  .lote-barra { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+                margin-bottom: 6px; font-size: 13px; }
+  .lote-barra .cnt { font-weight: 650; }
+  .lote-barra .cnt b { font-family: var(--mono); }
+  .lote-lista { max-height: 50vh; overflow-y: auto; margin: 0 -18px;
+                border-top: 1px solid var(--line); }
+  .lote-item { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px;
+               align-items: center; padding: 8px 18px; cursor: pointer;
+               border-bottom: 1px solid var(--line); user-select: none; }
+  .lote-item:last-child { border-bottom: none; }
+  .lote-item:hover { background: var(--surface-2); }
+  .lote-item.fora { opacity: .5; }
+  .lote-item.fora .lote-nome { text-decoration: line-through; }
+  .lote-item input { width: 16px; height: 16px; margin: 0; cursor: pointer; }
+  .lote-nome { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+  .lote-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .lote-sub .cod { font-family: var(--mono); }
+  .lote-dir { font-size: 11.5px; color: var(--muted); text-align: right;
+              white-space: nowrap; }
   .hist-filtro { display: flex; gap: 10px; align-items: center;
                  margin-bottom: 6px; font-size: 13px; }
 
@@ -238,6 +268,42 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-destino')">Cancelar</button>
       <button class="btn btn-primary" id="btn-salvar-destino" onclick="salvarDestino()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: conferir o lote antes de aprovar ------------------------------------>
+<div class="modal-overlay" id="modal-lote" onclick="fecharSeFundo(event,'modal-lote')">
+  <div class="modal lote-modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title">Conferir antes de aprovar em lote</div>
+      <button class="modal-close" onclick="fecharModal('modal-lote')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="lote-topo">
+        <div class="destino" id="l-destino">—</div>
+        <div style="font-size:12.5px;color:var(--ink-2);flex:1 1 200px">
+          Desmarque o que não pertence a este destino. O que ficar desmarcado
+          continua na fila, para você decidir um a um.
+        </div>
+      </div>
+      <div class="lote-barra">
+        <span class="cnt"><b id="l-marcados">0</b> de <b id="l-total">0</b> marcados</span>
+        <button class="btn btn-secondary btn-sm" style="width:auto"
+                onclick="marcarTodosLote(true)">Marcar todos</button>
+        <button class="btn btn-secondary btn-sm" style="width:auto"
+                onclick="marcarTodosLote(false)">Desmarcar todos</button>
+        <span id="l-filtros" style="margin-left:auto;color:var(--muted);font-size:12.5px"></span>
+      </div>
+      <div class="lote-lista" id="l-lista">
+        <div class="hist-vazio"><span class="spinner"></span></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-lote')">Cancelar</button>
+      <button class="btn btn-primary" id="l-confirmar" onclick="confirmarLote()">
+        Aprovar os marcados
+      </button>
     </div>
   </div>
 </div>
@@ -350,7 +416,11 @@ async function carregar(reiniciar) {
     // O servidor não sabe o que já decidimos e ainda não enviamos; filtrar aqui
     // evita o produto reaparecer na cara de quem acabou de decidi-lo.
     const novos = (d.itens || []).filter(x => !_decididos.has(x.cod));
-    _fila = _fila.slice(0, _i).concat(novos);
+    // Os prioritários entram antes do resto e não se repetem nele.
+    _frente = _frente.filter(x => !_decididos.has(x.cod));
+    const naFrente = new Set(_frente.map(x => x.cod));
+    _fila = _fila.slice(0, _i)
+                 .concat(_frente, novos.filter(x => !naFrente.has(x.cod)));
     if (reiniciar) {
       _falta = f.so_ativos ? d.resumo.pendentes_ativos : d.resumo.pendentes;
     }
@@ -452,6 +522,7 @@ function desenhar() {
 // ── decisões ────────────────────────────────────────────────────────────────
 function avancar(cod, acao) {
   _decididos.add(cod);
+  _frente = _frente.filter(x => x.cod !== cod);
   _i++;
   if (acao !== "pular") { _feitos++; _falta--; }
   precisaMais();
@@ -510,27 +581,145 @@ O desfazer só alcança as `
   desenhar();
 }
 
+// ── conferência do lote ─────────────────────────────────────────────────────
+// Aprovar centenas de produtos era a única decisão cega que restava: o texto
+// dizia quantos, nunca quais. Um item que caiu no grupo por engano passava
+// junto, e ninguém saberia. Agora a lista vem à tela antes do commit.
+let _lote = [];              // itens oferecidos
+let _loteFora = new Set();   // os que a pessoa desmarcou
+let _loteDestino = null;
+// Os desmarcados vão para a frente da fila. Precisa ser uma lista à parte, e
+// não um `splice` em `_fila`: a fila é reconstruída a cada recarregamento
+// (`carregar`), e um item enfiado nela some no primeiro refetch.
+let _frente = [];
+
 async function aprovarLote() {
   const it = atual();
   if (!it) return;
+  _loteDestino = it;
+  await enviarAgora();       // o que ainda está na fila local contaria a mais
+  abrirModal("modal-lote");
+  document.getElementById("l-destino").innerHTML =
+    esc(it.destino_nome) + `<span class="trio">CodGrp ${esc(chave(it))}</span>`;
   const f = filtros();
-  const restam = (it.no_destino || 0) - _seguidos;
-  if (!confirm(`Aprovar os ${restam} produtos restantes que vão para\n\n`
-      + `${it.destino_nome}\n\n`
-      + (f.so_ativos ? "(só os ativos)\n\n" : "")
-      + `Você já conferiu ${_seguidos} deles um a um.`)) return;
-  await enviarAgora();
-  const d = await postJSON("/reclassificacao/curadoria/api/aceitar-destino", {
+  document.getElementById("l-filtros").textContent =
+    [f.so_ativos ? "só ativos" : null,
+     f.confianca ? `confiança ${f.confianca}` : null].filter(Boolean).join(" · ");
+  document.getElementById("l-lista").innerHTML =
+    '<div class="hist-vazio"><span class="spinner"></span></div>';
+
+  const p = new URLSearchParams({
     dep: it.dep_novo, sec: it.sec_novo, sub: it.sub_novo,
-    confianca: f.confianca, so_ativos: f.so_ativos,
+    confianca: f.confianca, so_ativos: f.so_ativos ? "1" : "",
   });
+  try {
+    const d = await (await fetch(
+      "/reclassificacao/curadoria/api/destino/itens?" + p)).json();
+    _lote = d.itens || [];
+  } catch (e) {
+    document.getElementById("l-lista").innerHTML =
+      '<div class="hist-vazio">Não consegui carregar a lista.</div>';
+    return;
+  }
+  _loteFora = new Set();
+  desenharLote();
+}
+
+function desenharLote() {
+  const alvo = document.getElementById("l-lista");
+  if (!_lote.length) {
+    alvo.innerHTML = '<div class="hist-vazio">Nada mais pendente neste destino.</div>';
+    document.getElementById("l-confirmar").disabled = true;
+    atualizarContagemLote();
+    return;
+  }
+  alvo.innerHTML = _lote.map((x, i) => {
+    const fora = _loteFora.has(x.cod);
+    const conf = (x.confianca || "").replace("É", "E");
+    return `<label class="lote-item ${fora ? "fora" : ""}" id="lt-${i}">
+      <input type="checkbox" ${fora ? "" : "checked"} onchange="alternarLote(${i})">
+      <div>
+        <div class="lote-nome">${esc(x.produto || "(sem descrição)")}</div>
+        <div class="lote-sub">
+          <span class="cod">${esc(x.cod)}</span> ·
+          <span class="conf c-${conf}">${esc(x.confianca)}</span>
+          ${x.ativo ? "" : " · inativo"}
+          ${x.base ? " · " + esc(x.base) : ""}
+        </div>
+      </div>
+      <div class="lote-dir">hoje: ${esc(x.atual_nome || x.atual)}</div>
+    </label>`;
+  }).join("");
+  atualizarContagemLote();
+}
+
+function alternarLote(i) {
+  const cod = _lote[i].cod;
+  if (_loteFora.has(cod)) _loteFora.delete(cod);
+  else _loteFora.add(cod);
+  const el = document.getElementById("lt-" + i);
+  if (el) el.classList.toggle("fora", _loteFora.has(cod));
+  atualizarContagemLote();
+}
+
+function marcarTodosLote(marcar) {
+  _loteFora = marcar ? new Set() : new Set(_lote.map(x => x.cod));
+  desenharLote();
+}
+
+function atualizarContagemLote() {
+  const n = _lote.length - _loteFora.size;
+  document.getElementById("l-marcados").textContent = n.toLocaleString("pt-BR");
+  document.getElementById("l-total").textContent = _lote.length.toLocaleString("pt-BR");
+  const b = document.getElementById("l-confirmar");
+  b.disabled = !n;
+  b.textContent = n ? `Aprovar os ${n.toLocaleString("pt-BR")} marcados`
+                    : "Nada marcado";
+}
+
+async function confirmarLote() {
+  const cods = _lote.filter(x => !_loteFora.has(x.cod)).map(x => x.cod);
+  if (!cods.length) return;
+  // Vai pelos códigos escolhidos, não por "tudo deste destino": é o que faz o
+  // desmarcar valer alguma coisa.
+  const d = await postJSON("/reclassificacao/curadoria/api/aceitar", { cods });
   if (d.erro) { alert(d.erro); return; }
+  fecharModal("modal-lote");
+
   _feitos += d.aplicados; _falta -= d.aplicados;
-  // Tudo daquele destino saiu da fila do servidor; tirar da lista local também.
-  const alvo = chave(it);
-  _fila = _fila.filter((x, k) => k < _i || chave(x) !== alvo);
+  const aprovados = new Set(cods);
+  _fila = _fila.filter((x, k) => k < _i || !aprovados.has(x.cod));
+  cods.forEach(c => _decididos.add(c));
   quebrarSequencia();
   _ultimo = null;
+
+  // Os desmarcados vão para a FRENTE da fila local, não para o fim dela.
+  // Eles continuam pendentes no servidor de qualquer jeito, mas na ordem
+  // natural voltariam só centenas de produtos depois (medido: posições 441 e
+  // 1300). Quem desmarcou notou alguma coisa; decidir agora, com o grupo ainda
+  // fresco na cabeça, é o motivo de a caixa existir.
+  const dest = _loteDestino;
+  const recolocar = _lote.filter(x => _loteFora.has(x.cod)).map(x => ({
+    cod: x.cod, produto: x.produto, ativo: x.ativo, confianca: x.confianca,
+    base: x.base, atual_nome: x.atual_nome || x.atual,
+    dep_atual: (x.atual || "").split("/")[0] || "",
+    sec_atual: (x.atual || "").split("/")[1] || "",
+    sub_atual: (x.atual || "").split("/")[2] || "",
+    dep_novo: dest.dep_novo, sec_novo: dest.sec_novo, sub_novo: dest.sub_novo,
+    destino_nome: dest.destino_nome, no_destino: 0, iguais_a_seguir: 0,
+    estado: "livre", pronto: false,
+  }));
+  if (recolocar.length) {
+    _frente = _frente.concat(recolocar);
+    _fila.splice(_i, 0, ...recolocar);
+  }
+
+  let msg = "";
+  if (d.ja_curados) msg += `${d.ja_curados} já tinham sido decididos por outra pessoa. `;
+  if ((d.recusados || []).length) msg += `${d.recusados.length} recusados. `;
+  if (recolocar.length) msg += `${recolocar.length} desmarcado(s) vêm a seguir, um a um.`;
+  mostrarEnvio(msg.trim(), !!(d.ja_curados || (d.recusados || []).length));
+
   precisaMais();
   desenhar();
 }

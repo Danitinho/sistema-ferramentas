@@ -481,3 +481,22 @@ def cur_corrigir():
     return jsonify(r.banco().recurar(
         d.get("cod", ""), d.get("dep", ""), d.get("sec", ""), d.get("sub", ""),
         por=_usuario(), nota=d.get("nota", "")))
+
+
+@reclassificacao_bp.get("/curadoria/api/destino/itens")
+def cur_itens_destino():
+    """Os pendentes de um destino, para conferir antes de aprovar em lote.
+
+    A tela mostra esta lista com uma caixa por produto: aprovar centenas de uma
+    vez sem ver quais era a única decisão cega que restava na curadoria.
+    """
+    itens = r.banco().itens_do_destino(
+        request.args.get("dep", ""), request.args.get("sec", ""),
+        request.args.get("sub", ""),
+        confianca=request.args.get("confianca", ""),
+        so_ativos=request.args.get("so_ativos") == "1",
+    )
+    e = est.estrutura()
+    for it in itens:
+        it["atual_nome"] = e.rotulo_curto(*(it["atual"].split("/") + ["", ""])[:3])
+    return jsonify({"itens": itens, "total": len(itens)})

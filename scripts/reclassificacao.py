@@ -800,6 +800,42 @@ class FilaBanco:
             it["no_destino"] = totais.get(destino, 0) if all(destino) else 0
         return {"itens": itens, "total": total, "mostrando": len(itens)}
 
+    def itens_do_destino(self, dep: str, sec: str, sub: str,
+                         confianca: str = "", so_ativos: bool = False,
+                         limite: int = 2000) -> list:
+        """Os pendentes daquele destino, para a pessoa ver antes de aprovar.
+
+        A aprovação em lote é a única ação da curadoria que decide por centenas
+        de produtos de uma vez, e era a única feita às cegas: o texto dizia
+        quantos, nunca quais. Um item que caiu no grupo por engano passava
+        junto, e ninguém saberia.
+
+        A contagem vem daqui, e não de aritmética na tela. `no_destino` é medido
+        no momento em que a fila é carregada; entre aquilo e o clique o curador
+        já aprovou alguns, e outra pessoa pode ter mexido no grupo. Ler a lista
+        agora é a única forma de o número bater com o que a ação faz.
+        """
+        dep, sec, sub = str(dep).strip(), str(sec).strip(), str(sub).strip()
+        if not (dep and sec and sub):
+            return []
+        sql = ("SELECT cod, produto, ativo, confianca, base,"
+               " dep_atual, sec_atual, sub_atual"
+               " FROM itens WHERE pronto=0 AND estado=?"
+               " AND dep_novo=? AND sec_novo=? AND sub_novo=?"
+               + (" AND ativo=1" if so_ativos else "")
+               + (" AND confianca=?" if confianca else "")
+               + " ORDER BY produto LIMIT ?")
+        p = [LIVRE, dep, sec, sub] + ([confianca] if confianca else []) + [limite]
+        with self.lock:
+            linhas = self.con.execute(sql, p).fetchall()
+        return [{"cod": r["cod"], "produto": r["produto"] or "",
+                 "ativo": bool(r["ativo"]), "confianca": r["confianca"] or "",
+                 "base": r["base"] or "",
+                 "atual": "/".join(x or "" for x in (r["dep_atual"],
+                                                     r["sec_atual"],
+                                                     r["sub_atual"]))}
+                for r in linhas]
+
     def aceitar_destino(self, dep: str, sec: str, sub: str, por: str = "",
                         confianca: str = "", so_ativos: bool = False) -> dict:
         """Confirma o destino sugerido de TODOS os pendentes daquele destino.

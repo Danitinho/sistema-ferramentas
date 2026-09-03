@@ -734,9 +734,27 @@ livre p=0   ─┘
   os itens marcados na tela. Passa pela validação mesmo assim: aceitar em lote é
   exatamente onde um trio inválido passaria batido. O que não valida volta em
   `recusados`, com o motivo.
+- **A aprovação em lote mostra QUAIS produtos antes de gravar.** Era a única
+  decisão cega que restava: o texto dizia quantos, nunca quais, e um item que
+  caiu no grupo por engano passava junto sem ninguém saber. Hoje a tecla `L`
+  abre a lista (`itens_do_destino`) com uma caixa por produto, todas marcadas, e
+  o que for desmarcado **não vai**. A confirmação então usa
+  `/curadoria/api/aceitar` com os códigos escolhidos — não `aceitar-destino` —,
+  porque é isso que faz o desmarcar valer alguma coisa.
+  - **A contagem vem da lista, não de aritmética.** Antes o botão mostrava
+    `no_destino - _seguidos`, com `no_destino` medido quando a fila foi
+    carregada; entre aquilo e o clique o curador já aprovou alguns e outra
+    pessoa pode ter mexido no grupo. Ler os pendentes no momento do clique é a
+    única forma de o número bater com a ação.
+  - **Os desmarcados vão para a frente da fila local** (`_frente`), não para o
+    fim: na ordem natural voltariam centenas de produtos depois (medido:
+    posições 441 e 1300 num caso real), e quem desmarcou notou alguma coisa —
+    decidir agora, com o grupo fresco, é o motivo de a caixa existir. Precisa
+    ser lista à parte e não um `splice` em `_fila`: a fila é reconstruída a cada
+    `carregar()`, e um item enfiado nela some no primeiro refetch.
 - **`aceitar_destino(dep, sec, sub, confianca, so_ativos)`** confirma **todos**
-  os pendentes daquele destino, no lote inteiro — não só os da página. É o que a
-  tecla `L` chama, depois da sequência, e o que o botão da lista chama. Existe
+  os pendentes daquele destino sem passar pela lista. Continua sendo o que o
+  botão da **vista em lista** chama. Existe
   porque os grupos são grandes: o maior tem 1.216 itens e nenhuma página cabe
   isso. Os filtros passados são os mesmos da tela, e por isso o número do botão
   bate com o que a ação faz (verificado nas três combinações). O texto de
