@@ -11,6 +11,7 @@ dados/debitos.db
 dados/vencidos.db
 dados/fiscal.db
 dados/fornecedores.db
+dados/catalogo.db
 dados/sistema.db
 dados/reclassificacao.db
 dados/reclassificacao.db-wal

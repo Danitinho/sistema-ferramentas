@@ -41,6 +41,12 @@ BACKUP_DIR = os.environ.get("BACKUP_DIR") or os.path.join(BASE_DIR, "backups")
 RETENCAO         = int(os.environ.get("BACKUP_RETENCAO", "30"))
 INTERVALO_HORAS  = float(os.environ.get("BACKUP_INTERVALO_HORAS", "24"))
 
+# Retenção específica de um banco. `catalogo.db` é um espelho REIMPORTÁVEL do
+# cadastro do ERP (~14 MB): 30 cópias seriam ~420 MB de backup para um dado que
+# se refaz em segundos reenviando o arquivo. Duas bastam para não ficar sem a
+# foto vigente enquanto ninguém reexporta.
+RETENCAO_POR_BANCO = {"catalogo.db": 2}
+
 _TS_FMT = "%Y-%m-%d_%H%M"
 
 
@@ -55,6 +61,11 @@ def _bancos():
                 rel  = os.path.relpath(abs_, DADOS_DIR)
                 encontrados.append((rel, abs_))
     return sorted(encontrados)
+
+
+def _retencao(rel):
+    """Quantas cópias manter deste banco (ver RETENCAO_POR_BANCO)."""
+    return RETENCAO_POR_BANCO.get(os.path.basename(rel).lower(), RETENCAO)
 
 
 def _slug(rel):
@@ -108,7 +119,7 @@ def fazer_backup():
         destino = os.path.join(pasta, f"{slug}_{carimbo}.db")
         try:
             _copiar_online(abs_, destino)
-            _aplicar_retencao(pasta, slug, RETENCAO)
+            _aplicar_retencao(pasta, slug, _retencao(rel))
             itens.append({
                 "banco": rel, "ok": True,
                 "arquivo": os.path.basename(destino),

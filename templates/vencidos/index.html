@@ -53,6 +53,19 @@
   .filtros .search { flex: 1; min-width: 160px; }
   .chk-banner { margin-top: 12px; display: none; }
   .chk-banner.show { display: flex; }
+  /* linha do catálogo: informa de onde veio o preenchimento e de quando é a
+     foto do ERP — preço preenchido sem data ninguém sabe se ainda vale */
+  .cat-banner { display: none; margin-top: 8px; font-size: 12.5px; line-height: 1.5;
+    color: var(--muted); border-left: 2px solid var(--line-2); padding: 2px 0 2px 10px; }
+  .cat-banner.show { display: block; }
+  .cat-banner b { color: var(--ink-2); font-weight: 650; }
+  .cat-banner .cat-alerta { color: var(--warning); font-weight: 650; }
+  .cat-banner .cat-nada { color: var(--muted); }
+  .cat-linha { font-size: 12px; margin-top: 2px; }
+  .cat-status { background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); padding: 13px 15px; font-size: 13px;
+    line-height: 1.6; margin-bottom: 14px; }
+  .cat-status b { font-weight: 700; }
   .mes-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
   .mes-bar .mes-sel { width: auto; min-width: 190px; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
   .mes-bar .escopo { font-size: 12.5px; color: var(--muted); }
@@ -101,6 +114,14 @@
       </svg>
       Excel
     </a>
+    <button class="btn btn-secondary btn-sm btn-export" onclick="abrirCatalogo()"
+            title="Atualiza o catálogo que preenche produto, custo e venda ao bipar o código de barras. Função de uso eventual: só quando os preços mudarem em peso.">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+      </svg>
+      Catálogo
+    </button>
   </div>
 </div>
 
@@ -382,6 +403,7 @@
       <label>Código de barras</label>
       <input type="text" id="ve-barras" class="num" inputmode="numeric" placeholder="Bipe ou digite — o sistema checa o aviso" oninput="checarAviso()">
       <div class="alertx chk-banner" id="chk-aviso"></div>
+      <div class="cat-banner" id="ve-cat"></div>
       <div id="ve-avisado-bloco" style="display:none">
         <label>Foi avisado?</label>
         <div class="seg" id="ve-avisado-seg">
@@ -430,6 +452,7 @@
           <input type="number" id="av-qtd" placeholder="0" min="0" step="0.001" inputmode="decimal"></div>
       </div>
       <div class="alertx chk-banner" id="av-dup"></div>
+      <div class="cat-banner" id="av-cat"></div>
       <label>Data de vencimento <em>*</em></label>
       <input type="date" id="av-venc">
       <div class="two-col" style="margin-top:14px">
@@ -451,6 +474,36 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="fecharModal('modal-aviso')">Cancelar</button>
       <button class="btn btn-primary" id="av-salvar" onclick="salvarAviso()">Registrar aviso</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Atualizar catálogo de produtos -->
+<div class="modal-overlay" id="modal-catalogo" onclick="fecharSeFundo(event,'modal-catalogo')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Catálogo de produtos</div>
+      <button class="modal-close" onclick="fecharModal('modal-catalogo')">&times;</button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:14px">
+        É deste catálogo que saem o nome, o custo e a venda quando alguém bipa um
+        código de barras. Envie o TXT de <b>todos os produtos</b> exportado do ERP;
+        a lista nova <b>substitui</b> a anterior por inteiro.
+      </div>
+      <div class="cat-status" id="cat-situacao">Carregando…</div>
+      <div class="upload-area" onclick="document.getElementById('cat-arquivo').click()">
+        <div class="upload-label">Toque para escolher o arquivo .txt ou arraste aqui</div>
+        <input type="file" id="cat-arquivo" accept=".txt,.csv,text/plain">
+      </div>
+      <div class="result-box" id="cat-box" style="margin-top:14px">
+        <div class="result-label">Resultado da importação</div>
+        <div id="cat-log" style="margin-top:6px;font-size:13px;line-height:1.6"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-catalogo')">Fechar</button>
+      <button class="btn btn-primary" id="cat-enviar" onclick="enviarCatalogo()">
+        <span id="cat-spin" class="spinner"></span><span id="cat-txt">Atualizar catálogo</span>
+      </button>
     </div>
   </div>
 </div>
@@ -574,6 +627,7 @@ function abrirVencido() {
   ["ve-barras","ve-produto","ve-qtd","ve-custo","ve-forn","ve-resp","ve-obs"].forEach(id => $(id).value = "");
   pickVe.set(null);
   $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
+  limparCatalogo("ve-cat");
   $("ve-avisado-bloco").style.display = "none";   // no cadastro, o aviso é detectado sozinho
   $("ve-titulo").textContent = "Registrar vencido no escritório";
   $("ve-salvar").textContent = "Registrar";
@@ -594,6 +648,7 @@ function abrirEditarVencido(id) {
   $("ve-resp").value = v.responsavel_entrega || "";
   $("ve-obs").value = v.obs || "";
   $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
+  limparCatalogo("ve-cat");
   $("ve-avisado-bloco").style.display = "";        // na edição, você controla manualmente
   selecionarAvisado(v.foi_avisado ? 1 : 0);
   $("ve-titulo").textContent = "Editar vencido";
@@ -608,7 +663,7 @@ function checarAviso() {
   clearTimeout(_chkTimer);
   const cb = $("ve-barras").value.trim();
   const banner = $("chk-aviso");
-  if (!cb) { banner.classList.remove("show"); return; }
+  if (!cb) { banner.classList.remove("show"); limparCatalogo("ve-cat"); return; }
   _chkTimer = setTimeout(async () => {
     const r = await postJSON("/vencidos/api/checar-aviso", { codigo_barras: cb });
     if (r.avisado) {
@@ -626,12 +681,14 @@ function checarAviso() {
       }
       if (!$("ve-custo").value && r.custo != null) $("ve-custo").value = r.custo;
       if (!$("ve-qtd").value && r.quantidade != null) $("ve-qtd").value = r.quantidade;
+      aplicarCatalogo(r.catalogo, { banner: "ve-cat", produto: "ve-produto", custo: "ve-custo" });
     } else {
       banner.style.background = "var(--danger-bg)";
       banner.style.borderColor = "color-mix(in srgb, var(--danger) 35%, transparent)";
       banner.style.color = "var(--ink-2)";
       banner.innerHTML = `<span style="color:var(--danger);font-weight:700">✕ Sem aviso prévio</span>&nbsp;para este código de barras.`;
       banner.classList.add("show");
+      aplicarCatalogo(r.catalogo, { banner: "ve-cat", produto: "ve-produto", custo: "ve-custo" });
     }
   }, 350);
 }
@@ -668,6 +725,7 @@ function abrirAviso() {
   ["av-produto","av-barras","av-qtd","av-venc","av-forn","av-resp","av-custo","av-venda","av-promo"].forEach(id => $(id).value = "");
   pickAv.set(null);
   $("av-dup").className = "alertx chk-banner"; $("av-dup").innerHTML = "";
+  limparCatalogo("av-cat");
   $("av-titulo").textContent = "Registrar aviso de vencimento";
   $("av-salvar").textContent = "Registrar aviso";
   $("msg-av").classList.remove("show");
@@ -689,6 +747,7 @@ function abrirEditarAviso(id) {
   $("av-venda").value = (a.venda != null ? a.venda : "");
   $("av-promo").value = (a.valor_promocional != null ? a.valor_promocional : "");
   $("av-dup").className = "alertx chk-banner"; $("av-dup").innerHTML = "";
+  limparCatalogo("av-cat");
   $("av-titulo").textContent = "Editar aviso";
   $("av-salvar").textContent = "Salvar";
   $("msg-av").classList.remove("show");
@@ -702,7 +761,7 @@ function checarAvisoDup() {
   clearTimeout(_dupTimer);
   const cb = $("av-barras").value.trim();
   const banner = $("av-dup");
-  if (!cb) { banner.classList.remove("show"); return; }
+  if (!cb) { banner.classList.remove("show"); limparCatalogo("av-cat"); return; }
   _dupTimer = setTimeout(async () => {
     const r = await postJSON("/vencidos/api/checar-aviso", { codigo_barras: cb });
     if (r.avisado) {
@@ -711,6 +770,8 @@ function checarAvisoDup() {
     } else {
       banner.classList.remove("show");
     }
+    aplicarCatalogo(r.catalogo, { banner: "av-cat", produto: "av-produto",
+                                  custo: "av-custo", venda: "av-venda" });
   }, 350);
 }
 
@@ -766,6 +827,136 @@ async function excluir(tipo, id) {
   if (!confirm(`Excluir este ${tipo}?`)) return;
   await fetch(`/vencidos/api/${tipo}/${id}`, { method: "DELETE" });
   location.reload();
+}
+
+// ── Catálogo de produtos (espelho do ERP) ────────────────────────────────────
+// Preenche nome, custo e venda ao bipar o código. Duas regras firmes:
+//  • só preenche campo VAZIO — o que a pessoa digitou (ou o que veio do aviso
+//    casado, que é o dado daquele item) manda;
+//  • sempre diz de onde veio e de quando é a foto do ERP; preço sem idade
+//    ninguém sabe se ainda vale.
+function limparCatalogo(id) {
+  const el = $(id);
+  if (el) { el.classList.remove("show"); el.innerHTML = ""; }
+}
+
+function aplicarCatalogo(cat, campos) {
+  const el = $(campos.banner);
+  if (!el || !cat) return;                 // módulo fora do ar: some, não atrapalha
+  const preencher = (idCampo, valor) => {
+    if (!idCampo || valor == null) return false;
+    const c = $(idCampo);
+    if (!c || c.value) return false;       // nunca sobrescreve
+    c.value = valor;
+    return true;
+  };
+  const dinheiro = v => (v == null ? null : brl(v));
+
+  if (cat.ambiguo) {
+    const lista = cat.parecidos.map(p => `${p.codigo_barras} (${p.descricao})`).join(" · ");
+    el.innerHTML = `<span class="cat-alerta">⚠ Código ambíguo no catálogo</span> — há mais de um
+      cadastro que só difere nos zeros à esquerda: ${lista}. Preencha à mão para não pegar o
+      preço do outro.`;
+    el.classList.add("show");
+    return;
+  }
+  if (!cat.encontrado) {
+    el.innerHTML = cat.atualizado_em
+      ? `<span class="cat-nada">Não está no catálogo</span> (atualizado em ${cat.atualizado_fmt}).`
+      : `<span class="cat-nada">Catálogo ainda não enviado.</span> Envie o arquivo do ERP em
+         <b>Catálogo</b>, no topo da tela, para o preenchimento automático funcionar.`;
+    el.classList.add("show");
+    return;
+  }
+
+  preencher(campos.produto, cat.descricao);
+  preencher(campos.custo, cat.custo);
+  preencher(campos.venda, cat.venda);
+
+  const partes = [];
+  partes.push(cat.custo != null ? `custo ${dinheiro(cat.custo)}`
+                                : `<span class="cat-alerta">sem custo no catálogo</span>`);
+  partes.push(cat.venda != null ? `venda ${dinheiro(cat.venda)}`
+                                : `<span class="cat-alerta">sem preço de venda no catálogo</span>`);
+  const aviso = cat.exato ? "" :
+    `<div class="cat-linha cat-alerta">⚠ Casou com o cadastro ${cat.codigo_barras} — o código
+     bipado difere nos zeros à esquerda. Confira o produto antes de salvar.</div>`;
+  el.innerHTML = `<b>${cat.descricao}</b> · ${partes.join(" · ")}
+    <div class="cat-linha">Catálogo do ERP, atualizado em ${cat.atualizado_fmt}.</div>${aviso}`;
+  el.classList.add("show");
+}
+
+// ── Atualização do catálogo (função de uso eventual) ─────────────────────────
+function abrirCatalogo() {
+  $("cat-box").classList.remove("show");
+  $("cat-log").innerHTML = "";
+  $("cat-arquivo").value = "";
+  const lbl = document.querySelector("#modal-catalogo .upload-label");
+  if (lbl) lbl.textContent = "Toque para escolher o arquivo .txt ou arraste aqui";
+  carregarStatusCatalogo();
+  abrirModal("modal-catalogo");
+}
+
+async function carregarStatusCatalogo() {
+  const el = $("cat-situacao");
+  el.textContent = "Carregando…";
+  try {
+    const s = await fetch("/catalogo/api/status").then(r => r.json());
+    if (s.vazio) {
+      el.innerHTML = "Nenhum produto no catálogo ainda — o preenchimento automático " +
+                     "só começa a funcionar depois do primeiro envio.";
+      return;
+    }
+    const u = s.ultima || {};
+    el.innerHTML = `<b>${s.total.toLocaleString("pt-BR")}</b> produtos · atualizado em
+      <b>${u.quando_fmt || "—"}</b>${u.usuario ? " por " + u.usuario : ""}
+      ${u.arquivo ? "<br><span style='color:var(--muted)'>" + u.arquivo + "</span>" : ""}`;
+  } catch (e) {
+    el.textContent = "Não foi possível ler a situação do catálogo.";
+  }
+}
+
+async function enviarCatalogo() {
+  const inp = $("cat-arquivo");
+  if (!inp.files.length) { alert("Escolha o arquivo .txt exportado do ERP."); return; }
+  if (!confirm("A lista nova substitui o catálogo inteiro. Continuar?")) return;
+  const fd = new FormData();
+  fd.append("arquivo", inp.files[0]);
+  $("cat-spin").style.display = "inline-block";
+  $("cat-txt").textContent = "Enviando…";
+  $("cat-enviar").disabled = true;
+  try {
+    const r = await fetch("/catalogo/api/importar", { method: "POST", body: fd })
+                    .then(res => res.json());
+    const box = $("cat-box");
+    box.classList.toggle("error", !r.ok);
+    if (r.ok) {
+      const extras = [];
+      if (r.ignorados) extras.push(`${r.ignorados} linha(s) sem código de barras ou nome`);
+      if (r.conflitos) extras.push(`${r.conflitos} código(s) repetido(s) no ERP — venceu o
+        cadastro que tem preço de venda`);
+      if (r.sem_venda) extras.push(`${r.sem_venda} sem preço de venda`);
+      if (r.sem_custo) extras.push(`${r.sem_custo} sem custo`);
+      $("cat-log").innerHTML =
+        `<b>${r.gravados.toLocaleString("pt-BR")} produtos</b> no catálogo, de
+         ${r.linhas.toLocaleString("pt-BR")} linhas lidas.` +
+        (extras.length ? `<div style="margin-top:5px;color:var(--muted)">${extras.join(" · ")}.</div>` : "") +
+        (r.conflitos_exemplo && r.conflitos_exemplo.length
+          ? `<div style="margin-top:5px;color:var(--muted);font-size:12px">Repetidos:
+             ${r.conflitos_exemplo.join(" · ")}</div>` : "");
+      carregarStatusCatalogo();
+    } else {
+      $("cat-log").textContent = r.msg || "Falha ao importar.";
+    }
+    box.classList.add("show");
+  } catch (e) {
+    $("cat-box").classList.add("show", "error");
+    $("cat-log").textContent = "Falha no envio: " + e;
+  } finally {
+    $("cat-spin").style.display = "none";
+    $("cat-txt").textContent = "Atualizar catálogo";
+    $("cat-enviar").disabled = false;
+  }
 }
 </script>
 {% endblock %}

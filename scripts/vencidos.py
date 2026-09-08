@@ -582,18 +582,36 @@ def buscar_aviso_ativo_por_barras(codigo_barras):
     return _enriquecer_aviso(dict(r)) if r else None
 
 
+def _catalogo(codigo_barras):
+    """Produto no catálogo (espelho do ERP), se o módulo estiver disponível.
+
+    Import protegido, como o cruzamento com o vendas.db: catálogo fora do ar não
+    pode impedir alguém de registrar um vencido."""
+    try:
+        from scripts import catalogo
+        return catalogo.consultar(codigo_barras)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def checar_aviso(codigo_barras):
-    """Para a checagem ao vivo no formulário do vencido."""
+    """Para a checagem ao vivo no formulário: o aviso prévio e o catálogo.
+
+    Vão juntos na mesma resposta de propósito — é UMA ida à rede por bipada, e
+    quem digita não espera duas. O aviso tem precedência no preenchimento (é o
+    dado que a seção informou para AQUELE item); o catálogo completa o resto."""
     a = buscar_aviso_ativo_por_barras(codigo_barras)
+    r = {"avisado": False, "catalogo": _catalogo(codigo_barras)}
     if not a:
-        return {"avisado": False}
-    return {
+        return r
+    r.update({
         "avisado": True, "aviso_id": a["id"], "produto": a["produto"],
         "data_venc_fmt": a["data_venc_fmt"], "dias_antecedencia": a["dias_antecedencia"],
         "no_prazo": a["no_prazo"], "responsavel": a["responsavel"],
         "quantidade": a["quantidade"], "fornecedor": a["fornecedor"], "custo": a["custo"],
         "fornecedor_id": a.get("fornecedor_id"),
-    }
+    })
+    return r
 
 
 # ── Vencidos ──────────────────────────────────────────────────────────────────

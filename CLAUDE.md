@@ -151,6 +151,7 @@ MODULOS = [
     ("scripts.relatorios_routes", "relatorios_bp"),  # /relatorios
     ("scripts.vencidos_routes",   "vencidos_bp"),     # /vencidos
     ("scripts.fornecedores_routes", "fornecedores_bp"), # /fornecedores (APIs)
+    ("scripts.catalogo_routes",   "catalogo_bp"),     # /catalogo (APIs)
     ("scripts.fiscal_routes",     "fiscal_bp"),       # /fiscal (custo real por NF-e)
     ("scripts.backup_routes",     "backup_bp"),       # /sistema/backup
 ]
@@ -313,6 +314,7 @@ Não há um banco único. Cada módulo persiste de um jeito:
 |-------------------|-------------------------------|---------|
 | Débitos/pagamentos/alocações | `dados/debitos.db` | SQLite |
 | Fornecedores (cadastro central) | `dados/fornecedores.db` | SQLite |
+| Catálogo de produtos (espelho do ERP) | `dados/catalogo.db` | SQLite |
 | Fiscal (NF-e compra, custo, preço, produtos) | `dados/fiscal.db` | SQLite |
 | Produtos vencidos | `dados/vencidos.db`           | SQLite |
 | Usuários + SECRET_KEY | `dados/sistema.db` + `dados/secret.key` | SQLite + arquivo |
@@ -1119,6 +1121,8 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
 - Copia **todos os `.db` de `dados/`** com a **API de backup online do SQLite**
   (consistente com o banco em uso) para `backups/<banco>/<banco>_AAAA-MM-DD_HHMM.db`.
   Retenção padrão: 30 cópias por banco (`BACKUP_RETENCAO`).
+  `RETENCAO_POR_BANCO` abre exceção por arquivo: o `catalogo.db` (~14 MB,
+  reimportável em segundos) guarda **2** cópias em vez de 30.
 - Um **agendador em thread daemon** (`iniciar_agendador`, chamado no `app.py`)
   faz backup ao subir e a cada `BACKUP_INTERVALO_HORAS` (padrão 24h).
 - Destino configurável por `BACKUP_DIR` — **aponte para a pasta do Google Drive
@@ -1139,7 +1143,9 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   vigília). Campos de baixa: `baixa_status` (pendente|baixado), `baixa_tipo`
   (`perda`|`devolucao` — `TIPOS_BAIXA`), `baixa_ref`, `baixa_em/por`.
 - API: `checar-aviso` alimenta a **checagem ao vivo** no formulário (mostra ✓/✗
-  enquanto se digita o código de barras e pré-preenche produto/fornecedor/custo).
+  enquanto se digita o código de barras e pré-preenche produto/fornecedor/custo). A
+  mesma resposta traz o **catálogo de produtos** (seção 17), que preenche nome,
+  custo e venda do que o aviso não informou.
   Rotas: `/api/aviso`, `/api/vencido`, `/api/checar-aviso`,
   `/api/vencido/<id>/baixa`, `/reabrir` (+ DELETEs).
 - Tela `/vencidos`: painel (valor perdido, % avisado, baixas pendentes, críticos
@@ -1374,3 +1380,82 @@ Tabela **plana**: uma linha por registro, **autofiltro**, painel congelado em
   por **alocação** — a unidade real, porque um pagamento pode se repartir entre
   débitos de meses diferentes; vem de `alocacoes_planas`), *Resumo por dívida* e
   *Crédito não aplicado*.
+
+---
+
+## 17. Catálogo de produtos (`/catalogo`)
+
+`scripts/catalogo.py` + `catalogo_routes.py` + `dados/catalogo.db`. Espelho do
+cadastro do ERP, alimentado por um TXT exportado ("todos os produtos"). Serve
+para que **bipar o código de barras já preencha nome, custo e venda** nos
+formulários de aviso e de vencido. Não tem página própria: a atualização mora
+num modal do `/vencidos`, que é onde o catálogo é usado.
+
+**Não é fonte da verdade — é uma FOTO**, com a idade da última importação. Toda
+consulta devolve `atualizado_em`, e a tela mostra essa data junto do preço: um
+valor de três meses atrás não pode ser apresentado como se fosse de hoje.
+
+### O arquivo do ERP (armadilhas medidas no relatório de 08/09/2026)
+95.750 linhas, 15,7 MB. Colunas: `Código` · `Barra1` · `Descrição` · `PrecoKit`
+(venda) · `PrecoCustoAquisição` (custo), localizadas **pelo nome no cabeçalho**
+(`COLUNAS`) — layout diferente falha com mensagem clara em vez de ler a coluna
+errada calado.
+- **UTF-16 LE com BOM**, não UTF-8 (`_detectar_encoding` cobre as outras formas).
+- Campos entre aspas e separados por `|`, mas **as aspas não têm escape**:
+  descrição com polegadas (`FACAO M0727N 18"`) faz o `csv` padrão juntar colunas
+  e ler o preço errado. Por isso o parse é `split('|')` + remoção das aspas
+  externas — **nunca `csv.reader`**.
+- Uma linha traz **quebra de linha dentro do campo**: `_registros` acumula até
+  fechar os campos do registro.
+- `R$0,00` é produto sem preço no ERP (11.375 sem venda, 345 sem custo) e vira
+  **NULL**. Gravar 0,00 num vencido subestimaria a perda no relatório.
+- Código de barras é limpo para **só dígitos** (resgata `V789…`, `7 898685 …`,
+  `16,007896…`); o que sobra vazio é descartado.
+
+### Duas decisões que mordem
+1. **A busca é EXATA.** Zero à esquerda distingue cadastros de verdade:
+   `78924345` (R$ 11,99) e `0000078924345` (R$ 9,39) são produtos diferentes,
+   com 164 pares assim no arquivo. Normalizar encheria o formulário com o preço
+   do cadastro errado. Quando o código exato não existe mas há variantes só de
+   zeros: **uma** → preenche marcada como `exato=False` e a tela diz com qual
+   cadastro casou; **mais de uma** → `ambiguo`, sem preencher nada.
+2. **Código repetido: vence quem TEM preço de venda** (empate: o último). São 9
+   no arquivo, e em 3 deles a segunda linha vem com `R$0,00` — ficar com ela
+   deixaria o produto sem preço à toa. O número de repetidos aparece no resumo
+   da importação, nunca some calado.
+
+### Importação
+`importar()` **substitui o catálogo inteiro** numa transação só (o arquivo é a
+foto completa do cadastro): produto que saiu do ERP some daqui, e não sobra
+preço fantasma de exportação antiga. Se o arquivo falhar no meio — inclusive
+"nenhum produto válido" —, o `ROLLBACK` devolve o catálogo anterior inteiro.
+Medido: 95.739 produtos em ~1,6 s pela rota, banco de ~14 MB; reimportar é
+idempotente. A tabela `importacoes` é a trilha de auditoria (quem trocou,
+quando, com qual arquivo e o que foi descartado) — por isso `produtos` não tem
+soft-delete: a linha não é fato histórico, é a foto de agora.
+
+**Retenção de backup**: `backup.RETENCAO_POR_BANCO` guarda **2** cópias deste
+banco em vez de 30 — é dado derivado, e 30 × 14 MB não se justifica.
+
+### Preenchimento no /vencidos
+`vencidos.checar_aviso` devolve o aviso prévio **e** o catálogo na mesma
+resposta: é uma ida à rede por bipada, e quem digita não espera duas (import
+protegido — catálogo fora do ar não impede ninguém de registrar um vencido).
+Regras da tela (`aplicarCatalogo` no template):
+- **só preenche campo vazio**; o **aviso casado tem precedência** sobre o
+  catálogo (é o dado que a seção informou para aquele item);
+- o banner sempre diz de onde veio e **de quando é a foto**, e destaca em
+  âmbar o que falta (`sem custo no catálogo`) ou o que exige conferência
+  (casamento por zeros à esquerda);
+- em modo edição não preenche nada, como já fazia a checagem de aviso.
+> O formulário de **vencido não tem campo de venda** (a tabela `vencidos` só
+> guarda `custo`) — ali o catálogo preenche produto e custo. O de **aviso**
+> recebe produto, custo e venda.
+
+### Rotas
+`GET /catalogo/api/produto?cb=` · `GET /catalogo/api/status` ·
+`POST /catalogo/api/importar` (multipart, campo `arquivo`; grava em `uploads/`,
+importa e apaga). As três exigem login: só `reclassificacao.api_` está em
+`PREFIXOS_PUBLICOS`, então a guarda global de sessão cobre este blueprint
+normalmente (deslogado, o `fetch` recebe 401 JSON por causa do `/api/` no
+caminho).
