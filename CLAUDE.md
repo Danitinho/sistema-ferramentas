@@ -1011,8 +1011,14 @@ Reescrita verificada assim (25/09/2026, cópia do banco): bloco de 12 com
 produto inexistente, descrição divergente, já correto e recusa do ERP plantados
 (cada um no estado certo); Pausar devolvendo o resto; ESC segurado virando
 `parar` no painel; formulário que não esvazia parando tudo; token revogado
-encerrando o agente. **O driver real (`DriverProdutos`) ainda não rodou contra o
-RADGe** — valide com `simular` ligado antes da primeira rodada de verdade.
+encerrando o agente. Contra o RADGe real (mesmo dia): todos os campos do mapa
+localizados; 108 produtos em simulação (~4 s cada, descrição e classificação
+batendo com a planilha); e **uma gravação real** (7891023565293, 1/1/1 ->
+10/29/326) relida do ERP depois de salva. Duas armadilhas achadas ali: Delphi
+minimizado esconde tudo (restaurar a `TApplication`), e a busca abre "Quer
+Acessar o Produto?" — a ÚNICA caixa que leva Sim (`busca_responder_sim`).
+`forcar_simulacao: true` no `config.json` da máquina impede gravar, diga o
+painel o que disser — use na primeira rodada de uma instalação nova.
 
 Verificado assim (29/08/2026, contra os 65.874 itens reais): a migração devolveu
 os 38.504 ALTA à curadoria (`prontos=0`, 65.874 esperando, 27.412 deles ativos);
