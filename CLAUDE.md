@@ -82,7 +82,7 @@ sistema_ferramentas_refatorado/
 │   ├── debitos.py             # lógica + persistência (SQLite) de débitos
 │   ├── debitos_routes.py      # Blueprint /debitos
 │   ├── fornecedores.py        # cadastro central de fornecedores (seção 14)
-│   ├── fornecedores_routes.py # Blueprint /fornecedores (APIs do seletor)
+│   ├── fornecedores_routes.py # Blueprint /fornecedores (página + APIs do seletor)
 │   ├── gerador_layouts.py     # motor de layouts de placas (Pillow)
 │   ├── gera_imagem.py         # geração de imagem de oferta (modelo antigo)
 │   ├── gera_imagem_v2.py      # geração de imagem de oferta (modelo novo)
@@ -105,6 +105,11 @@ sistema_ferramentas_refatorado/
 │   ├── layouts/               # index, cadastrar, gerar
 │   ├── relatorios/            # index (processar PDFs + consultar por código de barras)
 │   └── reclassificacao/       # painel do lote + console das máquinas, curadoria
+│
+├── agente/                # AGENTES SEM TELA que controlam o RADGe na máquina do
+│   │                      #   operador (pywinauto) — ver agente/README.md
+│   ├── reclassificacao.py     # agente da reclassificação (seção 10-B)
+│   └── erp.py                 # base comum: mapa -> controle, digitar, diálogos
 │
 ├── assets/                # estáticos servidos em /assets/<arquivo>
 │   ├── *.ttf                  # fontes das placas (Anton, ChelseaMarket, impact)
@@ -596,10 +601,13 @@ Itens já trabalhados e já curados não foram tocados.
 
 **Ele não mexe no ERP.** Quem edita o RADGe é um **agente** (pywinauto) que roda
 na máquina de cada operador e controla a janela do ERP por Win32 — coisa que
-servidor web não alcança. Esse agente continua em
-`C:\dev\pythonprojects\reclassificador` (`reclassificador/agente.py` +
-`erp.py`), tem CLAUDE.md próprio, e é a **única** parte que não pôde subir para
-a web. Tudo o mais migrou.
+servidor web não alcança. **Desde 25/09/2026 ele mora neste repositório, em
+`agente/`** (`reclassificacao.py` + a base `erp.py`; ver `agente/README.md`).
+O projeto antigo `C:\dev\pythonprojects\reclassificador` queimou junto com o
+HD em 24/09/2026 e não tinha cópia — o agente foi reescrito a partir deste
+contrato, do log gravado no `agente_log` e do `config.mapa_erp`. É a **única**
+parte que não roda no servidor; o código, porém, fica aqui para não se perder
+de novo.
 
 Na máquina do operador ficou: `servidor_url` e `token` no `config.json`. Só.
 Bloco, simulação, limiar e até o **mapa dos campos do RADGe** vêm do servidor.
@@ -954,11 +962,16 @@ tentar trabalhar. Se precisar mudar, mude os dois lados na mesma sessão.
   quando resolver a causa.
 - **Escolher confiança na máquina.** Virou consequência do `pronto`.
 
-Continua na máquina, porque não tem como não continuar: `python mapear.py`, o
-assistente que descobre onde ficam os campos do RADGe. É de **instalação**, não
-de operação, e o mapa que ele gera pode ser colado no painel para valer em todas
-as máquinas de uma vez. `reclassificador/app.py` (a janela antiga) segue no
-repositório como referência.
+O `mapear.py` (assistente que descobria onde ficam os campos) se perdeu na
+queima e **não foi refeito**: o mapa calibrado sobreviveu no `config.mapa_erp`,
+e recalibrar passa a ser tarefa do agente geral do ERP (`erp.inspecionar` /
+`erp.campo_focado`, pedidos do painel).
+
+**Semântica do mapa** (confirmada contra a inspeção real da tela Entradas):
+`ordinal` = posição entre TODOS os controles da classe na ordem de enumeração do
+Windows, invisíveis inclusive; `x`/`y` = um ponto DENTRO do controle, medido do
+canto da janela principal; `ancora` = texto do contêiner/rótulo que identifica
+o campo. Detalhes no docstring de `agente/erp.py`.
 
 ### Como testar
 
@@ -983,13 +996,23 @@ from app import app
 ```
 
 Para as páginas, `test_client` com sessão fingida (`s['usuario']='teste'`). Para
-o agente, o próprio `Agente` do outro projeto com um driver de mentira:
+o agente, o próprio `agente.reclassificacao.Agente` com um driver de mentira
+(interface de `DriverProdutos`: `conectar`, `viva`, `limpar`, `buscar`, `gravar`)
+e o app servido de verdade por `werkzeug.serving.make_server` numa porta local:
 
 ```python
-agente = Agente({"servidor_url": URL, "operador": "Ana", "token": TOKEN})
-agente.garantir_erp = lambda: (setattr(agente, "drv", DriverFake()), True)[1]
+from agente.reclassificacao import Agente
+agente = Agente({"servidor_url": URL, "token": TOKEN},
+                fabrica_driver=lambda mapa, log: DriverFake())
 threading.Thread(target=agente.rodar, daemon=True).start()
 ```
+
+Reescrita verificada assim (25/09/2026, cópia do banco): bloco de 12 com
+produto inexistente, descrição divergente, já correto e recusa do ERP plantados
+(cada um no estado certo); Pausar devolvendo o resto; ESC segurado virando
+`parar` no painel; formulário que não esvazia parando tudo; token revogado
+encerrando o agente. **O driver real (`DriverProdutos`) ainda não rodou contra o
+RADGe** — valide com `simular` ligado antes da primeira rodada de verdade.
 
 Verificado assim (29/08/2026, contra os 65.874 itens reais): a migração devolveu
 os 38.504 ALTA à curadoria (`prontos=0`, 65.874 esperando, 27.412 deles ativos);
@@ -1189,8 +1212,23 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
 
 `scripts/fornecedores.py` + `fornecedores_routes.py` + `dados/fornecedores.db`.
 É a **fonte da verdade** da entidade que débitos chama de "empresa" e vencidos
-chama de "fornecedor". Não tem página própria — só APIs que alimentam o
-**seletor buscar-ou-cadastrar** (`fornecedorPicker` no `base.html`, CSS `.fpick`).
+chama de "fornecedor". Página própria em `/fornecedores` (lista, editar,
+juntar duplicados) e as APIs que alimentam o **seletor buscar-ou-cadastrar**
+(`fornecedorPicker` no `base.html`, CSS `.fpick`).
+
+- **`numero`** = código do fornecedor no RADGe (só dígitos, sem zero à
+  esquerda, único entre os ativos). É por ele que o agente geral do ERP filtra
+  as notas de entrada (`nf.abrir_ultima`).
+- **Junção de duplicados** (`plano_mescla` valida sem gravar, `mesclar` grava;
+  rotas `/api/mesclar` e `/api/mesclar/previa`): quem junta escolhe o nome que
+  fica; sobrevive o registro com CNPJ (a chave de débitos não muda), e o CNPJ
+  e o número do outro passam para ele. **CNPJs diferentes bloqueiam** (decisão
+  do usuário: são empresas distintas em débitos); números diferentes também.
+  Avisos/vencidos são repontados (`vencidos.transferir_fornecedor`) ANTES de
+  encerrar o absorvido, para a operação poder ser repetida se cair no meio.
+  O absorvido vira soft-delete com `mesclado_para`, e `criar` com o nome dele
+  devolve o sobrevivente em vez de reativá-lo (senão o duplicado voltaria pelo
+  seletor).
 
 - `fornecedores(id PK, cnpj UNIQUE (pode ser NULL), nome, ...)` + auditoria,
   soft-delete. CNPJ armazenado **como digitado** (compatível com as chaves de

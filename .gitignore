@@ -44,3 +44,10 @@ Thumbs.db
 
 # Claude Code
 .claude/settings.local.json
+
+# Agentes: o token de cada maquina fica fora do git
+agente/config.json
+
+# Banco do agente geral e logs do servico
+dados/agente.db
+logs/
