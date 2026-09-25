@@ -53,6 +53,27 @@ class Interrompido(Exception):
     """ESC segurado ou ordem do painel no meio de um produto."""
 
 
+class _RecusaNumero(Exception):
+    """O ERP recusou porque a descrição começa com número (tratável)."""
+
+
+# Só CÓDIGOS DE REFERÊNCIA no início: blocos de 3+ dígitos, com -01/.02
+# opcionais ("9724 ", "807720 ", "13265-01 "). Não casam, de propósito:
+# "3M FITA" (o número é parte do nome), "2,5 LITROS" e "1000 ML" (é a
+# quantidade — tirá-la mudaria o produto), "7220-RS" (código colado em letra).
+# O que não casar continua como erro, para correção à mão.
+_UNIDADES = r"(?:ML|L|LT|LTS|LITROS?|G|GR|GRS|KG|MG|M|MM|CM|UN|UND|UNID|X|PC|PCS|CX|W|V)"
+NUM_INICIO = re.compile(r"^\s*(?:\d{3,}(?:[-./]\d+)*\s+(?!" + _UNIDADES + r"\b))+",
+                        re.IGNORECASE)
+# campo logo abaixo da Descrição no cadastro de Produtos; o mapa pode
+# sobrescrever com "descricao_midia" em "controles"
+MIDIA_PADRAO = {"class_name": "TDBEdit", "x": 95, "y": 285}
+
+
+def sem_numero_inicial(s):
+    return NUM_INICIO.sub("", s or "").strip()
+
+
 def _norm(s):
     return erp_base.normalizar(s).upper()
 
@@ -283,15 +304,35 @@ class DriverProdutos:
         if antes_de_salvar:
             antes_de_salvar()           # última chance de o ESC impedir a gravação
         self._botao("salvar")
-        self._espera("espera_salvar_s", 1.5)
+        self.correcao = None
+        try:
+            self._tratar_salvar()
+        except _RecusaNumero as e:
+            # Pedido do usuário (25/09/2026): "Descrição do Produto não pode
+            # começar com número" -> tira o número do início da Descrição e da
+            # Descrição Mídia e salva de novo. Uma tentativa só.
+            self._corrigir_descricoes(str(e))
+            self._conferir_trio(dep, sec, sub)
+            self._botao("salvar")
+            self._espera("espera_salvar_s", 1.5)
+            try:
+                self._tratar_salvar()
+            except _RecusaNumero as e2:
+                raise ErroItem(f"o ERP recusou de novo depois de corrigir a descrição: {e2}")
+        return nomes
+
+    def _tratar_salvar(self):
         confirmar = self.m.get("dialogos_confirmar") or ["Sim", "&Sim", "OK", "&OK"]
         for _ in range(5):
             dlg = self.j.dialogos()
             if not dlg:
                 break
             for d in dlg:
-                if RECUSA.search(erp_base.normalizar(d["texto"])):
+                texto = erp_base.normalizar(d["texto"])
+                if RECUSA.search(texto):
                     self.j.responder(d, FECHAR + NEGATIVOS)
+                    if "comecar com numero" in texto:
+                        raise _RecusaNumero(d["texto"])
                     raise ErroItem(f"o ERP recusou a gravacao: {d['texto']}")
                 b = self.j.responder(d, confirmar)
                 if not b:
@@ -299,7 +340,40 @@ class DriverProdutos:
                                     f"'{d['texto']}' ({d['botoes']})")
                 self.log(f"Dialogo do ERP: {d['texto']} (respondi {b})")
             time.sleep(0.5)
-        return nomes
+
+    def _conferir_trio(self, dep, sec, sub):
+        lido = self._codigos()
+        if (lido["dep"], lido["sec"], lido["sub"]) != (str(dep), str(sec), str(sub)):
+            raise ErroItem(f"a classificação mudou ao corrigir a descrição: "
+                           f"{lido['dep']}/{lido['sec']}/{lido['sub']}, esperado {dep}/{sec}/{sub}")
+
+    def _corrigir_descricoes(self, recusa):
+        campos = (("descricao", self.c["descricao"]),
+                  ("descricao_midia", self.c.get("descricao_midia") or MIDIA_PADRAO))
+        mudou = []
+        for nome, spec in campos:
+            atual = self.j.ler(nome, spec)
+            novo = sem_numero_inicial(atual)
+            if not novo:
+                raise ErroItem(f"o ERP recusou ({recusa}) e '{atual}' ficaria vazia sem o número")
+            if novo == atual:
+                continue
+            self.j.escrever(nome, spec, novo)
+            time.sleep(0.3)
+            caixas = self._fechar_dialogos(NEGATIVOS)
+            if caixas:
+                raise ErroItem(f"o ERP reclamou ao corrigir {nome}: {' / '.join(caixas)}")
+            lido = self.j.ler(nome, spec)
+            if lido != novo:
+                raise ErroItem(f"não consegui corrigir {nome}: digitei '{novo}', ficou '{lido}'")
+            mudou.append((nome, atual, novo))
+        if not any(n == "descricao" for n, _, _ in mudou):
+            # "3M FITA...": o número faz parte do nome e não é removido sozinho
+            raise ErroItem(f"o ERP recusou a gravacao: {recusa} (a descrição não começa "
+                           "com um número isolado; corrija à mão)")
+        self.correcao = mudou
+        for nome, a, n in mudou:
+            self.log(f"{nome} corrigida: '{a}' -> '{n}'")
 
 
 # ── o agente ─────────────────────────────────────────────────────────────────
@@ -554,6 +628,8 @@ class Agente:
                 return
             nomes = drv.gravar(*dest, antes_de_salvar=self._checar_interrupcao)
             rotulo = " > ".join(f"{c} {n}".strip() for c, n in zip(dest, nomes))
+            for campo, antes, depois in (getattr(drv, "correcao", None) or []):
+                rotulo += f"; {campo} corrigida: '{antes}' -> '{depois}'"
             self.log(f"[{cod}] gravado -> {rotulo}")
             self._fechar(cod, "alterado", *dest, detalhe=rotulo)
         except ErroItem as e:
