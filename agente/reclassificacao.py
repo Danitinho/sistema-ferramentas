@@ -557,6 +557,13 @@ class Agente:
             self.log(f"[{cod}] gravado -> {rotulo}")
             self._fechar(cod, "alterado", *dest, detalhe=rotulo)
         except ErroItem as e:
+            # O ESC do operador também chega ao ERP: fecha "Quer Acessar o
+            # Produto?" como Não e o produto parece inexistente. Erro que
+            # coincide com o ESC é efeito dele, não do produto — volta à fila
+            # em vez de ir para os falhados. O vigia leva ~0,6 s para confirmar.
+            time.sleep(0.8)
+            if self._esc_visto:
+                raise Interrompido("ESC segurado na maquina")
             self.log(f"[{cod}] nao gravou: {e}")
             self._fechar(cod, "erro", detalhe=str(e))
             drv.limpar()                    # descarta o que ficou digitado
