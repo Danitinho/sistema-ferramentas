@@ -261,6 +261,9 @@ class Agente:
     def __init__(self, cfg, fabrica_driver=None, esc=esc_segurado):
         self.cli = Cliente(cfg["servidor_url"], cfg["token"])
         self.mapa_local = cfg.get("mapa_erp")
+        # trava da máquina: com ela, nada é salvo, diga o painel o que disser
+        # (máquina de teste, ou a primeira rodada numa instalação nova)
+        self.forcar_simulacao = bool(cfg.get("forcar_simulacao"))
         self.maquina = socket.gethostname()
         self.fabrica_driver = fabrica_driver or (lambda mapa, log: DriverProdutos(mapa, log))
         self.esc = esc
@@ -349,6 +352,8 @@ class Agente:
     # ── laço principal ───────────────────────────────────────────────────────
     def rodar(self):
         self.log(f"Agente da reclassificação iniciado (v{VERSAO}). Quem manda é o painel.")
+        if self.forcar_simulacao:
+            self.log("SIMULACAO FORCADA nesta maquina (config.json): nada sera salvo no ERP.")
         threading.Thread(target=self._vigiar_esc, daemon=True).start()
         ocioso_msg = None
         while not self.encerrar:
@@ -415,13 +420,15 @@ class Agente:
                 self.processar(item, cfg)
                 feitos_aqui.append(item["cod"])
         except Interrompido as e:
-            self.log(f"Parei: {e}.")
-            if "ESC" in str(e):
-                self._pedir_parada = True
-                self._esc_visto = False
-            self._soltar(itens, feitos_aqui)
-            self.status("parado", str(e))
+            self._parar_por(e, itens, feitos_aqui)
         except ErroGrave as e:
+            # O ESC segurado também chega ao ERP, e com a tecla presa o Limpar
+            # não pega: a falha é efeito do ESC, não um ERP perdido. O vigia
+            # leva ~0,6 s para confirmar a tecla, daí a espera.
+            time.sleep(1.0)
+            if self._esc_visto:
+                self._parar_por(Interrompido("ESC segurado na maquina"), itens, feitos_aqui)
+                return
             self.log(f"ERRO: {e}")
             self.log("Nao consegui recuperar o ERP. Soltando o bloco e pedindo parada.")
             self._pedir_parada = True
@@ -432,6 +439,23 @@ class Agente:
             self._soltar(itens, feitos_aqui)
         finally:
             self.atual = ""
+
+    def _parar_por(self, motivo, itens, feitos):
+        self.log(f"Parei: {motivo}.")
+        if "ESC" in str(motivo):
+            self._pedir_parada = True
+            # limpar com a tecla ainda presa falha: espera soltar (até 10 s)
+            fim = time.time() + 10
+            while self.esc() and time.time() < fim:
+                time.sleep(0.2)
+            self._esc_visto = False
+        if self.drv is not None:
+            try:
+                self.drv.limpar()
+            except Exception as e:
+                self.log(f"Não consegui limpar o formulário ({e}); confira a tela do ERP.")
+        self._soltar(itens, feitos)
+        self.status("parado", str(motivo))
 
     def _soltar(self, itens, feitos):
         resto = [it["cod"] for it in itens if it["cod"] not in feitos]
@@ -473,7 +497,7 @@ class Agente:
                                f"'{achado['descricao']}' x planilha '{item.get('produto')}'")
             atual = (achado["dep"], achado["sec"], achado["sub"])
             certo = atual == dest
-            if cfg.get("simular"):
+            if cfg.get("simular") or self.forcar_simulacao:
                 det = "ja_correto (simulado)" if certo else f"{'/'.join(dest)} (simulado)"
                 self.log(f"[{cod}] simulado: {det}")
                 self._fechar(cod, "simulado", *dest, detalhe=det)
@@ -491,8 +515,7 @@ class Agente:
             self._fechar(cod, "erro", detalhe=str(e))
             drv.limpar()                    # descarta o que ficou digitado
         except Interrompido:
-            drv.limpar()
-            raise
+            raise                           # quem limpa é _parar_por, com o ESC já solto
         except erp_base.ErroERP as e:
             self.log(f"[{cod}] ERRO do ERP: {e}")
             self._fechar(cod, "erro", detalhe=str(e))
