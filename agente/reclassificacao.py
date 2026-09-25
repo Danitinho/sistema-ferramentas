@@ -162,6 +162,10 @@ class DriverProdutos:
         desc = self.j.ler("descricao", self.c["descricao"])
         if not desc:
             return None
+        # Depois de salvar, o RADGe troca a aba lateral de "Grupos" para
+        # "Opções" e o próximo produto já abre nela. Todo produto aberto passa
+        # por aqui: a classificação é lida e escrita com a aba Grupos à vista.
+        self.trazer_aba_grupos()
         return {"descricao": desc, **self._codigos()}
 
     def _codigos(self):
