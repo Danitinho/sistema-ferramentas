@@ -57,7 +57,7 @@ def _rect(ctrl):
 class Janela:
     """A janela principal do RADGe e a busca de controles dentro dela."""
 
-    def __init__(self, titulo_regex, classes_dialogo=None):
+    def __init__(self, titulo_regex, classes_dialogo=None, formulario=None):
         if not DISPONIVEL:
             raise ErroERP("pywinauto não está instalado nesta máquina "
                           "(pip install pywinauto)")
@@ -66,6 +66,11 @@ class Janela:
         self.app = None
         self.win = None
         self._cache = {}
+        # classe do formulário MDI onde procurar (ex.: TfrmProdutos). Com
+        # várias telas abertas no RADGe, "Salvar" e "Limpar" existem em cada
+        # uma: sem escopo, o clique poderia ir para a tela errada.
+        self.formulario = formulario
+        self._form = None
 
     # ── conexão ───────────────────────────────────────────────────────────────
     def conectar(self):
@@ -79,6 +84,7 @@ class Janela:
             raise ErroERP(f"não encontrei a janela do ERP com o padrão "
                           f"'{self.titulo_regex}'")
         self._cache.clear()
+        self._form = None
         self._restaurar_aplicacao()
         return self.titulo()
 
@@ -119,10 +125,26 @@ class Janela:
     def esquecer(self):
         """Limpa os controles guardados — depois de erro de handle inválido."""
         self._cache.clear()
+        self._form = None
 
     # ── localizar ────────────────────────────────────────────────────────────
-    def _todos(self, class_name=None):
+    def _raiz(self):
         w = self.win.wrapper_object()
+        if not self.formulario:
+            return w
+        try:
+            if self._form is not None and handleprops.iswindow(self._form.handle):
+                return self._form
+        except Exception:
+            pass
+        forms = w.descendants(class_name=self.formulario)
+        if not forms:
+            raise ErroERP(f"a tela '{self.formulario}' não está aberta no ERP")
+        self._form = forms[0]
+        return self._form
+
+    def _todos(self, class_name=None):
+        w = self._raiz()
         return w.descendants(class_name=class_name) if class_name else w.descendants()
 
     def achar(self, nome, spec, visivel=False):
@@ -221,7 +243,7 @@ class Janela:
             self.esquecer()
             raise ErroERP(f"não consegui ler '{nome}': {e}")
 
-    def escrever(self, nome, spec, valor, depois="{TAB}"):
+    def escrever(self, nome, spec, valor, depois="{TAB}", pausa=0.08):
         """Digita `valor` no campo como uma pessoa faria: foco, apaga, digita,
         sai do campo (o TAB é o que dispara a validação/lookup do ERP)."""
         c = self.achar(nome, spec, visivel=True)
@@ -230,12 +252,22 @@ class Janela:
             c.set_focus()
             c.type_keys("{HOME}+{END}{DEL}", set_foreground=False)
             texto = re.sub(r"([{}()+^%~\[\]])", r"{\1}", str(valor))
-            c.type_keys(texto + (depois or ""), with_spaces=True, set_foreground=False)
+            # devagar: o RADGe perdeu o 2o "1" de "11" digitado de uma vez
+            c.type_keys(texto, with_spaces=True, set_foreground=False, pause=pausa)
+            if depois:
+                time.sleep(pausa)
+                c.type_keys(depois, set_foreground=False)
         except ErroERP:
             raise
         except Exception as e:
             self.esquecer()
             raise ErroERP(f"não consegui digitar em '{nome}': {e}")
+
+    def habilitado(self, nome, spec):
+        try:
+            return self.achar(nome, spec, visivel=True).is_enabled()
+        except Exception:
+            return False
 
     def clicar(self, nome, spec):
         c = self.achar(nome, spec, visivel=True)

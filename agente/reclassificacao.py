@@ -76,8 +76,11 @@ class DriverProdutos:
         self.m = mapa
         self.log = log
         self.c = mapa.get("controles", {})
+        # só dentro do cadastro de Produtos: a tela de Entradas aberta ao lado
+        # tem Salvar/Limpar/Cancelar próprios
         self.j = erp_base.Janela(mapa.get("janela_titulo_regex", "RADGe"),
-                                 mapa.get("classes_dialogo"))
+                                 mapa.get("classes_dialogo"),
+                                 formulario=mapa.get("formulario", "TfrmProdutos"))
         self._offset_aba = None
 
     def _espera(self, chave, padrao):
@@ -124,8 +127,35 @@ class DriverProdutos:
         return not self.j.ler("barra", self.c["barra"]) and \
                not self.j.ler("descricao", self.c["descricao"])
 
+    def descartar_edicao(self):
+        """Registro em edição (Cancelar habilitado): o Limpar NÃO descarta, e
+        o formulário fica preso com o que foi digitado. Cancelar pergunta
+        "Deseja Cancelar a Alteração pendente?" — ali, e só ali, Sim é
+        descartar. Qualquer outra caixa leva Não."""
+        spec = dict((self.m.get("botoes") or {}).get("cancelar")
+                    or {"class_name": "TcxButton", "texto": "Cancelar"})
+        spec.pop("tipo", None)
+        if not self.j.habilitado("botao_cancelar", spec):
+            return False
+        self.j.clicar("botao_cancelar", spec)
+        for _ in range(10):
+            time.sleep(0.3)
+            dlg = self.j.dialogos()
+            if dlg:
+                break
+        for d in self.j.dialogos():
+            if "cancelar a alteracao" in erp_base.normalizar(d["texto"]):
+                self.j.responder(d, ["&Sim", "Sim", "Yes", "&Yes"])
+            else:
+                self.log(f"Dialogo do ERP ao cancelar: {d['texto']}")
+                self.j.responder(d, NEGATIVOS + FECHAR)
+        time.sleep(0.5)
+        self.log("Edição pendente descartada (Cancelar).")
+        return True
+
     def limpar(self):
         for tentativa in range(1, 4):
+            self.descartar_edicao()
             self._botao("limpar")
             self._espera("espera_limpar_s", 0.8)
             # "Deseja salvar as alterações?" -> Não. Nunca salvar ao limpar.
@@ -222,11 +252,23 @@ class DriverProdutos:
         (departamento, seção, subseção) que o ERP mostrou."""
         self.trazer_aba_grupos()
         for k, v in (("dep", dep), ("sec", sec), ("sub", sub)):
-            self.j.escrever(f"{k}_cod", self.c[f"{k}_cod"], v)
-            time.sleep(0.3)
-            caixas = self._fechar_dialogos(NEGATIVOS)
-            if caixas:
-                raise ErroItem(f"o ERP reclamou do campo {k} ({v}): {' / '.join(caixas)}")
+            # confere CADA campo logo depois de digitar: o RADGe já engoliu
+            # uma tecla ("11" virou "1"), e errar o departamento muda o sentido
+            # da seção e da subseção digitadas depois (ver CLAUDE.md, códigos)
+            for tentativa in range(1, 4):
+                self.j.escrever(f"{k}_cod", self.c[f"{k}_cod"], v)
+                time.sleep(0.3)
+                caixas = self._fechar_dialogos(NEGATIVOS)
+                if caixas:
+                    raise ErroItem(f"o ERP reclamou do campo {k} ({v}): {' / '.join(caixas)}")
+                lido = self.j.ler(f"{k}_cod", self.c[f"{k}_cod"])
+                if lido == str(v):
+                    break
+                self.log(f"Campo {k}: digitei {v}, o ERP ficou com {lido or 'vazio'} "
+                         f"(tentativa {tentativa}); digitando de novo.")
+            else:
+                raise ErroItem(f"campo {k} nao aceitou {v} depois de 3 tentativas "
+                               f"(ficou {lido or 'vazio'})")
         lido = self._codigos()
         if (lido["dep"], lido["sec"], lido["sub"]) != (str(dep), str(sec), str(sub)):
             raise ErroItem(f"campos nao aceitaram os valores: gravado "
