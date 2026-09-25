@@ -79,6 +79,7 @@ class Janela:
             raise ErroERP(f"não encontrei a janela do ERP com o padrão "
                           f"'{self.titulo_regex}'")
         self._cache.clear()
+        self._restaurar_aplicacao()
         return self.titulo()
 
     def viva(self):
@@ -90,8 +91,24 @@ class Janela:
     def titulo(self):
         return self.win.window_text() if self.win else ""
 
+    def _restaurar_aplicacao(self):
+        """Delphi minimizado: quem fica minimizada é a janela oculta
+        `TApplication`, e o formulário principal some (IsWindowVisible=0, e
+        todo controle parece invisível). Restaurar o formulário não adianta;
+        tem de ser a TApplication do mesmo processo."""
+        try:
+            pid = self.win.process_id()
+            for w in Desktop(backend="win32").windows(process=pid, class_name="TApplication",
+                                                     visible_only=False):
+                if w.is_minimized():
+                    w.restore()
+                    time.sleep(1.0)
+        except Exception:
+            pass
+
     def trazer_para_frente(self):
         try:
+            self._restaurar_aplicacao()
             if self.win.is_minimized():
                 self.win.restore()
             self.win.set_focus()
@@ -253,7 +270,7 @@ class Janela:
                         continue
                     if "button" in c.class_name().lower() or c.class_name() in ("TButton", "TcxButton", "TBitBtn"):
                         botoes.append(t)
-                    else:
+                    elif t not in partes:       # o Delphi repete o texto em dois controles
                         partes.append(t)
                 texto = " ".join(partes) or w.window_text()
                 saida.append({"texto": re.sub(r"\s+", " ", texto).strip(),

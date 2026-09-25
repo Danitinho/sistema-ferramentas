@@ -142,9 +142,23 @@ class DriverProdutos:
         self.j.escrever("barra", self.c["barra"], cod,
                         depois=self.m.get("buscar", "{ENTER}"))
         self._espera("espera_busca_s", 1.2)
-        caixas = self._fechar_dialogos([])
-        if caixas:
-            raise ErroItem(f"o ERP respondeu à busca: {' / '.join(caixas)}")
+        # O RADGe pergunta "Quer Acessar o Produto?" ao achar o código: é
+        # navegação, e o Sim só abre o cadastro para ver. SÓ essa pergunta leva
+        # Sim — "não cadastrado, deseja incluir?" com Sim criaria um produto.
+        navegar = [erp_base.normalizar(p) for p in
+                   self.m.get("busca_responder_sim", ["acessar o produto"])]
+        for _ in range(3):
+            dlg = self.j.dialogos()
+            if not dlg:
+                break
+            for d in dlg:
+                if any(p in erp_base.normalizar(d["texto"]) for p in navegar):
+                    if not self.j.responder(d, ["&Sim", "Sim", "Yes", "&Yes"]):
+                        raise ErroGrave(f"não consegui responder '{d['texto']}'")
+                else:
+                    self.j.responder(d, NEGATIVOS + FECHAR)
+                    raise ErroItem(f"o ERP respondeu à busca: {d['texto']}")
+            self._espera("espera_busca_s", 1.2)
         desc = self.j.ler("descricao", self.c["descricao"])
         if not desc:
             return None
