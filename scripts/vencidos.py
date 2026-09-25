@@ -566,6 +566,45 @@ def renomear_fornecedor(fornecedor_id, novo_nome, usuario=None):
         conn.close()
 
 
+def transferir_fornecedor(de_id, para_id, nome, usuario=None):
+    """Junção de cadastros: move avisos e vencidos (inclusive os excluídos, que
+    são história) de um fornecedor para outro, com o nome final. Retorna o
+    número de linhas movidas."""
+    nome = (nome or "").strip()
+    if not de_id or not para_id or not nome:
+        return 0
+    conn = _conn()
+    try:
+        n = 0
+        for tabela in ("avisos", "vencidos"):
+            r = conn.execute(f"UPDATE {tabela} SET fornecedor_id = ?, fornecedor = ? "
+                             "WHERE fornecedor_id = ?", (para_id, nome, de_id))
+            n += r.rowcount
+        if n:
+            _auditar(conn, "fornecedor", para_id, "mesclar",
+                     f"{n} linha(s) vindas de {de_id}", usuario)
+        conn.commit()
+        return n
+    finally:
+        conn.close()
+
+
+def contar_por_fornecedor():
+    """{fornecedor_id: {"avisos": n, "vencidos": n}} dos lançamentos ativos —
+    a página de fornecedores mostra isso para a junção não ser às cegas."""
+    conn = _conn()
+    try:
+        saida = {}
+        for tabela in ("avisos", "vencidos"):
+            for r in conn.execute(f"SELECT fornecedor_id, COUNT(*) FROM {tabela} "
+                                  "WHERE fornecedor_id IS NOT NULL AND excluido_em IS NULL "
+                                  "GROUP BY fornecedor_id"):
+                saida.setdefault(r[0], {"avisos": 0, "vencidos": 0})[tabela] = r[1]
+        return saida
+    finally:
+        conn.close()
+
+
 def buscar_aviso_ativo_por_barras(codigo_barras):
     """Aviso ativo (não resolvido, não excluído) do mesmo código de barras, mais
     próximo de vencer. Retorna dict enriquecido ou None."""

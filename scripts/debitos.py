@@ -476,6 +476,16 @@ def listar_empresas():
         conn.close()
 
 
+def contar_debitos_por_empresa():
+    """{cnpj: débitos ativos} — contexto na página de fornecedores."""
+    conn = _conn()
+    try:
+        return {r[0]: r[1] for r in conn.execute(
+            "SELECT cnpj, COUNT(*) FROM debitos WHERE excluido_em IS NULL GROUP BY cnpj")}
+    finally:
+        conn.close()
+
+
 def buscar_empresa(cnpj):
     conn = _conn()
     try:

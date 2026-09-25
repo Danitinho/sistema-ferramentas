@@ -59,11 +59,45 @@ def _init_schema(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_forn_nome ON fornecedores(nome);
     """)
+    _migrar(conn)
     conn.commit()
     global _SEMEADO
     if not _SEMEADO:
         _SEMEADO = True
         _semear(conn)
+
+
+def _migrar(conn):
+    """`numero` = código do fornecedor no ERP (RADGe). Único entre os ativos:
+    é por ele que o agente filtra as notas de entrada, e dois cadastros com o
+    mesmo número abririam a nota do fornecedor errado."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(fornecedores)")}
+    if "numero" not in cols:
+        conn.execute("ALTER TABLE fornecedores ADD COLUMN numero TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_forn_numero ON fornecedores(numero) "
+                 "WHERE numero IS NOT NULL AND excluido_em IS NULL")
+    # `mesclado_para` = id do cadastro que absorveu este. Sem ele, cadastrar de
+    # novo o nome de um absorvido o reativaria, desfazendo a junção calado.
+    if "mesclado_para" not in cols:
+        conn.execute("ALTER TABLE fornecedores ADD COLUMN mesclado_para TEXT")
+        # junções anteriores só deixaram rastro na auditoria: "X -> Y (id)"
+        for r in conn.execute("SELECT entidade_id, detalhe FROM auditoria "
+                              "WHERE acao='mesclado_em'").fetchall():
+            m = re.search(r"\(([^()]+)\)\s*$", r["detalhe"] or "")
+            if m and r["entidade_id"]:
+                conn.execute("UPDATE fornecedores SET mesclado_para=? WHERE id=?",
+                             (m.group(1), r["entidade_id"]))
+
+
+def _destino_mescla(conn, r):
+    """Segue a cadeia de junções a partir de um cadastro absorvido até o ativo
+    que ficou com ele (ou None, se a cadeia terminar num excluído)."""
+    vistos = set()
+    while r and r["excluido_em"] and r["mesclado_para"] and r["id"] not in vistos:
+        vistos.add(r["id"])
+        r = conn.execute("SELECT * FROM fornecedores WHERE id=?",
+                         (r["mesclado_para"],)).fetchone()
+    return r if r and not r["excluido_em"] else None
 
 
 # ── Utilitários ───────────────────────────────────────────────────────────────
@@ -91,8 +125,14 @@ def _auditar(conn, entidade_id, acao, detalhe="", usuario=None):
     )
 
 
+def _numero(s):
+    """Número do fornecedor no ERP: só dígitos, sem zero à esquerda ('015' e
+    '15' são o mesmo cadastro no RADGe). Vazio -> None."""
+    return re.sub(r"\D", "", str(s or "")).lstrip("0") or None
+
+
 def _dict(r):
-    return {"id": r["id"], "cnpj": r["cnpj"], "nome": r["nome"]}
+    return {"id": r["id"], "cnpj": r["cnpj"], "nome": r["nome"], "numero": r["numero"]}
 
 
 # ── Semeadura a partir dos bancos existentes ─────────────────────────────────
@@ -260,9 +300,15 @@ def criar(nome, cnpj=None, usuario=None):
                 _auditar(conn, r["id"], "reativar", nome, usuario)
                 conn.commit()
                 return True, "Fornecedor reativado.", buscar(r["id"])
-        r = _por_nome(conn, nome, ativos=False)
+        # o ativo tem precedência: depois de uma junção que manteve o nome do
+        # absorvido, há um ativo e um excluído com o mesmo nome
+        r = _por_nome(conn, nome) or _por_nome(conn, nome, ativos=False)
         if r and not r["excluido_em"]:
             return False, "Já existe fornecedor com este nome.", _dict(r)
+        if r and r["mesclado_para"]:
+            destino = _destino_mescla(conn, r)
+            if destino:
+                return False, (f"'{nome}' foi juntado a '{destino['nome']}'."), _dict(destino)
         if r:  # excluído: reativa (e completa o CNPJ se veio)
             conn.execute("UPDATE fornecedores SET cnpj=COALESCE(?, cnpj), excluido_em=NULL, "
                          "excluido_por=NULL WHERE id=?", (cnpj, r["id"]))
@@ -274,7 +320,7 @@ def criar(nome, cnpj=None, usuario=None):
                      "VALUES (?,?,?,?,?)", (fid, cnpj, nome, _agora(), usuario))
         _auditar(conn, fid, "criar", f"{nome}{' · ' + cnpj if cnpj else ''}", usuario)
         conn.commit()
-        return True, f"Fornecedor '{nome}' cadastrado.", {"id": fid, "cnpj": cnpj, "nome": nome}
+        return True, f"Fornecedor '{nome}' cadastrado.", {"id": fid, "cnpj": cnpj, "nome": nome, "numero": None}
     finally:
         conn.close()
 
@@ -296,7 +342,7 @@ def definir_cnpj(id_forn, cnpj, usuario=None):
         conn.execute("UPDATE fornecedores SET cnpj=? WHERE id=?", (cnpj, id_forn))
         _auditar(conn, id_forn, "definir_cnpj", cnpj, usuario)
         conn.commit()
-        return True, "CNPJ definido.", {"id": f["id"], "cnpj": cnpj, "nome": f["nome"]}
+        return True, "CNPJ definido.", {**_dict(f), "cnpj": cnpj}
     finally:
         conn.close()
 
@@ -317,6 +363,136 @@ def editar_nome(id_forn, nome, usuario=None):
         conn.execute("UPDATE fornecedores SET nome=? WHERE id=?", (nome, id_forn))
         _auditar(conn, id_forn, "editar", f"{f['nome']} -> {nome}", usuario)
         conn.commit()
-        return True, "Nome atualizado.", {"id": f["id"], "cnpj": f["cnpj"], "nome": nome}
+        return True, "Nome atualizado.", {**_dict(f), "nome": nome}
+    finally:
+        conn.close()
+
+
+def listar_todos():
+    """Todos os fornecedores ativos, para a página de cadastro."""
+    conn = _conn()
+    try:
+        return [_dict(r) for r in conn.execute(
+            "SELECT * FROM fornecedores WHERE excluido_em IS NULL "
+            "ORDER BY nome COLLATE NOCASE")]
+    finally:
+        conn.close()
+
+
+def definir_numero(id_forn, numero, usuario=None):
+    """Define, corrige ou limpa (vazio) o número do fornecedor no ERP.
+    Retorna (ok, msg, fornecedor|None)."""
+    bruto = str(numero or "").strip()
+    if bruto and not re.fullmatch(r"\d+", bruto):
+        return False, "O número do fornecedor no ERP tem só dígitos.", None
+    numero = _numero(bruto)
+    if bruto and not numero:
+        return False, "Número do fornecedor inválido.", None
+    conn = _conn()
+    try:
+        f = conn.execute("SELECT * FROM fornecedores WHERE id=? AND excluido_em IS NULL",
+                         (id_forn,)).fetchone()
+        if not f:
+            return False, "Fornecedor não encontrado.", None
+        if numero == f["numero"]:
+            return True, "Nada a alterar.", _dict(f)
+        if numero:
+            outro = conn.execute("SELECT nome FROM fornecedores WHERE numero=? AND id<>? "
+                                 "AND excluido_em IS NULL", (numero, id_forn)).fetchone()
+            if outro:
+                return False, f"O número {numero} já pertence a '{outro['nome']}'.", None
+        conn.execute("UPDATE fornecedores SET numero=? WHERE id=?", (numero, id_forn))
+        _auditar(conn, id_forn, "definir_numero",
+                 f"{f['numero'] or '—'} -> {numero or '—'}", usuario)
+        conn.commit()
+        return True, "Número atualizado.", {**_dict(f), "numero": numero}
+    finally:
+        conn.close()
+
+
+# ── Junção de cadastros duplicados ───────────────────────────────────────────
+def plano_mescla(id_a, id_b, nome):
+    """Valida a junção de dois cadastros e diz como ela vai ficar, SEM gravar.
+    Retorna (ok, msg, plano|None); plano = {fica, sai, nome, cnpj, numero}.
+
+    Quem sobrevive é o registro que tem CNPJ (a chave dos débitos continua a
+    mesma); sem CNPJ, o que tem número; sem nenhum, o `id_a`. O nome final é
+    escolha de quem junta e precisa ser um dos dois. CNPJs diferentes são
+    empresas diferentes em débitos, e números diferentes são fornecedores
+    diferentes no ERP: nos dois casos a junção é recusada."""
+    if not id_a or not id_b or id_a == id_b:
+        return False, "Escolha dois cadastros diferentes.", None
+    conn = _conn()
+    try:
+        a = conn.execute("SELECT * FROM fornecedores WHERE id=? AND excluido_em IS NULL",
+                         (id_a,)).fetchone()
+        b = conn.execute("SELECT * FROM fornecedores WHERE id=? AND excluido_em IS NULL",
+                         (id_b,)).fetchone()
+        if not a or not b:
+            return False, "Fornecedor não encontrado.", None
+        if a["cnpj"] and b["cnpj"] and _cnpj_digitos(a["cnpj"]) != _cnpj_digitos(b["cnpj"]):
+            return False, (f"Os dois têm CNPJ diferente ({a['cnpj']} e {b['cnpj']}): "
+                           "são empresas distintas e não podem ser juntadas."), None
+        if a["numero"] and b["numero"] and a["numero"] != b["numero"]:
+            return False, (f"Os dois têm número diferente no ERP ({a['numero']} e "
+                           f"{b['numero']}): são fornecedores distintos no RADGe."), None
+        nome = re.sub(r"\s+", " ", (nome or "").strip())
+        if nome not in (a["nome"], b["nome"]):
+            return False, "Escolha qual dos dois nomes fica.", None
+        if b["cnpj"] and not a["cnpj"]:
+            fica, sai = b, a
+        elif b["numero"] and not a["numero"] and not a["cnpj"]:
+            fica, sai = b, a
+        else:
+            fica, sai = a, b
+        outro = _por_nome(conn, nome)
+        if outro and outro["id"] not in (a["id"], b["id"]):
+            return False, f"Já existe outro fornecedor chamado '{nome}'.", None
+        return True, "", {
+            "fica": _dict(fica), "sai": _dict(sai), "nome": nome,
+            "cnpj": fica["cnpj"] or sai["cnpj"],
+            "numero": fica["numero"] or sai["numero"],
+        }
+    finally:
+        conn.close()
+
+
+def mesclar(plano, usuario=None):
+    """Executa um plano de `plano_mescla`: o que sai vira soft-delete (com CNPJ
+    e número liberados, que passam para o que fica) e o que fica recebe nome,
+    CNPJ e número finais. Os lançamentos dos outros módulos são movidos pela
+    camada de rotas. Retorna (ok, msg, fornecedor_final|None)."""
+    fica, sai = plano["fica"], plano["sai"]
+    conn = _conn()
+    try:
+        # revalida dentro da conexão: entre a prévia e o clique alguém pode ter
+        # excluído ou juntado um dos dois
+        vivos = conn.execute("SELECT COUNT(*) FROM fornecedores WHERE id IN (?,?) "
+                             "AND excluido_em IS NULL", (fica["id"], sai["id"])).fetchone()[0]
+        if vivos != 2:
+            return False, "Um dos cadastros mudou enquanto isso; abra a junção de novo.", None
+        agora = _agora()
+        conn.execute("UPDATE fornecedores SET excluido_em=?, excluido_por=?, cnpj=NULL, "
+                     "numero=NULL, mesclado_para=? WHERE id=?",
+                     (agora, usuario, fica["id"], sai["id"]))
+        conn.execute("UPDATE fornecedores SET nome=?, cnpj=?, numero=? WHERE id=?",
+                     (plano["nome"], plano["cnpj"], plano["numero"], fica["id"]))
+        herdou = []
+        if sai["cnpj"] and not fica["cnpj"]:
+            herdou.append(f"CNPJ {sai['cnpj']}")
+        if sai["numero"] and not fica["numero"]:
+            herdou.append(f"número {sai['numero']}")
+        _auditar(conn, sai["id"], "mesclado_em",
+                 f"{sai['nome']} -> {plano['nome']} ({fica['id']})", usuario)
+        _auditar(conn, fica["id"], "mesclar",
+                 f"absorveu '{sai['nome']}' ({sai['id']})"
+                 + (f"; herdou {', '.join(herdou)}" if herdou else ""), usuario)
+        if plano["nome"] != fica["nome"]:
+            _auditar(conn, fica["id"], "editar", f"{fica['nome']} -> {plano['nome']}", usuario)
+        conn.commit()
+        return True, (f"'{sai['nome']}' e '{fica['nome']}' agora são um cadastro só: "
+                      f"'{plano['nome']}'."), \
+            {"id": fica["id"], "nome": plano["nome"], "cnpj": plano["cnpj"],
+             "numero": plano["numero"]}
     finally:
         conn.close()

@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Fornecedores — Cadastro{% endblock %}
+{% block header_title %}Fornecedores{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro · Fornecedores{% endblock %}
+
+{% block extra_head %}
+<style>
+  .fbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .fbar .search { flex: 1; min-width: 220px; }
+  .f-row { display: flex; align-items: center; gap: 12px; padding: 13px 18px;
+    border-bottom: 1px solid var(--line); }
+  .f-row:last-child { border-bottom: none; }
+  .f-info { flex: 1; min-width: 0; }
+  .f-nome { font-weight: 650; font-size: 15px; overflow-wrap: anywhere; }
+  .f-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px;
+    display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .f-sub .falta { color: var(--warning); }
+  .f-acoes { display: flex; gap: 4px; flex-shrink: 0; }
+  .icon-btn.neutro:hover { background: var(--surface-3); color: var(--accent); }
+
+  /* modal de junção */
+  .mz-lado { border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+    padding: 10px 12px; background: var(--surface-2); }
+  .mz-lado .f-nome { font-size: 14.5px; }
+  .mz-nomes { display: flex; flex-direction: column; gap: 8px; }
+  .mz-nome { display: flex; gap: 10px; align-items: center; cursor: pointer;
+    border: 1px solid var(--line-2); border-radius: var(--radius-sm); padding: 10px 12px;
+    text-transform: none; letter-spacing: 0; font-size: 14.5px; color: var(--ink);
+    font-weight: 600; margin: 0; }
+  .mz-nome:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .mz-nome input { width: auto; margin: 0; }
+  .mz-previa { margin-top: 14px; font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .mz-previa b { color: var(--ink); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card card-flush full">
+  <div class="card-head">
+    <span class="ttl">Cadastro de fornecedores</span>
+    <span class="hint">{{ fornecedores | length }} ativo(s) · compartilhado por débitos e vencidos</span>
+  </div>
+  <div class="card-body" style="padding-bottom:0">
+    <div class="fbar">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="busca" placeholder="Buscar por nome, CNPJ ou número…" autocomplete="off">
+      </div>
+      <div class="fseg" id="filtro">
+        <button class="on" data-f="">Todos</button>
+        <button data-f="semcnpj">Sem CNPJ</button>
+        <button data-f="semnum">Sem número</button>
+      </div>
+    </div>
+  </div>
+  <div id="lista">
+    {% for f in fornecedores %}
+    <div class="f-row" data-id="{{ f.id }}"
+         data-busca="{{ (f.nome ~ ' ' ~ (f.cnpj or '') ~ ' ' ~ (f.cnpj or '')|replace('.','')|replace('/','')|replace('-','') ~ ' ' ~ (f.numero or '')) | lower }}"
+         data-semcnpj="{{ 0 if f.cnpj else 1 }}" data-semnum="{{ 0 if f.numero else 1 }}">
+      <div class="f-info">
+        <div class="f-nome">{{ f.nome }}</div>
+        <div class="f-sub">
+          {% if f.cnpj %}<span class="num">{{ f.cnpj }}</span>{% else %}<span class="falta">sem CNPJ</span>{% endif %}
+          {% if f.numero %}<span>nº ERP <span class="num">{{ f.numero }}</span></span>{% else %}<span class="falta">sem número no ERP</span>{% endif %}
+          {% if f.vencidos or f.avisos %}<span>{{ f.vencidos }} vencido(s) · {{ f.avisos }} aviso(s)</span>{% endif %}
+          {% if f.debitos %}<span>{{ f.debitos }} débito(s)</span>{% endif %}
+        </div>
+      </div>
+      <div class="f-acoes">
+        <button class="icon-btn neutro" title="Editar nome, CNPJ e número" onclick="abrirEditar('{{ f.id }}')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        </button>
+        <button class="icon-btn neutro" title="Juntar com um cadastro duplicado" onclick="abrirMesclar('{{ f.id }}')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v6a6 6 0 0 0 6 6h0a6 6 0 0 1 6 6"/><path d="M18 3v6a6 6 0 0 1-6 6"/><path d="M12 15v6"/></svg>
+        </button>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty-state">Nenhum fornecedor cadastrado ainda.</div>
+    {% endfor %}
+    <div class="empty-state" id="sem-resultado" style="display:none">Nenhum fornecedor encontrado.</div>
+  </div>
+</div>
+
+<!-- Modal editar -->
+<div class="modal-overlay" id="modal-editar" onclick="fecharSeFundo(event,'modal-editar')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Editar fornecedor</div>
+      <button class="modal-close" onclick="fecharModal('modal-editar')">&times;</button></div>
+    <div class="modal-body">
+      <label>Nome <em>*</em></label><input type="text" id="e-nome">
+      <label>CNPJ</label><input type="text" id="e-cnpj" placeholder="00.000.000/0000-00">
+      <div class="fhelp">Obrigatório só para lançar débitos. Trocar o CNPJ leva junto os débitos da empresa.</div>
+      <label>Número do fornecedor no ERP</label><input type="text" id="e-numero" inputmode="numeric" placeholder="ex.: 819">
+      <div class="fhelp">O código do fornecedor no RADGe. Deixe em branco se não souber.</div>
+      <div class="result-box error" id="msg-editar" style="margin-top:12px">
+        <div class="result-value error" id="msg-editar-txt"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-editar')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar" onclick="salvarEdicao()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal juntar -->
+<div class="modal-overlay" id="modal-mesclar" onclick="fecharSeFundo(event,'modal-mesclar')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Juntar cadastros duplicados</div>
+      <button class="modal-close" onclick="fecharModal('modal-mesclar')">&times;</button></div>
+    <div class="modal-body">
+      <label>Este cadastro</label>
+      <div class="mz-lado" id="mz-a"></div>
+      <label>É o mesmo fornecedor que</label>
+      <input type="text" id="mz-busca" placeholder="Buscar o cadastro duplicado…">
+      <div id="mz-escolha" style="display:none">
+        <label>Nome que fica depois da junção</label>
+        <div class="mz-nomes" id="mz-nomes"></div>
+        <div class="mz-previa" id="mz-previa"></div>
+      </div>
+      <div class="result-box error" id="msg-mesclar" style="margin-top:12px">
+        <div class="result-value error" id="msg-mesclar-txt"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-mesclar')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mesclar" onclick="confirmarMescla()" disabled>Juntar</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+const FORN = {};
+{{ fornecedores | tojson }}.forEach(f => { FORN[f.id] = f; });
+
+// ── Busca e filtro (no cliente: são dezenas, não milhares) ─────────────────
+let _filtro = "";
+function filtrar() {
+  const q = $("busca").value.trim().toLowerCase();
+  const qd = q.replace(/\D/g, "");
+  let vis = 0;
+  document.querySelectorAll(".f-row").forEach(r => {
+    const txt = r.dataset.busca;
+    const casa = !q || txt.includes(q) || (qd && txt.includes(qd));
+    const passa = !_filtro || r.dataset[_filtro] === "1";
+    r.style.display = casa && passa ? "" : "none";
+    if (casa && passa) vis++;
+  });
+  $("sem-resultado").style.display = vis || !Object.keys(FORN).length ? "none" : "";
+}
+$("busca").addEventListener("input", filtrar);
+document.querySelectorAll("#filtro button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("#filtro button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); _filtro = b.dataset.f; filtrar();
+}));
+
+function erro(prefixo, txt) {
+  $(`msg-${prefixo}-txt`).textContent = txt;
+  $(`msg-${prefixo}`).classList.toggle("show", !!txt);
+}
+
+// ── Editar ─────────────────────────────────────────────────────────────────
+let _editId = null;
+function abrirEditar(id) {
+  const f = FORN[id]; _editId = id;
+  $("e-nome").value = f.nome; $("e-cnpj").value = f.cnpj || ""; $("e-numero").value = f.numero || "";
+  erro("editar", "");
+  abrirModal("modal-editar");
+  $("e-nome").focus();
+}
+async function salvarEdicao() {
+  const f = FORN[_editId];
+  const cnpj = $("e-cnpj").value.trim();
+  if (f.cnpj && !cnpj) { erro("editar", "O CNPJ não pode ser apagado: ele é a chave dos débitos desta empresa."); return; }
+  $("btn-salvar").disabled = true;
+  try {
+    const r = await postJSON(`/fornecedores/api/${_editId}/editar`, {
+      nome: $("e-nome").value.trim(), cnpj, numero: $("e-numero").value.trim() });
+    if (r.ok) location.reload(); else erro("editar", r.msg);
+  } finally { $("btn-salvar").disabled = false; }
+}
+
+// ── Juntar ─────────────────────────────────────────────────────────────────
+let _mzA = null, _mzB = null, _mzOk = false;
+const picker = fornecedorPicker($("mz-busca"), { aoSelecionar: f => escolherB(f) });
+
+function ladoHtml(f) {
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  return `<div class="f-nome">${esc(f.nome)}</div><div class="f-sub">`
+    + (f.cnpj ? `<span class="num">${esc(f.cnpj)}</span>` : `<span class="falta">sem CNPJ</span>`)
+    + (f.numero ? `<span>nº ERP <span class="num">${esc(f.numero)}</span></span>` : `<span class="falta">sem número no ERP</span>`)
+    + `</div>`;
+}
+function abrirMesclar(id) {
+  _mzA = id; _mzB = null; _mzOk = false;
+  $("mz-a").innerHTML = ladoHtml(FORN[id]);
+  $("mz-busca").value = ""; picker.set(null);
+  $("mz-escolha").style.display = "none";
+  $("btn-mesclar").disabled = true;
+  erro("mesclar", "");
+  abrirModal("modal-mesclar");
+  $("mz-busca").focus();
+}
+function escolherB(f) {
+  _mzB = null; _mzOk = false; $("btn-mesclar").disabled = true;
+  $("mz-escolha").style.display = "none"; erro("mesclar", "");
+  if (!f) return;
+  if (f.id === _mzA) { erro("mesclar", "Escolha outro cadastro: este é o próprio."); return; }
+  _mzB = f.id;
+  const a = FORN[_mzA], b = FORN[f.id] || f;
+  const nomes = $("mz-nomes"); nomes.innerHTML = "";
+  [a.nome, b.nome].filter((n, i, arr) => arr.indexOf(n) === i).forEach((n, i) => {
+    const l = document.createElement("label"); l.className = "mz-nome";
+    const r = document.createElement("input"); r.type = "radio"; r.name = "mz-nome"; r.value = n;
+    r.checked = i === 0; r.addEventListener("change", previa);
+    l.append(r, document.createTextNode(n)); nomes.appendChild(l);
+  });
+  $("mz-escolha").style.display = "";
+  previa();
+}
+function nomeEscolhido() {
+  const r = document.querySelector('input[name="mz-nome"]:checked');
+  return r ? r.value : "";
+}
+async function previa() {
+  _mzOk = false; $("btn-mesclar").disabled = true;
+  const r = await postJSON("/fornecedores/api/mesclar/previa", { a: _mzA, b: _mzB, nome: nomeEscolhido() });
+  if (!r.ok) { $("mz-previa").innerHTML = ""; erro("mesclar", r.msg); return; }
+  erro("mesclar", "");
+  const p = r.plano, s = p.sai;
+  const mover = [];
+  if (s.vencidos) mover.push(`${s.vencidos} vencido(s)`);
+  if (s.avisos) mover.push(`${s.avisos} aviso(s)`);
+  const div = document.createElement("div");
+  div.innerHTML = `Depois da junção fica um cadastro só: <b></b>`
+    + ` · <span class="num"></span> · nº ERP <span class="num"></span>.<br>`
+    + (mover.length ? `Passam para ele: ${mover.join(" e ")} de «<span></span>».`
+                    : `«<span></span>» não tem lançamentos em vencidos.`)
+    + `<br>O cadastro «<span></span>» deixa de aparecer nas buscas.`;
+  const [nomeB, cnpjS, numS] = div.querySelectorAll("b, .num");
+  nomeB.textContent = p.nome; cnpjS.textContent = p.cnpj || "sem CNPJ"; numS.textContent = p.numero || "—";
+  div.querySelectorAll("span:not(.num)").forEach(sp => sp.textContent = s.nome);
+  $("mz-previa").replaceChildren(div);
+  _mzOk = true; $("btn-mesclar").disabled = false;
+}
+async function confirmarMescla() {
+  if (!_mzOk) return;
+  $("btn-mesclar").disabled = true;
+  const r = await postJSON("/fornecedores/api/mesclar", { a: _mzA, b: _mzB, nome: nomeEscolhido() });
+  if (r.ok) location.reload();
+  else { erro("mesclar", r.msg); $("btn-mesclar").disabled = false; }
+}
+</script>
+{% endblock %}
