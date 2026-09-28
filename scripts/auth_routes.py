@@ -19,7 +19,7 @@ PUBLICOS = {"auth.login", "auth.logout", "auth.setup", "static"}
 # devolveria 401 para ele. Nao ponha aqui rota que so tenha o nome do usuario
 # como identificacao - o prefixo isenta da sessao, entao a rota precisa checar
 # credencial por conta propria.
-PREFIXOS_PUBLICOS = ("reclassificacao.api_",)
+PREFIXOS_PUBLICOS = ("reclassificacao.api_", "agente.api_")
 
 
 # ── Guarda global ─────────────────────────────────────────────────────────────

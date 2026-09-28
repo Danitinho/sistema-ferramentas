@@ -30,6 +30,7 @@ MODULOS = [
     ("scripts.fiscal_routes",     "fiscal_bp"),
     ("scripts.backup_routes",     "backup_bp"),
     ("scripts.reclassificacao_routes", "reclassificacao_bp"),
+    ("scripts.agente_erp_routes", "agente_bp"),
 ]
 
 MODULOS_COM_FALHA = []

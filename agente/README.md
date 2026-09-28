@@ -7,6 +7,8 @@ simulação e o **mapa dos campos do ERP** vêm do painel.
 | arquivo | o quê |
 |---|---|
 | `reclassificacao.py` | agente da reclassificação merceológica (tela Produtos) |
+| `geral.py` | agente geral: executa pedidos avulsos do painel `/agente` (ex.: abrir a última nota do fornecedor) |
+| `entradas.py` | driver da tela Entradas (notas fiscais) usado pelo agente geral |
 | `erp.py` | base comum: achar a janela, localizar campos pelo mapa, digitar, clicar, caixas de diálogo |
 | `servidor.py` | conversa HTTP com o sistema (token no `X-Token`) |
 | `tecla_esc.py` | ESC **segurado** (0,6 s) para o lote na hora |
@@ -23,6 +25,18 @@ simulação e o **mapa dos campos do ERP** vêm do painel.
 
 Para parar o lote na hora, **segure ESC por um segundo** (um toque não para:
 o ESC também fecha as caixas do ERP).
+
+### Agente geral
+
+1. No painel `/agente`, gere o token da máquina (nome do computador no Windows).
+2. Cole em `token_geral` no mesmo `agente/config.json`.
+3. Abra o RADGe na tela **Entradas** e rode `agente/iniciar_geral.bat`.
+4. Os pedidos são feitos no painel; o resultado e o log aparecem lá.
+
+Os dois programas podem ficar abertos juntos, mas **não peça tarefa ao geral
+com a reclassificação rodando na mesma máquina**: os dois digitam no mesmo ERP
+e disputariam o teclado. Pause a rodada antes. O geral só mexe na tela ativa
+do ERP e confere o título antes de começar.
 
 ## O que o agente faz com cada produto
 

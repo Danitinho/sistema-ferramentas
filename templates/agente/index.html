@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}Agente do ERP{% endblock %}
+{% block header_title %}Agente do ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Sistema{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl th { text-align: left; font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+            color: var(--muted); font-weight: 650; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .tbl td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl tr:last-child td { border-bottom: none; }
+  .aviso { background: var(--accent-soft); color: var(--accent); font-weight: 600;
+           padding: 12px 16px; border-radius: var(--radius); margin-bottom: 18px; font-size: 13.5px; }
+  .token-box { background: var(--surface-2); border: 1px dashed var(--line-2);
+               border-radius: var(--radius); padding: 16px; margin-bottom: 18px; }
+  .token-val { font-family: var(--mono); font-size: 15px; font-weight: 650; word-break: break-all;
+               display: block; margin: 8px 0; color: var(--ink); }
+  .ev { font-size: 12.5px; color: var(--muted); }
+  .linha-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .linha-form > div { flex: 1 1 180px; }
+  .linha-form > div.estreito { flex: 0 0 110px; }
+  .maq { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px;
+         border-bottom: 1px solid var(--line); }
+  .maq:last-child { border-bottom: none; }
+  .maq-nome { font-weight: 650; }
+  .maq-msg { font-size: 12.5px; color: var(--muted); }
+  .maq-acts { margin-left: auto; display: flex; gap: 8px; }
+  .est { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700;
+         letter-spacing: .05em; text-transform: uppercase; padding: 4px 10px; border-radius: 20px;
+         background: var(--surface-3); color: var(--muted); }
+  .e-ok  { background: var(--success-bg); color: var(--success); }
+  .e-wa  { background: var(--warning-bg); color: var(--warning); }
+  .e-er  { background: var(--danger-bg);  color: var(--danger); }
+  .ponto { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .log { font-family: var(--mono); font-size: 11.5px; line-height: 1.55; background: var(--surface-3);
+         border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px;
+         max-height: 260px; overflow-y: auto; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+  .log .h { color: var(--muted); }
+  .resultado { margin-top: 16px; }
+  .res-nota { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;
+              margin: 10px 0 14px; }
+  .res-nota .k { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+  .res-nota .v { font-family: var(--mono); font-size: 15px; font-weight: 650; }
+  .lin-escolhida td { background: var(--accent-soft); }
+  .mapa textarea { width: 100%; min-height: 220px; font-family: var(--mono); font-size: 12px; }
+  .sem { color: var(--muted); font-size: 13px; padding: 14px 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if aviso %}<div class="aviso full">{{ aviso }}</div>{% endif %}
+
+{% if token_novo %}
+<div class="token-box full">
+  <div style="font-weight:650">Token da máquina <b>{{ nome_novo }}</b></div>
+  <code class="token-val">{{ token_novo }}</code>
+  <div class="ev">Cole no <code>agente/config.json</code> daquela máquina, no campo
+    <b>token_geral</b>, e rode <code>agente\iniciar_geral.bat</code>. Ele aparece
+    <b>uma vez só</b>; gerar de novo invalida o anterior.</div>
+</div>
+{% endif %}
+
+<!-- Pedido: abrir a última nota -->
+<div class="card full">
+  <div class="card-head"><h3>Abrir a última nota do fornecedor</h3></div>
+  <div class="card-body">
+    <p class="ev" style="margin-top:0">O agente abre no RADGe, na tela <b>Entradas</b> da máquina
+      escolhida, a nota <b>em aberto</b> mais recente (pela data de entrada) daquele fornecedor.
+      Nada é gravado no ERP.</p>
+    <div class="linha-form">
+      <div>
+        <label>Fornecedor</label>
+        <input id="f-forn" placeholder="buscar pelo nome ou CNPJ" autocomplete="off">
+      </div>
+      <div class="estreito">
+        <label>Código no ERP</label>
+        <input id="f-num" class="num" inputmode="numeric" placeholder="ex.: 819">
+      </div>
+      <div class="estreito">
+        <label>Tipo</label>
+        <input id="f-tipo" class="num" inputmode="numeric" value="3" title="tipo da entrada no RADGe (3 = compra)">
+      </div>
+      <div>
+        <label>Máquina</label>
+        <select id="f-maq"></select>
+      </div>
+      <div style="flex:0 0 auto">
+        <button class="btn btn-primary" id="b-abrir" onclick="pedirAbrir()">Abrir no ERP</button>
+      </div>
+    </div>
+    <div id="f-dica" class="ev" style="margin-top:8px"></div>
+    <div id="resultado" class="resultado"></div>
+  </div>
+</div>
+
+<!-- Máquinas -->
+<div class="card card-flush full">
+  <div class="card-head"><h3>Máquinas</h3></div>
+  <div id="maquinas"><div class="sem">Carregando…</div></div>
+  <div class="card-body" style="border-top:1px solid var(--line)">
+    <form method="post" action="/agente/maquina" class="linha-form">
+      <div><label>Nome do computador</label><input name="nome" placeholder="ex.: CADASTRO-PC" required></div>
+      <div><label>Apelido (opcional)</label><input name="apelido" placeholder="ex.: Cadastro"></div>
+      <div style="flex:0 0 auto"><button class="btn btn-secondary">Gerar token</button></div>
+    </form>
+    <div class="ev" style="margin-top:6px">O nome é o do Windows (Configurações › Sistema › Sobre).
+      Gerar para uma máquina que já existe troca o token dela.</div>
+  </div>
+</div>
+
+<!-- Pedidos recentes -->
+<div class="card card-flush full">
+  <div class="card-head"><h3>Pedidos recentes</h3></div>
+  <div style="overflow-x:auto">
+    <table class="tbl"><thead><tr>
+      <th>#</th><th>Quando</th><th>Pedido</th><th>Quem</th><th>Máquina</th><th>Estado</th><th>Resultado</th>
+    </tr></thead><tbody id="pedidos"></tbody></table>
+  </div>
+</div>
+
+<!-- Log -->
+<div class="card full">
+  <div class="card-head"><h3>Log das máquinas</h3></div>
+  <div class="card-body"><div class="log" id="log"></div></div>
+</div>
+
+<!-- Mapa -->
+<div class="card full mapa">
+  <details>
+    <summary style="cursor:pointer;font-weight:650">Mapa dos campos do RADGe (avançado)</summary>
+    <form method="post" action="/agente/mapa" style="margin-top:12px">
+      <textarea name="mapa" spellcheck="false">{{ mapa_txt }}</textarea>
+      <div class="ev" style="margin:6px 0 10px">JSON com <code>telas.nota_fiscal</code> (controles da
+        tela Entradas, teclas e pausas). Os agentes pegam o mapa novo na próxima volta.</div>
+      <button class="btn btn-secondary btn-sm">Gravar mapa</button>
+    </form>
+  </details>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let _maquinas = [], _pedidoAtual = null;
+
+fornecedorPicker(document.getElementById("f-forn"), {
+  aoSelecionar(f) {
+    const dica = document.getElementById("f-dica");
+    if (!f) { dica.textContent = ""; return; }
+    document.getElementById("f-num").value = f.numero || "";
+    dica.innerHTML = f.numero
+      ? `Código no ERP de <b>${esc(f.nome)}</b>: <span class="num">${esc(f.numero)}</span>.`
+      : `<b>${esc(f.nome)}</b> não tem código do ERP no cadastro — digite o código ou preencha em <a href="/fornecedores">Fornecedores</a>.`;
+  }
+});
+
+function estadoClasse(e) {
+  if (["ocioso", "executando", "feito"].includes(e)) return "e-ok";
+  if (["pausado", "pendente", "cancelado", "expirado"].includes(e)) return "e-wa";
+  if (["erro", "sem contato"].includes(e)) return "e-er";
+  return "";
+}
+
+function desenharMaquinas(ms) {
+  _maquinas = ms;
+  const el = document.getElementById("maquinas");
+  const ativas = ms.filter(m => m.tem_token);
+  if (!ativas.length) { el.innerHTML = '<div class="sem">Nenhuma máquina com token. Gere um abaixo.</div>'; }
+  else el.innerHTML = ativas.map(m => `
+    <div class="maq">
+      <span class="est ${estadoClasse(m.estado)}"><span class="ponto"></span>${esc(m.estado || "—")}</span>
+      <div>
+        <div class="maq-nome">${esc(m.apelido || m.nome)} <span class="ev num">${m.apelido ? esc(m.nome) : ""}</span></div>
+        <div class="maq-msg">${esc(m.msg || "")}${m.versao ? " · v" + esc(m.versao) : ""}${m.silencio_s != null && !m.vivo ? " · calada há " + Math.round(m.silencio_s / 60) + " min" : ""}${m.comando === "pausado" ? " · <b>pausada no painel</b>" : ""}</div>
+      </div>
+      <div class="maq-acts">
+        ${m.comando === "pausado"
+          ? `<button class="btn btn-primary btn-sm" onclick="comando('${esc(m.nome)}','ativo')">Ativar</button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="comando('${esc(m.nome)}','pausado')">Pausar</button>`}
+        <form method="post" action="/agente/maquina/${encodeURIComponent(m.nome)}/revogar"
+              onsubmit="return confirm('Revogar o token de ${esc(m.nome)}? O agente dela para de funcionar.')">
+          <button class="btn btn-danger btn-sm">Revogar</button></form>
+      </div>
+    </div>`).join("");
+  // seletor de máquina: só as que sabem abrir nota; a viva vem primeiro
+  const sel = document.getElementById("f-maq"), atual = sel.value;
+  const aptas = ativas.filter(m => (m.capacidades || []).includes("nf.abrir_ultima") || !m.capacidades?.length)
+                      .sort((a, b) => b.vivo - a.vivo);
+  sel.innerHTML = aptas.map(m => `<option value="${esc(m.nome)}">${esc(m.apelido || m.nome)}${m.vivo ? "" : " (sem contato)"}</option>`).join("")
+                  || '<option value="">nenhuma máquina</option>';
+  if (atual && aptas.some(m => m.nome === atual)) sel.value = atual;
+}
+
+function resumoPedido(p) {
+  const r = p.resultado;
+  if (p.erro) return `<span style="color:var(--danger)">${esc(p.erro)}</span>`;
+  if (!r) return "";
+  if (p.tipo === "nf.abrir_ultima") {
+    return r.encontrada
+      ? `nota <b class="num">${esc(r.nota.numero)}</b> de ${esc(r.nota.entrada)} · ${r.abertas} aberta(s) de ${r.total}`
+      : esc(r.msg || "nenhuma nota aberta");
+  }
+  return "";
+}
+
+function paramsTxt(p) {
+  const x = p.params || {};
+  if (p.tipo === "nf.abrir_ultima") return `fornecedor ${esc(x.fornecedor)}, tipo ${esc(x.tipo)}`;
+  return esc(JSON.stringify(x));
+}
+
+function desenharPedidos(ps) {
+  document.getElementById("pedidos").innerHTML = ps.map(p => `
+    <tr><td class="num">${p.id}</td><td class="num">${esc(p.criado_fmt)}</td>
+      <td>${esc(p.rotulo)}<div class="ev">${paramsTxt(p)}</div></td>
+      <td>${esc(p.criado_por || "")}</td><td class="num">${esc(p.maquina || p.maquina_alvo || "qualquer")}</td>
+      <td><span class="est ${estadoClasse(p.estado)}">${esc(p.estado)}</span>
+        ${p.estado === "pendente" ? `<button class="btn btn-secondary btn-sm" onclick="cancelar(${p.id})">Cancelar</button>` : ""}</td>
+      <td>${resumoPedido(p)}</td></tr>`).join("")
+    || '<tr><td colspan="7" class="sem">Nenhum pedido ainda.</td></tr>';
+}
+
+function desenharLog(ls) {
+  const el = document.getElementById("log");
+  el.innerHTML = ls.slice().reverse().map(l => `<span class="h">${esc(l.quando.slice(5))} ${esc(l.maquina)}</span> ${esc(l.texto)}`).join("\n")
+                 || '<span class="h">sem log</span>';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function atualizar() {
+  try {
+    const r = await fetch("/agente/painel/api/estado");
+    if (!r.ok) return;
+    const d = await r.json();
+    desenharMaquinas(d.maquinas); desenharPedidos(d.pedidos); desenharLog(d.log);
+  } catch (e) {}
+}
+
+async function comando(nome, cmd) {
+  const r = await postJSON(`/agente/painel/api/maquina/${encodeURIComponent(nome)}/comando`, {comando: cmd});
+  if (r.erro) alert(r.erro);
+  atualizar();
+}
+
+async function cancelar(id) {
+  const r = await postJSON(`/agente/painel/api/pedido/${id}/cancelar`, {});
+  if (r.erro) alert(r.erro);
+  atualizar();
+}
+
+function desenharResultado(p) {
+  const el = document.getElementById("resultado");
+  if (["pendente", "executando"].includes(p.estado)) {
+    el.innerHTML = `<div class="alertx"><div><span class="spinner"></span> Pedido #${p.id}:
+      ${p.estado === "pendente" ? "esperando a máquina pegar…" : "o agente está trabalhando no ERP…"}</div></div>`;
+    return;
+  }
+  if (p.estado !== "feito") {
+    el.innerHTML = `<div class="alertx"><div><b>Pedido #${p.id} ${esc(p.estado)}.</b> ${esc(p.erro || "")}</div></div>`;
+    return;
+  }
+  const r = p.resultado || {};
+  const cab = r.fornecedor_nome ? `${esc(r.fornecedor_nome)} (${esc(r.fornecedor)})` : `fornecedor ${esc(r.fornecedor)}`;
+  let html = r.encontrada
+    ? `<div><b>Nota aberta no ERP</b> — ${cab}, tipo ${esc(r.tipo)}.</div>
+       <div class="res-nota">
+         <div><div class="k">Nota</div><div class="v">${esc(r.nota.numero || "—")}</div></div>
+         <div><div class="k">Lançamento</div><div class="v">${esc(r.nota.lancamento || "—")}</div></div>
+         <div><div class="k">Entrada</div><div class="v">${esc(r.nota.entrada)}</div></div>
+         <div><div class="k">Emissão</div><div class="v">${esc(r.nota.emissao)}</div></div>
+         <div><div class="k">Valor</div><div class="v">${esc(r.nota.valor || "—")}</div></div>
+       </div>`
+    : `<div class="alertx"><div><b>${esc(r.msg || "Nenhuma nota aberta.")}</b> ${cab}, tipo ${esc(r.tipo)}.</div></div>`;
+  if ((r.linhas || []).length) {
+    html += `<div class="ev" style="margin:8px 0 6px">${r.total} nota(s) na lista, ${r.abertas} em aberto:</div>
+      <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Nota</th><th>Lançamento</th><th>Entrada</th><th>Emissão</th><th>Valor</th><th>Situação</th></tr></thead><tbody>
+      ${r.linhas.map(l => `<tr class="${r.nota && l.i === r.nota.i ? "lin-escolhida" : ""}">
+        <td class="num">${esc(l.numero)}</td><td class="num">${esc(l.lancamento)}</td><td class="num">${esc(l.entrada)}</td>
+        <td class="num">${esc(l.emissao)}</td><td class="num">${esc(l.valor)}</td><td>${l.aberta ? "aberta" : "fechada"}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function acompanhar(id) {
+  _pedidoAtual = id;
+  while (_pedidoAtual === id) {
+    const r = await fetch(`/agente/painel/api/pedido/${id}`);
+    if (!r.ok) break;
+    const p = (await r.json()).pedido;
+    desenharResultado(p);
+    if (!["pendente", "executando"].includes(p.estado)) { atualizar(); break; }
+    await new Promise(ok => setTimeout(ok, 1000));
+  }
+}
+
+async function pedirAbrir() {
+  const fornecedor = document.getElementById("f-num").value.trim();
+  const tipo = document.getElementById("f-tipo").value.trim() || "3";
+  const maquina_alvo = document.getElementById("f-maq").value;
+  if (!fornecedor) { alert("Informe o código do fornecedor no ERP."); return; }
+  const b = document.getElementById("b-abrir");
+  b.disabled = true;
+  try {
+    const r = await postJSON("/agente/painel/api/pedido",
+                             {tipo: "nf.abrir_ultima", params: {fornecedor, tipo}, maquina_alvo});
+    if (r.erro) { alert(r.erro); return; }
+    atualizar();
+    await acompanhar(r.pedido.id);
+  } finally { b.disabled = false; }
+}
+
+atualizar();
+setInterval(atualizar, 4000);
+</script>
+{% endblock %}

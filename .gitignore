@@ -50,4 +50,6 @@ agente/config.json
 
 # Banco do agente geral e logs do servico
 dados/agente.db
+dados/agente.db-wal
+dados/agente.db-shm
 logs/

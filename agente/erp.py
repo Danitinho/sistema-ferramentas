@@ -39,6 +39,12 @@ except ImportError:                     # máquina sem pywinauto: só os testes 
     DISPONIVEL = False
 
 
+# `formulario=MDI_ATIVO`: procura só dentro da tela ativa do RADGe, seja qual
+# for a classe dela (o título diz qual é; quem chama confere).
+MDI_ATIVO = "@ativo"
+WM_MDIGETACTIVE = 0x0229
+
+
 class ErroERP(Exception):
     """Falha ao falar com a janela do ERP (não achou, controle sumiu...)."""
 
@@ -73,11 +79,20 @@ class Janela:
         self._form = None
 
     # ── conexão ───────────────────────────────────────────────────────────────
+    def _padrao_titulo(self):
+        """O pywinauto casa `title_re` a partir do INÍCIO do título (re.match).
+        Padrão sem âncora ("RADGe", o do mapa do agente geral) vale em qualquer
+        ponto — o título é "Sistema de Gestão Empresarial RADGe - ...".
+        Padrão com "^" fica como está."""
+        p = self.titulo_regex or ""
+        return p if p.startswith("^") else f".*(?:{p})"
+
     def conectar(self):
+        padrao = self._padrao_titulo()
         try:
             self.app = Application(backend="win32").connect(
-                title_re=self.titulo_regex, found_index=0, timeout=3)
-            self.win = self.app.window(title_re=self.titulo_regex, found_index=0)
+                title_re=padrao, found_index=0, timeout=3)
+            self.win = self.app.window(title_re=padrao, found_index=0)
             self.win.wait("exists", timeout=3)
         except Exception:
             self.app = self.win = None
@@ -132,6 +147,8 @@ class Janela:
         w = self.win.wrapper_object()
         if not self.formulario:
             return w
+        if self.formulario == MDI_ATIVO:
+            return self._mdi_ativo(w)
         try:
             if self._form is not None and handleprops.iswindow(self._form.handle):
                 return self._form
@@ -142,6 +159,19 @@ class Janela:
             raise ErroERP(f"a tela '{self.formulario}' não está aberta no ERP")
         self._form = forms[0]
         return self._form
+
+    def _mdi_ativo(self, w):
+        """O formulário MDI ativo (o que o título mostra entre colchetes).
+        Sem MDIClient, a janela inteira."""
+        try:
+            for mdi in w.children(class_name="MDIClient"):
+                h = mdi.send_message(WM_MDIGETACTIVE, 0, 0)
+                for c in mdi.children():
+                    if c.handle == h:
+                        return c
+        except Exception:
+            pass
+        return w
 
     def _todos(self, class_name=None):
         w = self._raiz()

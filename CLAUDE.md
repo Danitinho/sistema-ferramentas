@@ -159,6 +159,8 @@ MODULOS = [
     ("scripts.catalogo_routes",   "catalogo_bp"),     # /catalogo (APIs)
     ("scripts.fiscal_routes",     "fiscal_bp"),       # /fiscal (custo real por NF-e)
     ("scripts.backup_routes",     "backup_bp"),       # /sistema/backup
+    ("scripts.reclassificacao_routes", "reclassificacao_bp"),  # /reclassificacao
+    ("scripts.agente_erp_routes", "agente_bp"),       # /agente (seção 18)
 ]
 ```
 Ao adicionar um módulo novo, some uma entrada aqui — **não** volte a importar o
@@ -326,6 +328,7 @@ Não há um banco único. Cada módulo persiste de um jeito:
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
 | Relatórios venda  | `dados/relatorios/vendas.db`  | SQLite |
 | Reclassificação merceológica | `dados/reclassificacao.db` | SQLite |
+| Agente geral do ERP (máquinas, pedidos, log, mapa) | `dados/agente.db` | SQLite |
 | Estrutura merceológica (referência, versionada) | `dados/estrutura_grupos.json` | JSON |
 | Backups           | `backups/<banco>/*.db`        | cópias SQLite datadas |
 | Uploads temporários | `uploads/`                  | arquivos soltos |
@@ -1499,7 +1502,108 @@ Regras da tela (`aplicarCatalogo` no template):
 ### Rotas
 `GET /catalogo/api/produto?cb=` · `GET /catalogo/api/status` ·
 `POST /catalogo/api/importar` (multipart, campo `arquivo`; grava em `uploads/`,
-importa e apaga). As três exigem login: só `reclassificacao.api_` está em
-`PREFIXOS_PUBLICOS`, então a guarda global de sessão cobre este blueprint
-normalmente (deslogado, o `fetch` recebe 401 JSON por causa do `/api/` no
-caminho).
+importa e apaga). As três exigem login: só `reclassificacao.api_` e
+`agente.api_` estão em `PREFIXOS_PUBLICOS`, então a guarda global de sessão
+cobre este blueprint normalmente (deslogado, o `fetch` recebe 401 JSON por causa
+do `/api/` no caminho).
+
+---
+
+## 18. Agente geral do ERP (`/agente`)
+
+`scripts/agente_erp.py` + `agente_erp_routes.py` + `templates/agente/index.html`
++ `dados/agente.db`, e na máquina `agente/geral.py` + `agente/entradas.py`.
+Reescrito em 28/09/2026: o código original queimou com o HD em 24/09, mas o
+`agente.db` sobreviveu no backup. O **esquema é o mesmo** (o módulo lê o banco
+antigo sem migração) e o **mapa da tela Entradas** (`config.mapa_erp`) é o que
+foi calibrado no RADGe real. O log e os resultados antigos que ficaram no banco
+foram a especificação do que cada capacidade fazia.
+
+**Diferença para a reclassificação:** lá é um lote de milhares de itens; aqui
+são **pedidos avulsos** e curtos, com uma pessoa esperando o resultado na tela.
+O agente pergunta (`/api/pegar`), executa um, devolve (`/api/concluir`).
+
+### Pedidos
+`pendente → executando → feito | erro`, além de `cancelado` (só enquanto
+pendente) e `expirado`. **O prazo para ser pego é de 2 min** (`PRAZO_PEGAR_S`):
+quem pede "abra a nota" quer agora, e um pedido que esperou uma máquina
+desligada não pode disparar horas depois com a tela de outra pessoa na frente.
+Pego e sem resposta em 5 min (`TETO_EXECUCAO_S`) vira `erro`. A varredura é
+preguiçosa (em `pegar` e nas leituras do painel), sem timer.
+- `pegar` seleciona e marca **na mesma transação**, sob o lock — como a reserva
+  da reclassificação.
+- Só entrega o que a máquina **declarou saber** (`capacidades` no `/api/status`)
+  e respeita `maquina_alvo` (vazio = qualquer uma).
+- Capacidade que **grava** no ERP (`CAPACIDADES[...]["grava"]`) exige
+  `autorizado_por`. `nf.abrir_ultima` só lê e posiciona a tela.
+- `criar_pedido(tipo, params, por, modulo=...)` é a porta para outros módulos
+  (fiscal, vencidos) pedirem ao agente; `modulo` registra quem pediu.
+
+### Máquinas e autenticação
+Token **por máquina** (não por pessoa), gerado no painel e colado em
+`token_geral` no `agente/config.json` — o mesmo arquivo do agente da
+reclassificação, que usa `token`. API do agente = endpoints `api_*` com guarda
+por `X-Token`; `agente.api_` está em `PREFIXOS_PUBLICOS`. Os da tela se chamam
+`painel_*`/`maquina_*`/`mapa_*` (a regra da seção 10-B vale aqui também).
+`comando` da máquina: `ativo` | `pausado` (pausada não pega pedido).
+
+### Contrato da API (consumido por `agente/geral.py`)
+| Rota | Corpo | Devolve |
+|---|---|---|
+| `GET /agente/api/ping` | — | `{ok, servidor, agora}` (sem token) |
+| `POST /agente/api/status` | `{estado, msg, versao, capacidades[], maquina, log[]}` | `{ok, comando, mapa_erp, pausa_s}` |
+| `POST /agente/api/pegar` | `{capacidades[]}` | `{pedido: {id, tipo, params, criado_por, autorizado_por} \| null}` |
+| `POST /agente/api/concluir` | `{id, ok, resultado, erro}` | `{ok}` ou `{ok:false, motivo}` |
+
+### `nf.abrir_ultima {tipo, fornecedor}`
+Abre na tela **Entradas** a nota **em aberto** mais recente (maior data de
+entrada; empate, maior lançamento) daquele fornecedor e tipo de entrada
+(3 = compra). `fornecedor` é o **código no RADGe** = `fornecedores.numero`
+(seção 14); o painel preenche pelo seletor de fornecedor. Passos
+(`agente/geral.py:nf_abrir_ultima`): confere o título → **Limpar conferido** →
+filtro tipo + fornecedor (relido) → busca (F5) → Grade → varre as linhas →
+escolhe → posiciona → Form → confere fornecedor/datas/lançamento. Resultado:
+`{encontrada, tipo, fornecedor, fornecedor_nome, total, abertas, nota, conferencia,
+linhas[], msg?}` — o mesmo formato do agente antigo.
+
+Armadilhas (vistas no log antigo, agora tratadas):
+- **Nada é digitado com nota carregada.** Os campos do filtro são os campos da
+  nota: digitar neles com o formulário cheio edita a nota. Formulário que não
+  esvazia no Limpar = `erro`, sem digitar nada.
+- **↓ na última linha do cxGrid abre uma inclusão** ("linha sem número, data de
+  hoje" — derrubou dois pedidos em 11/09). A varredura vai antes ao fim
+  (Ctrl+End), guarda a última nota e desce só até ela; se mesmo assim cair numa
+  inclusão, desfaz com ESC e falha.
+- **Escopo = tela MDI ativa** (`erp.MDI_ATIVO`, via `WM_MDIGETACTIVE`): com
+  Produtos aberta ao lado, "Limpar" existe nas duas telas.
+- **`janela_titulo_regex` sem `^` vale em qualquer ponto do título.** O
+  pywinauto casa `title_re` a partir do início, e o mapa antigo traz só
+  `RADGe` (o título começa com "Sistema de Gestão…"); `Janela._padrao_titulo`
+  prefixa `.*`. Padrão com `^` (o da reclassificação) fica como está.
+- **"Aberta" é lida pelo `WS_TABSTOP` do grupo Situação, não pelo check.** Os
+  botões de opção DevExpress (`TcxDBRadioGroupButton`) devolvem **sempre 0** ao
+  `BM_GETCHECK` — a 1ª versão da reescrita usou isso e deu toda nota como
+  fechada (28/09/2026, fornecedor 15 com nota aberta). O Delphi liga a
+  tabulação só no botão **marcado** de cada grupo; conferido em quatro grupos
+  da tela (Situação, Cálculo Frete, Cálculo IPI, Tipo de Pagamento), exatamente
+  um com o bit em cada. Regra: `1-Aberto` com o bit **e** `2-Fechado` sem ele;
+  qualquer outra combinação é `erro` — chutar "fechada" foi o que escondeu as
+  notas abertas. `aberta_por` no mapa troca o método (`fechar_nf`, `radio`).
+- **Campos lidos na varredura são resolvidos com o Form à vista**
+  (`_preparar_campos`, antes de abrir a grade): com a grade na frente o
+  formulário fica escondido e um controle ainda não guardado não é achado — foi
+  assim que o `valor` saiu vazio em todas as linhas.
+
+### Pendências
+- As outras capacidades do agente antigo, ainda não refeitas: `nf.abrir {numero}`,
+  `nf.incluir_itens {itens[{codigo, qtd, esperado?}], nota, simular}` (grava:
+  vai exigir `autorizado_por`), `erp.inspecionar {limite}` e
+  `erp.campo_focado {espera_s}` (calibração do mapa pelo painel). O log antigo
+  no `agente.db` registra o comportamento esperado de cada uma.
+
+### Como testar
+Igual à reclassificação: **cópia** do `agente.db` pela API de backup do SQLite,
+`ag._banco = ag.BancoAgente(COPIA)` **antes** de importar o app, servidor real
+por `make_server`, e `AgenteGeral(cfg, fabrica_driver=...)` com um
+`DriverEntradas` cujo `j` é um simulador da tela (grade com notas abertas e
+fechadas, ↓ na última linha abrindo inclusão como o cxGrid).

@@ -1,4 +1,5 @@
 {
   "servidor_url": "http://192.168.0.52",
-  "token": "cole aqui o token gerado no painel da reclassificacao"
+  "token": "cole aqui o token gerado no painel da reclassificacao",
+  "token_geral": "cole aqui o token desta maquina gerado no painel /agente"
 }

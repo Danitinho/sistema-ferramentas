@@ -22,10 +22,13 @@ class TokenInvalido(ErroServidor):
 
 
 class Cliente:
-    def __init__(self, url_base, token, timeout=20):
+    def __init__(self, url_base, token, timeout=20,
+                 msg_401="o servidor recusou o token: peça um novo ao "
+                         "coordenador no painel da reclassificação"):
         self.url_base = url_base.rstrip("/")
         self.token = (token or "").strip()
         self.timeout = timeout
+        self.msg_401 = msg_401
 
     def _pedir(self, metodo, caminho, corpo=None, query=None):
         url = self.url_base + caminho
@@ -42,8 +45,7 @@ class Cliente:
                 return json.loads(resp.read().decode("utf-8") or "{}")
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                raise TokenInvalido("o servidor recusou o token: peça um novo ao "
-                                    "coordenador no painel da reclassificação")
+                raise TokenInvalido(self.msg_401)
             try:
                 corpo_erro = json.loads(e.read().decode("utf-8"))
                 msg = corpo_erro.get("erro") or corpo_erro.get("msg") or str(corpo_erro)
