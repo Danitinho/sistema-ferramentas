@@ -152,6 +152,12 @@ class DriverEntradas:
         return self.j.viva()
 
     def conferir_tela(self):
+        # O ERP minimizado (a pessoa está no navegador pedindo a tarefa) deixa
+        # TODO controle invisível e nada é achado ("não achei o campo
+        # 'limpar'", visto em 28/09/2026). O conectar() restaura, mas só roda
+        # uma vez: cada pedido traz o ERP para a frente antes de começar.
+        self.j.trazer_para_frente()
+        time.sleep(0.3)
         alvo = self.m.get("titulo_contem", "Entradas")
         titulo = self.j.titulo()
         if erp_base.normalizar(alvo) not in erp_base.normalizar(titulo):

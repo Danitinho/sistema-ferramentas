@@ -1211,6 +1211,10 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   sub-linha).
 - **Relatório** (PDF de apresentação + Excel de trabalho): ver seção 16.
   `vencidos.py` só produz os dados — quem formata são os módulos de relatório.
+- **Inclusão na nota de vencido pelo agente do ERP** (botão "Incluir nas
+  notas"): rodada por fornecedor que termina em baixa `devolucao` automática —
+  ver seção 18, "Segundo cliente". Vencido `em_andamento` não pode ser editado,
+  excluído nem baixado à mão.
 - **Análise** (janela 6 meses): `ranking_reincidencia` (2+ ocorrências),
   `ranking_fornecedores` (perda por custo), `ranking_responsaveis` (antecedência
   média e % no prazo por responsável de seção).
@@ -1558,7 +1562,7 @@ por `X-Token`; `agente.api_` está em `PREFIXOS_PUBLICOS`. Os da tela se chamam
 ### `nf.abrir_ultima {tipo, fornecedor}`
 Abre na tela **Entradas** a nota **em aberto** mais recente (maior data de
 entrada; empate, maior lançamento) daquele fornecedor e tipo de entrada
-(3 = compra). `fornecedor` é o **código no RADGe** = `fornecedores.numero`
+(**3 = nota de vencido**). `fornecedor` é o **código no RADGe** = `fornecedores.numero`
 (seção 14); o painel preenche pelo seletor de fornecedor. Passos
 (`agente/geral.py:nf_abrir_ultima`): confere o título → **Limpar conferido** →
 filtro tipo + fornecedor (relido) → busca (F5) → Grade → varre as linhas →
@@ -1576,6 +1580,12 @@ Armadilhas (vistas no log antigo, agora tratadas):
   inclusão, desfaz com ESC e falha.
 - **Escopo = tela MDI ativa** (`erp.MDI_ATIVO`, via `WM_MDIGETACTIVE`): com
   Produtos aberta ao lado, "Limpar" existe nas duas telas.
+- **ERP minimizado = nenhum controle é achado.** Com o Delphi minimizado todo
+  controle fica invisível ("não achei o campo 'limpar'"); acontecia com quem
+  pede a tarefa pelo navegador na mesma máquina (confirmado em 28/09/2026). O
+  `conectar()` restaura, mas só roda uma vez: `DriverEntradas.conferir_tela`
+  chama `trazer_para_frente()` **a cada pedido**, e o erro de campo não achado
+  diz quando o ERP está minimizado.
 - **`janela_titulo_regex` sem `^` vale em qualquer ponto do título.** O
   pywinauto casa `title_re` a partir do início, e o mapa antigo traz só
   `RADGe` (o título começa com "Sistema de Gestão…"); `Janela._padrao_titulo`
@@ -1636,8 +1646,39 @@ RADGe real em 28/09/2026.
 - As capacidades restantes do agente antigo: `nf.abrir {numero}`,
   `erp.inspecionar {limite}` e `erp.campo_focado {espera_s}` (calibração do mapa
   pelo painel). O log antigo no `agente.db` registra o comportamento esperado.
-- `/vencidos` pedir `nf.incluir_itens` com `fornecedor` ao lançar um vencido
-  (abrir a nota de vencido da empresa e incluir o produto).
+- Caminho **perda** da rodada do `/vencidos` (nota de perda aberta pelo nº de
+  lançamento — precisa do `nf.abrir {numero}`).
+
+### Segundo cliente: a rodada do `/vencidos` (`scripts/vencidos_notas.py`)
+Botão **"Incluir nas notas"** no `/vencidos`. Pedido do usuário (28/09/2026):
+todos os vencidos com baixa pendente, **agrupados por fornecedor** (cada nota é
+aberta uma vez), um fornecedor por vez:
+`nf.abrir_ultima` tipo 3 → **a pessoa confere a nota na tela do ERP e a lista**
+→ "Aprovar e incluir" → `nf.incluir_itens {itens, nota: lançamento}` autorizado
+por ela → cada item **gravado** vira baixa `devolucao` com `baixa_ref = "Nota N"`
+e `baixa_por` = quem autorizou. Os pedidos saem com `modulo="vencidos"`.
+- **Troca/perda é por fornecedor** (quem decide é ele), guardada em
+  `fornecedor_destino` e usada como padrão da próxima rodada. Perda ainda não
+  anda (fica pendente, "aguardando a nota de perda"); `incluir` recusa no
+  servidor.
+- **Fornecedor sem `numero`** não abre nota: modal na própria tela grava o nº
+  pela `/fornecedores/api/<id>/editar`. **Sem nota aberta** = mensagem para criar
+  a nota no ERP + "Tentar de novo".
+- **Nunca incluir duas vezes** (duplicaria o item no ERP): colunas
+  `nota_situacao`/`nota_pedido`/`nota_numero`/`nota_detalhe`/`nota_em` no
+  vencido + `nota_pedido_itens` (posição no pedido → vencido; o resultado volta
+  por posição). A reserva é um UPDATE condicional **antes** do pedido existir;
+  `em_andamento` bloqueia editar, excluir, dar baixa e outra rodada.
+  `aplicar_resultado` é idempotente (só mexe em quem ainda está em andamento).
+- Situações: gravado → `incluido` + baixa · simulado → livre (sem baixa) ·
+  pulado/falhou → pendente com o motivo na linha · "parei aqui" → `a_conferir` ·
+  pedido `expirado`/`cancelado` (ninguém pegou) → livre · `erro` depois de pego →
+  `a_conferir`. **`a_conferir` não volta sozinho**: a pessoa olha a nota e usa
+  "Não entrou" (volta à rodada) ou "Dar baixa" (entrou).
+- A rodada tem **Simular** e escolha da máquina (as que declaram
+  `nf.incluir_itens`). Vencido sem código de barras aparece mas não é enviado.
+- Testado com cópias de `vencidos.db`/`fornecedores.db`/`agente.db` e o agente
+  respondendo por `pegar`/`concluir` (25 casos) — o ERP real ainda não.
 
 ### Como testar
 Igual à reclassificação: **cópia** do `agente.db` pela API de backup do SQLite,

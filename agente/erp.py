@@ -193,8 +193,14 @@ class Janela:
                 pass
         c = self._resolver(spec, visivel)
         if c is None:
+            dica = ""
+            try:
+                if not self.win.is_visible() or self.win.is_minimized():
+                    dica = " — o ERP está minimizado ou escondido; deixe a janela dele aberta"
+            except Exception:
+                pass
             raise ErroERP(f"não achei o campo '{nome}' na tela do ERP "
-                          f"({ {k: v for k, v in spec.items()} })")
+                          f"({ {k: v for k, v in spec.items()} }){dica}")
         self._cache[nome] = c
         return c
 

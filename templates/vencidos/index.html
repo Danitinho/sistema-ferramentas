@@ -45,6 +45,31 @@
   .rk-s { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
   .rk-val { text-align: right; flex-shrink: 0; font-size: 14px; font-weight: 750; }
   .rk-sub { display: block; font-size: 10.5px; color: var(--muted); font-weight: 600; }
+  /* ── rodada de inclusão nas notas (agente do ERP) ── */
+  .modal.modal-largo { max-width: 920px; }
+  .rd-topo { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .rd-sim { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 600;
+            color: var(--ink-2); padding-bottom: 9px; margin: 0; }
+  .rd-sim input { width: 16px; height: 16px; margin: 0; }
+  .rd-ajuda { font-size: 12.5px; color: var(--muted); margin: 10px 0 14px; }
+  .rd-grupo { border: 1px solid var(--line-2); border-radius: var(--radius); margin-bottom: 12px;
+              background: var(--surface); }
+  .rd-grupo.ativo { border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
+  .rd-cab { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px;
+            background: var(--surface-2); border-bottom: 1px solid var(--line); }
+  .rd-nome { font-weight: 650; }
+  .rd-cab .seg { margin: 0 0 0 auto; }
+  .rd-itens { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rd-itens td, .rd-itens th { padding: 6px 14px; border-bottom: 1px solid var(--line); text-align: left; }
+  .rd-itens th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+  .rd-acao { padding: 12px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .rd-acao .btn { margin-top: 0; width: auto; }
+  .rd-nota { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;
+             padding: 10px 14px; background: var(--accent-soft); }
+  .rd-nota .k { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+  .rd-nota .v { font-family: var(--mono); font-weight: 650; }
+  .rd-aviso { color: var(--warning); }
+  .rd-erro { color: var(--danger); }
   .p-neutro { background: var(--surface-3); color: var(--muted); }
   .p-neutro::before { background: var(--muted); }
   .chip-promo { font-size: 9.5px; font-weight: 750; padding: 2px 8px; border-radius: 100px;
@@ -114,6 +139,15 @@
       </svg>
       Excel
     </a>
+    <button class="btn btn-primary btn-sm btn-export" onclick="abrirRodada()"
+            title="Inclui os vencidos pendentes na última nota de vencido (tipo 3) aberta de cada fornecedor, pelo agente do ERP — um fornecedor por vez, com a sua conferência antes de gravar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/>
+      </svg>
+      Incluir nas notas
+    </button>
     <button class="btn btn-secondary btn-sm btn-export" onclick="abrirCatalogo()"
             title="Atualiza o catálogo que preenche produto, custo e venda ao bipar o código de barras. Função de uso eventual: só quando os preços mudarem em peso.">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -202,6 +236,7 @@
           {% else %}<span class="pill p-open">sem aviso</span>{% endif %}
           {% if x.baixa_status == 'baixado' %}<span class="pill p-neutro">baixado · {{ x.baixa_tipo_label }}</span>
           {% else %}<span class="pill p-part">baixa pendente</span>{% endif %}
+          {% if x.baixa_status != 'baixado' and x.nota_situacao_label %}<span class="pill {% if x.nota_situacao == 'em_andamento' %}p-neutro{% else %}p-open{% endif %}" title="{{ x.nota_detalhe or '' }}">{{ x.nota_situacao_label }}</span>{% endif %}
         </div>
         <div class="item-sub">
           <span class="num">{{ x.codigo_barras or '—' }}</span> · {{ '%g'|format(x.quantidade) }} un
@@ -211,6 +246,8 @@
           {% if x.editado %} · editado em <span class="num">{{ x.atualizado_fmt }}</span>{% endif %}
           {% if x.baixa_status == 'baixado' %} · baixa <span class="num">{{ x.baixa_fmt }}</span>{% if x.baixa_ref %} · {{ x.baixa_ref }}{% endif %}{% endif %}
           {% if x.obs %} · {{ x.obs }}{% endif %}
+          {% if x.baixa_status != 'baixado' and x.nota_situacao in ('pulado', 'falhou', 'a_conferir') and x.nota_detalhe %}
+          <br><span class="acc acc-warn">nota: {{ x.nota_detalhe }}</span>{% endif %}
           {% if x.vinculo %}
           <br><span class="acc {% if x.vinculo.pct_aproveitado > 0 %}acc-ok{% else %}acc-warn{% endif %}">
             ↔ avisadas <span class="num">{{ '%g'|format(x.vinculo.avisadas) }}</span> ·
@@ -228,7 +265,13 @@
         <button class="btn-lixo" onclick="excluir('vencido','{{ x.id }}')" title="Excluir">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        {% if x.baixa_status != 'baixado' %}
+        {% if x.baixa_status != 'baixado' and x.nota_situacao == 'em_andamento' %}
+        <span class="ev" style="font-size:12px;color:var(--muted)">com o agente…</span>
+        {% elif x.baixa_status != 'baixado' %}
+        {% if x.nota_situacao == 'a_conferir' %}
+        <button class="btn btn-secondary btn-sm" onclick="liberarNota('{{ x.id }}')"
+                title="Conferi a nota no ERP e este item NÃO entrou: volta para a próxima rodada. Se entrou, use Dar baixa.">Não entrou</button>
+        {% endif %}
         <button class="btn btn-primary btn-sm" onclick="abrirBaixa('{{ x.id }}','{{ x.produto | e }}')">Dar baixa</button>
         <button class="btn btn-secondary btn-sm" onclick="abrirEditarVencido('{{ x.id }}')">Editar</button>
         {% else %}
@@ -532,6 +575,50 @@
     </div>
   </div>
 </div>
+
+<!-- Modal: incluir vencidos nas notas de vencido (agente do ERP) -->
+<div class="modal-overlay" id="modal-rodada" onclick="fecharSeFundo(event,'modal-rodada')">
+  <div class="modal modal-largo" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Incluir vencidos nas notas</div>
+      <button class="modal-close" onclick="fecharRodada()">&times;</button></div>
+    <div class="modal-body">
+      <div class="rd-topo">
+        <div style="flex:1 1 220px">
+          <label>Máquina do agente</label>
+          <select id="rd-maquina"></select>
+        </div>
+        <label class="rd-sim"><input type="checkbox" id="rd-simular"> Simular (faz tudo e cancela — nada é gravado nem baixado)</label>
+      </div>
+      <p class="rd-ajuda">Um fornecedor por vez: o agente abre a <b>última nota de vencido (tipo 3) aberta</b>
+        dele no ERP, você confere a nota na tela do ERP e a lista abaixo, e só então aprova a inclusão.
+        Cada item gravado vira <b>baixa · Devolução ao fornecedor</b> com o nº da nota.</p>
+      <div id="rd-corpo"><div class="empty-state">Carregando…</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharRodada()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: nº do fornecedor no RADGe -->
+<div class="modal-overlay" id="modal-numero" onclick="fecharSeFundo(event,'modal-numero')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="modal-title">Nº do fornecedor no RADGe</div>
+      <button class="modal-close" onclick="fecharModal('modal-numero')">&times;</button></div>
+    <div class="modal-body">
+      <div id="num-info" style="font-size:13px;color:var(--muted);margin-bottom:14px"></div>
+      <label>Código do fornecedor no ERP</label>
+      <input type="text" id="num-valor" class="num" inputmode="numeric" placeholder="ex.: 819">
+      <div class="result-box error" id="msg-num" style="margin-top:12px">
+        <div class="result-value error" id="msg-num-txt"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-numero')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNumero()">Gravar no cadastro</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -818,6 +905,194 @@ async function confirmarBaixa() {
   if (r.ok) location.reload();
   else { $("msg-baixa-txt").textContent = r.msg; msg.classList.add("show"); }
 }
+// ── Rodada: incluir vencidos nas notas de vencido pelo agente do ERP ──────
+// Um fornecedor por vez (é um ERP só): abrir nota -> a pessoa confere no ERP
+// -> aprova -> incluir. O estado de cada grupo mora em _rd.est[fid].
+const escH = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const _rd = { dados: null, est: {}, mudou: false, numFid: null };
+const FINAIS = ["feito", "erro", "expirado", "cancelado"];
+
+async function abrirRodada() {
+  _rd.est = {}; _rd.mudou = false;
+  abrirModal("modal-rodada");
+  await carregarRodada();
+}
+function fecharRodada() {
+  if (Object.values(_rd.est).some(e => ["abrindo", "incluindo"].includes(e.etapa))
+      && !confirm("O agente ainda está trabalhando. Fechar mesmo assim? (o pedido continua, e o resultado aparece na lista)")) return;
+  fecharModal("modal-rodada");
+  if (_rd.mudou) location.reload();
+}
+async function carregarRodada() {
+  const r = await (await fetch("/vencidos/api/rodada")).json();
+  _rd.dados = r;
+  const sel = $("rd-maquina"), atual = sel.value;
+  sel.innerHTML = (r.maquinas || []).map(m =>
+    `<option value="${escH(m.nome)}">${escH(m.apelido)}${m.vivo ? "" : " (sem contato)"}</option>`).join("")
+    || '<option value="">nenhuma máquina do agente com a inclusão de itens</option>';
+  if (atual) sel.value = atual;
+  desenharRodada();
+}
+function ocupado(excetoFid) {
+  return Object.entries(_rd.est).some(([f, e]) => f !== excetoFid && ["abrindo", "conferir", "incluindo"].includes(e.etapa));
+}
+function desenharRodada() {
+  const d = _rd.dados;
+  let html = "";
+  if (!d.grupos.length && !d.sem_fornecedor.length) {
+    html += '<div class="empty-state">Nenhum vencido pendente fora de nota.</div>';
+  }
+  for (const g of d.grupos) html += htmlGrupo(g);
+  if (d.sem_fornecedor.length) {
+    html += `<div class="rd-grupo"><div class="rd-cab"><span class="rd-nome rd-aviso">Sem fornecedor informado (${d.sem_fornecedor.length})</span></div>
+      <div class="rd-acao">Edite estes vencidos e escolha o fornecedor para eles entrarem numa rodada:
+      ${d.sem_fornecedor.map(i => escH(i.produto)).join(" · ")}</div></div>`;
+  }
+  if (d.andamento.length) {
+    html += `<div class="rd-grupo"><div class="rd-cab"><span class="rd-nome">Com o agente ou aguardando conferência (${d.andamento.length})</span></div>
+      <div class="rd-acao">${d.andamento.map(i => `${escH(i.produto)} <span class="pill p-neutro">${i.situacao === "a_conferir" ? "conferir no ERP" : "incluindo…"}</span>`).join(" · ")}</div></div>`;
+  }
+  $("rd-corpo").innerHTML = html;
+}
+function htmlGrupo(g) {
+  const e = _rd.est[g.fornecedor_id] || { etapa: "inicio" };
+  const perda = g.destino === "perda";
+  const cab = `<div class="rd-cab">
+      <span class="rd-nome">${escH(g.nome)}</span>
+      ${g.numero ? `<span class="ev num">nº ${escH(g.numero)}</span>`
+                 : `<span class="rd-aviso">sem nº do RADGe</span> <button class="btn btn-secondary btn-sm" onclick="pedirNumero('${g.fornecedor_id}')">Informar nº</button>`}
+      <span class="ev">${g.itens.length} item(ns)</span>
+      <div class="seg" title="Quem decide é o fornecedor: troca = nota de vencido dele; perda = nota de perda">
+        <button class="${perda ? "" : "ativo"}" onclick="mudarDestino('${g.fornecedor_id}','troca')" ${e.etapa !== "inicio" && e.etapa !== "semnota" ? "disabled" : ""}>Troca</button>
+        <button class="${perda ? "ativo" : ""}" onclick="mudarDestino('${g.fornecedor_id}','perda')" ${e.etapa !== "inicio" && e.etapa !== "semnota" ? "disabled" : ""}>Perda</button>
+      </div></div>`;
+  const res = (e.resultado && e.resultado.itens) || [];
+  let pos = 0;   // o resultado vem na ordem dos ENVIADOS (sem código não vai)
+  const itens = `<table class="rd-itens"><thead><tr><th>Produto</th><th>Código de barras</th><th>Qtd</th><th></th></tr></thead><tbody>
+    ${g.itens.map(i => {
+      const r = i.sem_codigo ? null : res[pos++];
+      let st = i.sem_codigo ? '<span class="rd-erro">sem código de barras — não entra</span>'
+             : !i.no_catalogo ? '<span class="rd-aviso">fora do catálogo</span>' : "";
+      if (i.situacao && !r) st += ` <span class="rd-aviso" title="${escH(i.detalhe)}">antes: ${escH(i.situacao)}</span>`;
+      if (r) st = `<span class="pill ${r.situacao === "gravado" ? "p-quit" : r.situacao === "simulado" ? "p-neutro" : "p-open"}">${escH(r.situacao)}</span> <span class="ev">${escH(r.detalhe || "")}</span>`;
+      return `<tr><td>${escH(i.produto)}</td><td class="num">${escH(i.codigo_barras || "—")}</td>
+        <td class="num">${i.quantidade}</td><td>${st}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  let acao = "";
+  const bloqueado = ocupado(g.fornecedor_id);
+  if (perda) {
+    acao = '<span class="ev">Perda (sem troca): estes vencidos vão para a <b>nota de perda</b>, que o agente ainda não faz. Ficam pendentes.</span>';
+  } else if (!g.numero) {
+    acao = '<span class="rd-aviso">Informe o nº do fornecedor no RADGe para abrir a nota.</span>';
+  } else if (e.etapa === "inicio") {
+    acao = `<button class="btn btn-primary btn-sm" onclick="abrirNotaForn('${g.fornecedor_id}')" ${bloqueado || !g.incluiveis ? "disabled" : ""}>Abrir a nota no ERP</button>
+      ${bloqueado ? '<span class="ev">termine o fornecedor em andamento antes</span>' : ""}`;
+  } else if (e.etapa === "abrindo") {
+    acao = '<span class="spinner"></span> O agente está abrindo a última nota de vencido (tipo 3) aberta…';
+  } else if (e.etapa === "semnota") {
+    acao = `<span class="rd-erro"><b>${escH(e.msg)}</b></span>
+      <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${g.fornecedor_id}')" ${bloqueado ? "disabled" : ""}>Tentar de novo</button>`;
+  } else if (e.etapa === "conferir") {
+    const n = e.nota || {};
+    acao = `<div style="width:100%">
+        <div class="rd-nota">
+          <div><div class="k">Nota</div><div class="v">${escH(n.numero || "—")}</div></div>
+          <div><div class="k">Lançamento</div><div class="v">${escH(n.lancamento || "—")}</div></div>
+          <div><div class="k">Entrada</div><div class="v">${escH(n.entrada || "")}</div></div>
+          <div><div class="k">Emissão</div><div class="v">${escH(n.emissao || "")}</div></div>
+          <div><div class="k">No ERP</div><div class="v">${escH((e.conferencia || {}).fornecedor || "")}</div></div>
+        </div>
+        <div style="margin:10px 0 8px"><b>Confira na tela do ERP</b> se esta é a nota certa e se a lista acima está correta.</div>
+        <button class="btn btn-primary btn-sm" onclick="incluirForn('${g.fornecedor_id}')">Aprovar e incluir ${g.incluiveis} item(ns)</button>
+        <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${g.fornecedor_id}')">Abrir de novo</button>
+        <button class="btn btn-secondary btn-sm" onclick="pularForn('${g.fornecedor_id}')">Pular este fornecedor</button>
+      </div>`;
+  } else if (e.etapa === "incluindo") {
+    acao = '<span class="spinner"></span> O agente está incluindo os itens na nota…';
+  } else if (e.etapa === "feito") {
+    const r = e.resultado || {};
+    acao = `<span><b>${r.simulado ? "Simulação concluída" : "Inclusão concluída"}:</b>
+      ${r.gravados || 0} gravado(s), ${r.simulados || 0} simulado(s), ${r.pulados || 0} pulado(s), ${r.falhados || 0} com falha.
+      ${r.interrompido ? `<span class="rd-erro">Parou antes do fim: ${escH(r.interrompido)}</span>` : ""}
+      ${r.apos_cancelar && r.apos_cancelar.cancelado === false ? '<span class="rd-erro">Confira o ERP: ele pode ter ficado em modo de inclusão (clique em Canc).</span>' : ""}</span>`;
+  } else if (e.etapa === "erro") {
+    acao = `<span class="rd-erro"><b>${escH(e.msg)}</b></span>
+      <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${g.fornecedor_id}')" ${bloqueado ? "disabled" : ""}>Tentar de novo</button>`;
+  }
+  const ativo = ["abrindo", "conferir", "incluindo"].includes(e.etapa);
+  return `<div class="rd-grupo ${ativo ? "ativo" : ""}">${cab}${itens}<div class="rd-acao">${acao}</div></div>`;
+}
+function grupo(fid) { return _rd.dados.grupos.find(g => g.fornecedor_id === fid); }
+function estado(fid, e) { _rd.est[fid] = Object.assign(_rd.est[fid] || {}, e); desenharRodada(); }
+
+async function mudarDestino(fid, destino) {
+  const r = await postJSON(`/vencidos/api/rodada/${fid}/destino`, { destino });
+  if (!r.ok) { alert(r.msg); return; }
+  grupo(fid).destino = destino;
+  desenharRodada();
+}
+async function esperarPedido(id) {
+  while (true) {
+    const r = await (await fetch(`/vencidos/api/rodada/pedido/${id}`)).json();
+    if (!r.ok) return { estado: "erro", erro: r.msg };
+    if (FINAIS.includes(r.pedido.estado)) return r.pedido;
+    await new Promise(ok => setTimeout(ok, 1200));
+  }
+}
+async function abrirNotaForn(fid) {
+  estado(fid, { etapa: "abrindo", resultado: null });
+  const r = await postJSON(`/vencidos/api/rodada/${fid}/abrir`, { maquina: $("rd-maquina").value });
+  if (!r.ok) { estado(fid, { etapa: "erro", msg: r.msg }); return; }
+  const p = await esperarPedido(r.pedido.id);
+  const res = p.resultado || {};
+  if (p.estado !== "feito") {
+    estado(fid, { etapa: "erro", msg: `O agente não abriu a nota (${p.estado}): ${p.erro || ""}` });
+  } else if (!res.encontrada) {
+    estado(fid, { etapa: "semnota", msg: `Nenhuma nota de vencido (tipo 3) aberta para ${grupo(fid).nome}. Crie a nota no ERP e clique em Tentar de novo.` });
+  } else {
+    estado(fid, { etapa: "conferir", pedidoAbrir: p.id, nota: res.nota, conferencia: res.conferencia });
+  }
+}
+async function incluirForn(fid) {
+  const g = grupo(fid), e = _rd.est[fid], simular = $("rd-simular").checked;
+  const n = e.nota || {};
+  if (!confirm(`Incluir ${g.incluiveis} item(ns) de ${g.nome} na nota ${n.numero || n.lancamento}?\n\n`
+      + (simular ? "SIMULAÇÃO: nada será gravado nem baixado." : "Os itens gravados viram baixa · Devolução ao fornecedor.")
+      + "\n\nO pedido sai autorizado por você.")) return;
+  estado(fid, { etapa: "incluindo" });
+  const r = await postJSON(`/vencidos/api/rodada/${fid}/incluir`,
+    { pedido_abrir: e.pedidoAbrir, maquina: $("rd-maquina").value, simular });
+  if (!r.ok) { estado(fid, { etapa: "erro", msg: r.msg }); return; }
+  _rd.mudou = true;
+  const p = await esperarPedido(r.pedido.id);
+  if (p.estado === "feito") estado(fid, { etapa: "feito", resultado: p.resultado });
+  else estado(fid, { etapa: "erro", msg: `A inclusão terminou em ${p.estado}: ${p.erro || ""}. Os itens ficam "conferir no ERP".` });
+}
+function pularForn(fid) { estado(fid, { etapa: "inicio", nota: null }); }
+
+function pedirNumero(fid) {
+  _rd.numFid = fid;
+  $("num-info").innerHTML = `Fornecedor: <b>${escH(grupo(fid).nome)}</b>. É o código dele no RADGe (o mesmo do filtro da tela Entradas).`;
+  $("num-valor").value = ""; $("msg-num").classList.remove("show");
+  abrirModal("modal-numero");
+  setTimeout(() => $("num-valor").focus(), 50);
+}
+async function salvarNumero() {
+  const msg = $("msg-num"); msg.classList.remove("show");
+  const r = await postJSON(`/fornecedores/api/${_rd.numFid}/editar`, { numero: $("num-valor").value.trim() });
+  if (!r.ok || !(r.fornecedor && r.fornecedor.numero)) {
+    $("msg-num-txt").textContent = r.msg || "Informe o número."; msg.classList.add("show"); return;
+  }
+  grupo(_rd.numFid).numero = r.fornecedor.numero;
+  fecharModal("modal-numero");
+  desenharRodada();
+}
+async function liberarNota(id) {
+  if (!confirm("Você conferiu a nota no ERP e este item NÃO entrou? Ele volta para a próxima rodada.")) return;
+  const r = await postJSON(`/vencidos/api/vencido/${id}/liberar-nota`, {});
+  if (r.ok) location.reload(); else alert(r.msg);
+}
+
 async function reabrir(id) {
   if (!confirm("Reabrir a baixa deste vencido?")) return;
   const r = await postJSON(`/vencidos/api/vencido/${id}/reabrir`, {});

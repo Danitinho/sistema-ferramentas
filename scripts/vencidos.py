@@ -133,6 +133,33 @@ def _init_schema(conn):
         conn.execute("ALTER TABLE avisos ADD COLUMN atualizado_em TEXT")
         conn.execute("UPDATE avisos SET atualizado_em = COALESCE(resolvido_em, criado_em) "
                      "WHERE atualizado_em IS NULL")
+    # migração: inclusão do vencido na nota de vencido do fornecedor pelo agente
+    # do ERP (scripts/vencidos_notas.py). `nota_situacao`: NULL (livre) |
+    # em_andamento | incluido | a_conferir | pulado | falhou.
+    cols_v = {r[1] for r in conn.execute("PRAGMA table_info(vencidos)")}
+    for coluna, tipo in (("nota_situacao", "TEXT"), ("nota_pedido", "TEXT"),
+                         ("nota_numero", "TEXT"), ("nota_detalhe", "TEXT"),
+                         ("nota_em", "TEXT")):
+        if coluna not in cols_v:
+            conn.execute(f"ALTER TABLE vencidos ADD COLUMN {coluna} {tipo}")
+    conn.executescript("""
+        -- troca (nota de vencido do fornecedor) ou perda: quem decide é o
+        -- fornecedor; a última escolha vira o padrão da próxima rodada
+        CREATE TABLE IF NOT EXISTS fornecedor_destino (
+            fornecedor_id TEXT PRIMARY KEY,
+            destino       TEXT NOT NULL,       -- troca | perda
+            em            TEXT,
+            por           TEXT
+        );
+        -- qual vencido foi em qual posição de qual pedido do agente: o
+        -- resultado volta por posição (o mesmo código pode aparecer 2 vezes)
+        CREATE TABLE IF NOT EXISTS nota_pedido_itens (
+            pedido_id  TEXT NOT NULL,
+            idx        INTEGER NOT NULL,
+            vencido_id TEXT NOT NULL,
+            PRIMARY KEY (pedido_id, idx)
+        );
+    """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_venc_atualizado ON vencidos(atualizado_em)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aviso_atualizado ON avisos(atualizado_em)")
     conn.commit()
@@ -325,7 +352,18 @@ def _enriquecer_vencido(v):
                         and atualizado[:19] != (v.get("baixa_em") or "")[:19])
     v["baixa_fmt"] = _fmt_dt(v["baixa_em"]) if v["baixa_em"] else ""
     v["baixa_tipo_label"] = TIPOS_BAIXA.get(v["baixa_tipo"], v["baixa_tipo"] or "")
+    v["nota_situacao_label"] = NOTA_SITUACAO_LABEL.get(v.get("nota_situacao") or "", "")
     return v
+
+
+# Situação da inclusão na nota de vencido pelo agente (vencidos_notas.py).
+# "incluido" não tem rótulo: ele já vira baixa de devolução, que aparece.
+NOTA_SITUACAO_LABEL = {
+    "em_andamento": "incluindo na nota…",
+    "a_conferir": "conferir no ERP",
+    "pulado": "não entrou na nota",
+    "falhou": "falhou ao incluir",
+}
 
 
 # ── Avisos ────────────────────────────────────────────────────────────────────
@@ -717,6 +755,8 @@ def editar_vencido(id_vencido, produto, quantidade, codigo_barras=None, forneced
             return False, "Vencido não encontrado."
         if v["baixa_status"] == "baixado":
             return False, "Este vencido está baixado. Reabra a baixa para poder editar."
+        if v["nota_situacao"] == "em_andamento":
+            return False, "Este vencido está sendo incluído na nota pelo agente; espere o resultado."
         novo_aviso_id = v["aviso_id"]
         # se passou a 'não avisado' e havia aviso vinculado, devolve o aviso à vigília
         if fa == 0 and v["aviso_id"]:
@@ -809,6 +849,9 @@ def dar_baixa(id_vencido, tipo, referencia="", usuario=None):
             return False, "Vencido não encontrado."
         if v["baixa_status"] == "baixado":
             return False, "Este vencido já teve baixa."
+        if v["nota_situacao"] == "em_andamento":
+            return False, ("Este vencido está sendo incluído na nota pelo agente do ERP; "
+                           "espere o resultado.")
         agora = _agora()
         conn.execute(
             "UPDATE vencidos SET baixa_status='baixado', baixa_tipo=?, baixa_ref=?, "
@@ -843,7 +886,9 @@ def excluir_vencido(id_vencido, usuario=None):
     conn = _conn()
     try:
         r = conn.execute("UPDATE vencidos SET excluido_em=?, excluido_por=? "
-                         "WHERE id=? AND excluido_em IS NULL", (_agora(), usuario, id_vencido))
+                         "WHERE id=? AND excluido_em IS NULL "
+                         "AND COALESCE(nota_situacao, '') <> 'em_andamento'",
+                         (_agora(), usuario, id_vencido))
         if r.rowcount:
             _auditar(conn, "vencido", id_vencido, "excluir", "", usuario)
             conn.commit()

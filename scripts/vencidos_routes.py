@@ -195,6 +195,58 @@ def api_reabrir(id_vencido):
     return jsonify({"ok": ok, "msg": msg})
 
 
+# ── Inclusão nas notas de vencido pelo agente do ERP (vencidos_notas.py) ──────
+# Nenhum endpoint aqui começa com `api_`: a guarda de sessão cobre tudo.
+@vencidos_bp.route("/api/rodada")
+def rodada():
+    from scripts import vencidos_notas as vn
+    return jsonify({"ok": True, **vn.montar_rodada()})
+
+
+@vencidos_bp.route("/api/rodada/<fid>/destino", methods=["POST"])
+def rodada_destino(fid):
+    from scripts import vencidos_notas as vn
+    ok, msg = vn.definir_destino(fid, (request.get_json() or {}).get("destino", ""),
+                                 usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@vencidos_bp.route("/api/rodada/<fid>/abrir", methods=["POST"])
+def rodada_abrir(fid):
+    from scripts import vencidos_notas as vn
+    d = request.get_json() or {}
+    ok, msg, p = vn.abrir_nota(fid, _usuario(), d.get("maquina", ""))
+    return jsonify({"ok": ok, "msg": msg, "pedido": p})
+
+
+@vencidos_bp.route("/api/rodada/<fid>/incluir", methods=["POST"])
+def rodada_incluir(fid):
+    from scripts import vencidos_notas as vn
+    d = request.get_json() or {}
+    try:
+        pedido_abrir = int(d.get("pedido_abrir"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "msg": "Abra a nota antes de incluir."})
+    ok, msg, p = vn.incluir(fid, pedido_abrir, _usuario(), d.get("maquina", ""),
+                            simular=bool(d.get("simular")))
+    return jsonify({"ok": ok, "msg": msg, "pedido": p})
+
+
+@vencidos_bp.route("/api/rodada/pedido/<int:pid>")
+def rodada_pedido(pid):
+    """Acompanha um pedido; quando ele termina, aplica o resultado aos
+    vencidos (uma vez só — chamadas seguintes não mexem em nada)."""
+    from scripts import vencidos_notas as vn
+    return jsonify(vn.aplicar_resultado(pid))
+
+
+@vencidos_bp.route("/api/vencido/<id_vencido>/liberar-nota", methods=["POST"])
+def rodada_liberar(id_vencido):
+    from scripts import vencidos_notas as vn
+    ok, msg = vn.liberar_conferido(id_vencido, usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
 @vencidos_bp.route("/api/vencido/<id_vencido>", methods=["DELETE"])
 def api_del_vencido(id_vencido):
     ok, msg = v.excluir_vencido(id_vencido, usuario=_usuario())
