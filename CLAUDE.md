@@ -1594,12 +1594,50 @@ Armadilhas (vistas no log antigo, agora tratadas):
   formulário fica escondido e um controle ainda não guardado não é achado — foi
   assim que o `valor` saiu vazio em todas as linhas.
 
+### `nf.incluir_itens {itens[{codigo, qtd, esperado}], simular, nota?, fornecedor?, tipo?}`
+Inclui produtos na nota ABERTA carregada na tela (ou, com `fornecedor`, abre a
+última nota dele antes — é o caminho que o `/vencidos` vai usar). **Grava**, então
+exige `autorizado_por`: o painel manda `autorizar: true` e o servidor põe o
+usuário da sessão (nunca vem do corpo); o agente confere de novo. Validado no
+RADGe real em 28/09/2026.
+- **Fluxo** (confirmado pelo usuário): Incluir → **F9** abre a
+  `TfrmConsultaProdutos` com o campo focado → código de barras + Enter →
+  quantidade em **`qtd_caixa`** (como veio, sem conversão) → Gravar. Simulação =
+  tudo igual e **Canc** no lugar do Gravar. `forcar_simulacao` no `config.json`
+  da máquina vence o pedido.
+- **`esperado`** = código ERP + descrição, preenchido no servidor pelo catálogo
+  (`catalogo.consultar`, só casamento exato; `_linha` devolve `codigo_interno`).
+  O agente compara o código ERP da linha (sem zeros à esquerda) — é o que pega
+  "a linha ficou com outro produto". Fora do catálogo, só aceita se a linha
+  estava vazia e mudou, e marca "sem conferência pelo catálogo". O rótulo de
+  descrição do RADGe não expõe texto; o resultado mostra a do catálogo.
+- **Não cadastrado**: a caixa é a **`TfrmMensagens`** do RADGe (não a do
+  Windows nem a do Delphi) e aparece **depois** que a busca fecha — o agente
+  espera `espera_aviso_s` por ela, responde **Não**, registra
+  "ERRO, produto nao cadastrado, pulado" e segue. `TfrmMensagens` está na lista
+  padrão de `erp.Janela`.
+- **Caixa modal trava a janela principal** (`is_enabled()` falso): clique vira
+  `ElementNotEnabled` e `habilitado` mente. `_destravar` fecha caixas pendentes
+  com Não/OK antes de Incluir/Gravar/Canc, ou para com mensagem clara.
+- Quantidade relida e comparada como número pt-BR, 3 tentativas. Depois do
+  Gravar a linha tem de esvaziar; se não esvaziar sem caixa, para a lista
+  (estado incerto) mas devolve o que já foi gravado.
+- **Fim da lista: sempre o Canc** do formulário de itens (pedido do usuário),
+  com as caixas fechadas antes — com uma caixa aberta o clique era ignorado e o
+  ERP ficava em modo de inclusão. Se não sair, o log diz "ATENCAO".
+- **Os botões Grade/Form se alternam**: com o formulário à vista só o Grade
+  existe; `abrir_form` não clica nada nesse caso.
+- **Botões de item ≠ botões da nota**: "Incluir"/"Cancelar" com texto em
+  (9,190)/(9,215) são da NOTA; os de item são `&Incluir`, `Gravar`, `&Canc` na
+  coluna x=90 (`item_incluir`/`item_gravar`/`item_cancelar` no mapa).
+- Teto de execução proporcional: `max(300, 60 + 25 × itens)` (`teto_execucao`).
+
 ### Pendências
-- As outras capacidades do agente antigo, ainda não refeitas: `nf.abrir {numero}`,
-  `nf.incluir_itens {itens[{codigo, qtd, esperado?}], nota, simular}` (grava:
-  vai exigir `autorizado_por`), `erp.inspecionar {limite}` e
-  `erp.campo_focado {espera_s}` (calibração do mapa pelo painel). O log antigo
-  no `agente.db` registra o comportamento esperado de cada uma.
+- As capacidades restantes do agente antigo: `nf.abrir {numero}`,
+  `erp.inspecionar {limite}` e `erp.campo_focado {espera_s}` (calibração do mapa
+  pelo painel). O log antigo no `agente.db` registra o comportamento esperado.
+- `/vencidos` pedir `nf.incluir_itens` com `fornecedor` ao lançar um vencido
+  (abrir a nota de vencido da empresa e incluir o produto).
 
 ### Como testar
 Igual à reclassificação: **cópia** do `agente.db` pela API de backup do SQLite,

@@ -94,6 +94,52 @@
   </div>
 </div>
 
+<!-- Pedido: incluir itens -->
+<div class="card full">
+  <div class="card-head"><h3>Incluir itens na nota</h3></div>
+  <div class="card-body">
+    <p class="ev" style="margin-top:0">Um item por linha: <b>código de barras; quantidade</b>
+      (a quantidade vai no campo de caixas do ERP). Cada produto é conferido pelo catálogo
+      antes de gravar.</p>
+    <textarea id="i-lista" rows="6" class="num" style="width:100%" placeholder="7896022200756; 4&#10;7791293035895; 5"></textarea>
+    <div class="linha-form" style="margin-top:10px">
+      <div>
+        <label>Nota</label>
+        <select id="i-destino" onchange="destinoItens()">
+          <option value="tela">A nota aberta na tela do ERP</option>
+          <option value="ultima">A última nota aberta do fornecedor</option>
+        </select>
+      </div>
+      <div class="estreito" id="i-nota-wrap">
+        <label>Nº (conferir)</label>
+        <input id="i-nota" class="num" inputmode="numeric" placeholder="opcional">
+      </div>
+      <div id="i-forn-wrap" style="display:none">
+        <label>Fornecedor</label>
+        <input id="i-forn" placeholder="buscar pelo nome ou CNPJ" autocomplete="off">
+      </div>
+      <div class="estreito" id="i-num-wrap" style="display:none">
+        <label>Código ERP</label>
+        <input id="i-num" class="num" inputmode="numeric">
+      </div>
+      <div class="estreito" id="i-tipo-wrap" style="display:none">
+        <label>Tipo</label>
+        <input id="i-tipo" class="num" inputmode="numeric" value="3">
+      </div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600">
+      <input type="checkbox" id="i-simular" checked style="width:16px;height:16px;margin:0">
+      Simular (faz tudo e cancela cada linha — nada é gravado no ERP)
+    </label>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="conferirItens()">Conferir</button>
+      <button class="btn btn-primary" id="b-incluir" onclick="enviarItens()" disabled>Enviar ao agente</button>
+    </div>
+    <div id="i-previa" style="margin-top:12px"></div>
+    <div id="resultado-itens" class="resultado"></div>
+  </div>
+</div>
+
 <!-- Máquinas -->
 <div class="card card-flush full">
   <div class="card-head"><h3>Máquinas</h3></div>
@@ -196,6 +242,10 @@ function resumoPedido(p) {
   const r = p.resultado;
   if (p.erro) return `<span style="color:var(--danger)">${esc(p.erro)}</span>`;
   if (!r) return "";
+  if (p.tipo === "nf.incluir_itens") {
+    return `nota ${esc((r.nota || {}).numero || "?")}: ${r.gravados} gravado(s), ${r.simulados} simulado(s), `
+         + `${r.pulados} pulado(s), ${r.falhados} falha(s)${r.interrompido ? " · <b>parou antes do fim</b>" : ""}`;
+  }
   if (p.tipo === "nf.abrir_ultima") {
     return r.encontrada
       ? `nota <b class="num">${esc(r.nota.numero)}</b> de ${esc(r.nota.entrada)} · ${r.abertas} aberta(s) de ${r.total}`
@@ -207,6 +257,10 @@ function resumoPedido(p) {
 function paramsTxt(p) {
   const x = p.params || {};
   if (p.tipo === "nf.abrir_ultima") return `fornecedor ${esc(x.fornecedor)}, tipo ${esc(x.tipo)}`;
+  if (p.tipo === "nf.incluir_itens")
+    return `${(x.itens || []).length} item(ns)${x.simular ? ", simulação" : ""}`
+         + (x.fornecedor ? `, fornecedor ${esc(x.fornecedor)}` : x.nota ? `, nota ${esc(x.nota)}` : "")
+         + (p.autorizado_por ? ` · autorizado por ${esc(p.autorizado_por)}` : "");
   return esc(JSON.stringify(x));
 }
 
@@ -249,8 +303,12 @@ async function cancelar(id) {
   atualizar();
 }
 
-function desenharResultado(p) {
-  const el = document.getElementById("resultado");
+function desenharResultado(p, alvo = "resultado") {
+  const el = document.getElementById(alvo);
+  if (p.tipo === "nf.incluir_itens" && !["pendente", "executando"].includes(p.estado) && p.resultado) {
+    el.innerHTML = htmlIncluir(p);
+    return;
+  }
   if (["pendente", "executando"].includes(p.estado)) {
     el.innerHTML = `<div class="alertx"><div><span class="spinner"></span> Pedido #${p.id}:
       ${p.estado === "pendente" ? "esperando a máquina pegar…" : "o agente está trabalhando no ERP…"}</div></div>`;
@@ -283,13 +341,14 @@ function desenharResultado(p) {
   el.innerHTML = html;
 }
 
-async function acompanhar(id) {
-  _pedidoAtual = id;
-  while (_pedidoAtual === id) {
+const _acompanhando = {};
+async function acompanhar(id, alvo = "resultado") {
+  _acompanhando[alvo] = id;
+  while (_acompanhando[alvo] === id) {
     const r = await fetch(`/agente/painel/api/pedido/${id}`);
     if (!r.ok) break;
     const p = (await r.json()).pedido;
-    desenharResultado(p);
+    desenharResultado(p, alvo);
     if (!["pendente", "executando"].includes(p.estado)) { atualizar(); break; }
     await new Promise(ok => setTimeout(ok, 1000));
   }
@@ -309,6 +368,99 @@ async function pedirAbrir() {
     atualizar();
     await acompanhar(r.pedido.id);
   } finally { b.disabled = false; }
+}
+
+// ── incluir itens ─────────────────────────────────────────────────────────
+let _itensConferidos = null;
+fornecedorPicker(document.getElementById("i-forn"), {
+  aoSelecionar(f) { document.getElementById("i-num").value = (f && f.numero) || ""; }
+});
+document.getElementById("i-lista").addEventListener("input", () => {
+  _itensConferidos = null;                       // mudou a lista: confere de novo
+  document.getElementById("b-incluir").disabled = true;
+});
+
+function destinoItens() {
+  const ultima = document.getElementById("i-destino").value === "ultima";
+  document.getElementById("i-nota-wrap").style.display = ultima ? "none" : "";
+  ["i-forn-wrap", "i-num-wrap", "i-tipo-wrap"].forEach(id =>
+    document.getElementById(id).style.display = ultima ? "" : "none");
+}
+
+function lerLista() {
+  return document.getElementById("i-lista").value.split(/\r?\n/)
+    .map(l => l.trim()).filter(Boolean)
+    .map(l => { const [codigo, qtd] = l.split(/[;\t]|\s+/).filter(Boolean); return {codigo, qtd}; });
+}
+
+async function conferirItens() {
+  const itens = lerLista();
+  const el = document.getElementById("i-previa");
+  if (!itens.length) { el.innerHTML = '<div class="ev">Lista vazia.</div>'; return; }
+  const r = await postJSON("/agente/painel/api/conferir-itens", {itens});
+  const erros = r.linhas.filter(l => l.erro).length;
+  const semCat = r.linhas.filter(l => !l.erro && !l.esperado.codigo).length;
+  el.innerHTML = `<div style="overflow-x:auto"><table class="tbl"><thead><tr>
+      <th>#</th><th>Código de barras</th><th>Qtd</th><th>Produto (catálogo)</th><th>Cód. ERP</th></tr></thead><tbody>
+    ${r.linhas.map(l => `<tr><td class="num">${l.n}</td><td class="num">${esc(l.codigo)}</td>
+      <td class="num">${l.qtd ?? ""}</td>
+      <td>${l.erro ? `<span style="color:var(--danger)">${esc(l.erro)}</span>`
+           : l.esperado.codigo ? esc(l.esperado.descricao)
+           : '<span style="color:var(--warning)">não está no catálogo — o agente confere só se a linha mudou</span>'}</td>
+      <td class="num">${esc(l.esperado.codigo || "")}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="ev" style="margin-top:6px">${r.linhas.length} item(ns)${erros ? `, <b style="color:var(--danger)">${erros} com erro</b>` : ""}${semCat ? `, ${semCat} fora do catálogo` : ""}.</div>`;
+  const ok = !erros && r.linhas.length <= r.maximo;
+  _itensConferidos = ok ? itens : null;
+  document.getElementById("b-incluir").disabled = !ok;
+}
+
+async function enviarItens() {
+  if (!_itensConferidos) return;
+  const simular = document.getElementById("i-simular").checked;
+  const ultima = document.getElementById("i-destino").value === "ultima";
+  const params = {itens: _itensConferidos, simular};
+  let ondeTxt;
+  if (ultima) {
+    params.fornecedor = document.getElementById("i-num").value.trim();
+    params.tipo = document.getElementById("i-tipo").value.trim() || "3";
+    if (!params.fornecedor) { alert("Informe o código do fornecedor no ERP."); return; }
+    ondeTxt = `na última nota aberta do fornecedor ${params.fornecedor} (tipo ${params.tipo})`;
+  } else {
+    params.nota = document.getElementById("i-nota").value.trim();
+    ondeTxt = "na nota aberta na tela do ERP" + (params.nota ? ` (conferindo nº ${params.nota})` : "");
+  }
+  const modo = simular ? "SIMULAÇÃO — nada será gravado" : "GRAVAÇÃO — os itens entram na nota de verdade";
+  if (!confirm(`${_itensConferidos.length} item(ns) ${ondeTxt}.\n\nModo: ${modo}.\n\nO pedido sai autorizado por você. Confirmar?`)) return;
+  const b = document.getElementById("b-incluir");
+  b.disabled = true;
+  try {
+    const r = await postJSON("/agente/painel/api/pedido", {
+      tipo: "nf.incluir_itens", params, autorizar: true,
+      maquina_alvo: document.getElementById("f-maq").value});
+    if (r.erro) { alert(r.erro); return; }
+    atualizar();
+    await acompanhar(r.pedido.id, "resultado-itens");
+  } finally { b.disabled = !_itensConferidos; }
+}
+
+function htmlIncluir(p) {
+  const r = p.resultado || {}, n = r.nota || {};
+  const cor = {gravado: "e-ok", simulado: "e-wa", pulado: "e-wa", falhou: "e-er"};
+  let html = `<div><b>Nota ${esc(n.numero || n.lancamento || "?")}</b> — ${esc(n.fornecedor || "")}
+      · ${r.simulado ? "<b>simulação</b>" : "gravação"} ·
+      ${r.gravados} gravado(s), ${r.simulados} simulado(s), ${r.pulados} pulado(s), ${r.falhados} com falha, de ${r.total}.</div>`;
+  if (r.interrompido) html += `<div class="alertx" style="margin-top:8px"><div><b>Parou antes do fim:</b> ${esc(r.interrompido)}</div></div>`;
+  if (r.apos_cancelar && r.apos_cancelar.cancelado === false)
+    html += `<div class="alertx" style="margin-top:8px"><div><b>Confira o ERP:</b> não consegui sair do modo de inclusão. ${esc(r.apos_cancelar.caixa || "")}</div></div>`;
+  html += `<div style="overflow-x:auto;margin-top:8px"><table class="tbl"><thead><tr>
+      <th>Código</th><th>Qtd</th><th>Produto no ERP</th><th>Situação</th><th>Detalhe</th></tr></thead><tbody>
+    ${(r.itens || []).map(i => `<tr><td class="num">${esc(i.codigo)}</td><td class="num">${esc(i.qtd)}</td>
+      <td>${esc(i.produto || "")} <span class="ev num">${esc(i.codigo_erp || "")}</span></td>
+      <td><span class="est ${cor[i.situacao] || ""}">${esc(i.situacao || "—")}</span></td>
+      <td class="ev">${esc(i.detalhe || "")}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  return html;
 }
 
 atualizar();

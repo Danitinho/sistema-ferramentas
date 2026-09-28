@@ -31,6 +31,7 @@ import threading
 import time
 
 from agente import erp as erp_base
+from agente import entradas
 from agente.entradas import DriverEntradas, _data, _int
 from agente.servidor import Cliente, ErroServidor, TokenInvalido
 from agente.tecla_esc import esc_segurado
@@ -95,8 +96,134 @@ def nf_abrir_ultima(ag, params):
             "conferencia": {k: conf.get(k) for k in ("fornecedor", "emissao", "entrada")}}
 
 
+def nf_incluir_itens(ag, params):
+    """Inclui itens (código de barras + quantidade em `qtd_caixa`) na nota
+    ABERTA carregada na tela Entradas — ou, com `fornecedor`, na última nota
+    aberta dele, que é aberta antes.
+
+    Cada item: Incluir (se preciso) -> F9 -> código + Enter -> confere o
+    produto da linha -> quantidade (relida) -> Gravar, ou Cancelar se for
+    simulação. Item que falha é cancelado e o próximo segue. No fim, sai do
+    modo de inclusão sempre.
+
+    Travas: pedido sem `autorizado_por` não roda (o servidor já exige; aqui é a
+    segunda chave); `forcar_simulacao` no config.json da máquina vence o
+    pedido; nota fechada é recusada antes do Incluir.
+    """
+    pedido = ag.pedido_atual or {}
+    if not pedido.get("autorizado_por"):
+        raise ErroPedido("pedido de gravação sem autorização de uma pessoa")
+    itens = params.get("itens") or []
+    if not itens:
+        raise ErroPedido("pedido sem itens")
+    simular = bool(params.get("simular")) or ag.forcar_simulacao
+    if params.get("fornecedor"):
+        aberta = nf_abrir_ultima(ag, params)
+        if not aberta.get("encontrada"):
+            raise ErroPedido(f"fornecedor {params['fornecedor']}: {aberta.get('msg')}")
+    drv = ag.driver()
+    drv.conferir_tela()
+    nota = drv.nota_atual()
+    if not (nota["numero"] or nota["lancamento"]):
+        raise ErroPedido("não há nota carregada na tela Entradas: abra a nota antes")
+    if not nota["aberta"]:
+        raise ErroPedido(f"a nota {nota['numero'] or nota['lancamento']} está FECHADA; "
+                         "o ERP não aceita item em nota fechada")
+    alvo = str(params.get("nota") or "")
+    if alvo and _int(alvo) not in (_int(nota["numero"]), _int(nota["lancamento"])):
+        raise ErroPedido(f"a nota na tela é {nota['numero']} (lançamento "
+                         f"{nota['lancamento']}), não a {alvo} pedida")
+    ag.log(f"Nota {nota['numero'] or nota['lancamento']} ({nota['fornecedor']}) — "
+           f"{len(itens)} item(ns)" + (", em SIMULACAO." if simular else "."))
+    res = {"nota": nota, "simulado": simular, "total": len(itens), "gravados": 0,
+           "simulados": 0, "pulados": 0, "falhados": 0, "itens": [],
+           "interrompido": "", "apos_cancelar": None}
+    try:
+        for n, it in enumerate(itens, 1):
+            ag._checar_interrupcao()
+            cb, qtd = str(it.get("codigo")), float(it.get("qtd"))
+            esperado = it.get("esperado") or {}
+            linha = {"codigo": cb, "qtd": qtd}
+            res["itens"].append(linha)
+            ag.log(f"Item {n}/{len(itens)}: codigo {cb}, qtd {entradas.fmt_qtd(qtd)}.")
+            try:
+                drv.entrar_inclusao()
+                antes = drv.ler_linha_item()
+                drv.buscar_produto(cb)
+                prod = drv.ler_linha_item()
+                # o rótulo da descrição no RADGe não expõe o texto (sai vazio):
+                # a descrição mostrada é a do catálogo, conferida pelo código
+                linha.update(produto=prod["descricao"] or esperado.get("descricao", ""),
+                             codigo_erp=prod["codigo"])
+                if not prod["codigo"]:
+                    raise entradas.ErroItem("a busca fechou e a linha ficou sem produto")
+                if esperado.get("codigo"):
+                    if not entradas.mesmo_codigo(prod["codigo"], esperado["codigo"]):
+                        raise entradas.ErroItem(
+                            f"a linha ficou com outro produto (codigo '{prod['codigo']}', "
+                            f"'{prod['descricao']}'); o catálogo espera '{esperado['codigo']}' "
+                            f"'{esperado.get('descricao', '')}'")
+                    linha["detalhe"] = ""
+                else:
+                    # sem catálogo: só vale se a linha estava vazia e mudou
+                    if antes["codigo"] and entradas.mesmo_codigo(antes["codigo"], prod["codigo"]):
+                        raise entradas.ErroItem(
+                            f"a linha já tinha o produto '{prod['codigo']}' antes da busca; "
+                            "sem o catálogo não dá para saber se a busca pegou")
+                    linha["detalhe"] = "sem conferência pelo catálogo"
+                drv.escrever_qtd(qtd)
+                ag._checar_interrupcao()     # última chance de o ESC impedir a gravação
+                if simular:
+                    drv.cancelar_item()
+                    linha["situacao"] = "simulado"
+                    res["simulados"] += 1
+                    ag.log("  -> simulado (cancelado, nada gravado)")
+                else:
+                    linha["apos_gravar"] = drv.gravar_item()
+                    linha["situacao"] = "gravado"
+                    res["gravados"] += 1
+                    ag.log("  -> gravado")
+            except entradas.ItemPulado as e:
+                # não cadastrado: a caixa já levou Não; registra e segue
+                linha.update(situacao="pulado", detalhe=str(e))
+                res["pulados"] += 1
+                ag.log(f"  -> ERRO, produto nao cadastrado, pulado: {e}")
+                drv.cancelar_item()
+            except entradas.ErroTela as e:
+                # estado do ERP incerto: para a lista aqui, mas devolve o que
+                # já foi feito — perder a conta dos gravados seria pior
+                linha.update(situacao="falhou", detalhe=f"parei aqui: {e}")
+                res["falhados"] += 1
+                res["interrompido"] = f"ERP em estado incerto: {e}"
+                ag.log(f"  -> PAREI: {e}")
+                break
+            except entradas.ErroItem as e:
+                linha.update(situacao="falhou", detalhe=str(e))
+                res["falhados"] += 1
+                ag.log(f"  -> falhou: {e}")
+                drv.cancelar_item()
+    except Interrompido as e:
+        res["interrompido"] = str(e)
+        ag.log(f"Interrompido: {e}")
+    finally:
+        # fim da lista: SEMPRE o Cancelar do formulário, para sair do modo de
+        # inclusão (pedido do usuário) — e dizer a verdade se não saiu
+        try:
+            res["apos_cancelar"] = drv.cancelar_item()
+            if res["apos_cancelar"]["cancelado"]:
+                ag.log("Fora do modo de inclusao.")
+            else:
+                ag.log("ATENCAO: cliquei em Cancelar e o ERP continua em modo de inclusao; "
+                       "clique em Canc na tela.")
+        except Exception as e:
+            res["apos_cancelar"] = {"cancelado": False, "caixa": f"erro: {e}"}
+            ag.log(f"ATENCAO: nao consegui sair do modo de inclusao ({e}); confira o ERP.")
+    return res
+
+
 CAPACIDADES = {
     "nf.abrir_ultima": nf_abrir_ultima,
+    "nf.incluir_itens": nf_incluir_itens,
 }
 
 
@@ -112,6 +239,9 @@ class AgenteGeral:
         self.capacidades = capacidades or CAPACIDADES
         self.esc = esc
         self.mapa_local = cfg.get("mapa_erp")
+        # trava da máquina: com ela nada é gravado, diga o pedido o que disser
+        self.forcar_simulacao = bool(cfg.get("forcar_simulacao"))
+        self.pedido_atual = None
         self.cfg = {}
         self.estado, self.msg = "iniciando", ""
         self.encerrar = False
@@ -232,6 +362,7 @@ class AgenteGeral:
             if fn is None:
                 raise ErroPedido(f"esta máquina não sabe fazer '{tipo}'")
             self._esc_visto = False
+            self.pedido_atual = pedido
             resultado = fn(self, pedido.get("params") or {})
             ok = True
         except Interrompido as e:

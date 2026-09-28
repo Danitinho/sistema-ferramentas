@@ -141,12 +141,37 @@ def painel_comando(nome):
 @agente_bp.post("/painel/api/pedido")
 def painel_pedir():
     d = _corpo()
+    # Pedido que grava no ERP sai autorizado por QUEM ESTÁ LOGADO, e só
+    # quando a tela pediu isso explicitamente (confirmação do usuário). O
+    # nome nunca vem do corpo.
+    autorizado = _usuario() if d.get("autorizar") else ""
     try:
         p = ag.banco().criar_pedido(d.get("tipo", ""), d.get("params") or {}, _usuario(),
-                                    modulo="painel", maquina_alvo=d.get("maquina_alvo", ""))
+                                    modulo="painel", maquina_alvo=d.get("maquina_alvo", ""),
+                                    autorizado_por=autorizado)
     except ValueError as e:
         return jsonify({"erro": str(e)}), 400
     return jsonify({"ok": True, "pedido": p})
+
+
+@agente_bp.post("/painel/api/conferir-itens")
+def painel_conferir_itens():
+    """Prévia da lista antes de mandar ao agente: cada código com o produto do
+    catálogo (código no ERP + descrição) — é o que o agente vai conferir na
+    linha da nota."""
+    linhas = []
+    for n, it in enumerate(_corpo().get("itens") or [], 1):
+        cb = ag._so_digitos((it or {}).get("codigo"))
+        linha = {"n": n, "codigo": cb, "qtd": None, "erro": "", "esperado": {}}
+        try:
+            if not cb:
+                raise ValueError("código de barras vazio")
+            linha["qtd"] = ag._qtd((it or {}).get("qtd"))
+            linha["esperado"] = ag.esperado_do_catalogo(cb)
+        except ValueError as e:
+            linha["erro"] = str(e)
+        linhas.append(linha)
+    return jsonify({"ok": True, "linhas": linhas, "maximo": ag.MAX_ITENS})
 
 
 @agente_bp.get("/painel/api/pedido/<int:pid>")

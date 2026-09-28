@@ -139,6 +139,62 @@ def _params_abrir_ultima(p: dict) -> dict:
     return {"tipo": tipo, "fornecedor": forn}
 
 
+MAX_ITENS = 100
+
+
+def _qtd(v) -> float:
+    """Quantidade do pedido: número ou texto pt-BR ("2,5", "1.000,5")."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        q = float(v)
+    else:
+        s = str(v or "").strip().replace(" ", "")
+        if "," in s:
+            s = s.replace(".", "").replace(",", ".")
+        try:
+            q = float(s)
+        except ValueError:
+            raise ValueError(f"quantidade inválida: '{v}'")
+    if not q > 0:
+        raise ValueError(f"quantidade precisa ser maior que zero: '{v}'")
+    return q
+
+
+def esperado_do_catalogo(barras: str) -> dict:
+    """{codigo, descricao} do catálogo, só com casamento EXATO do código de
+    barras (seção 17: zero à esquerda distingue cadastros). Vazio se não
+    achar — o agente então confere sem catálogo, e o detalhe diz isso."""
+    try:
+        from scripts import catalogo
+        c = catalogo.consultar(barras)
+    except Exception:
+        return {}
+    if not c.get("encontrado") or not c.get("exato"):
+        return {}
+    return {"codigo": c.get("codigo_interno") or "", "descricao": c.get("descricao") or ""}
+
+
+def _params_incluir_itens(p: dict) -> dict:
+    itens = p.get("itens")
+    if not isinstance(itens, list) or not itens:
+        raise ValueError("informe ao menos um item (código de barras e quantidade)")
+    if len(itens) > MAX_ITENS:
+        raise ValueError(f"no máximo {MAX_ITENS} itens por pedido")
+    saida = []
+    for n, it in enumerate(itens, 1):
+        if not isinstance(it, dict):
+            raise ValueError(f"item {n} inválido")
+        cb = _so_digitos(it.get("codigo"))
+        if not cb:
+            raise ValueError(f"item {n}: código de barras vazio")
+        saida.append({"codigo": cb, "qtd": _qtd(it.get("qtd")),
+                      "esperado": esperado_do_catalogo(cb)})
+    out = {"itens": saida, "simular": bool(p.get("simular")),
+           "nota": _so_digitos(p.get("nota"))}
+    if p.get("fornecedor"):
+        out.update(_params_abrir_ultima(p))      # abre a última nota antes
+    return out
+
+
 # O catálogo do que se pode pedir. `grava` = mexe em dado do ERP e por isso
 # exige uma pessoa em `autorizado_por`. O agente declara no /api/status o que
 # sabe fazer; `pegar` só entrega o que ele declarou.
@@ -148,7 +204,20 @@ CAPACIDADES = {
         "grava": False,
         "validar": _params_abrir_ultima,
     },
+    "nf.incluir_itens": {
+        "rotulo": "Incluir itens na nota de entrada",
+        "grava": True,
+        "validar": _params_incluir_itens,
+    },
 }
+
+
+def teto_execucao(tipo: str, params: dict | None) -> float:
+    """Segundos até o pedido pego virar `erro`. Proporcional ao número de
+    itens: os 6 itens de 21/09 levaram 53 s, e 5 min fixos derrubariam uma
+    lista de 50 no meio."""
+    n = len((params or {}).get("itens") or [])
+    return max(TETO_EXECUCAO_S, 60 + 25 * n)
 
 
 def _agora() -> str:
@@ -355,10 +424,14 @@ class BancoAgente:
             if p is None:
                 self.con.commit()
                 return None
+            try:
+                prm = json.loads(p["params"] or "{}")
+            except ValueError:
+                prm = {}
             self.con.execute(
                 "UPDATE pedidos SET estado=?, maquina=?, entregue_em=?, executando_ate=?"
                 " WHERE id=? AND estado=?",
-                (EXECUTANDO, maquina, _agora(), time.time() + TETO_EXECUCAO_S,
+                (EXECUTANDO, maquina, _agora(), time.time() + teto_execucao(p["tipo"], prm),
                  p["id"], PENDENTE))
             self.con.commit()
             p = self.con.execute("SELECT * FROM pedidos WHERE id=?", (p["id"],)).fetchone()

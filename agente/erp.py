@@ -68,7 +68,11 @@ class Janela:
             raise ErroERP("pywinauto não está instalado nesta máquina "
                           "(pip install pywinauto)")
         self.titulo_regex = titulo_regex
-        self.classes_dialogo = classes_dialogo or ["#32770", "TMessageForm"]
+        # TfrmMensagens = caixa própria do RADGe ("www.radinfo.com.br"), texto
+        # num TcxMemo e botões TcxButton ("&Não", "&Sim"). É ela que avisa
+        # "Produto X Não Cadastrado, deseja cadastrar?" (inspecionada em
+        # 28/09/2026); sem ela na lista, a caixa passava despercebida.
+        self.classes_dialogo = classes_dialogo or ["#32770", "TMessageForm", "TfrmMensagens"]
         self.app = None
         self.win = None
         self._cache = {}

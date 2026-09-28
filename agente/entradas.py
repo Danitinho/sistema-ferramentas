@@ -41,6 +41,45 @@ class ErroTela(erp_base.ErroERP):
     """O ERP está num estado em que continuar poderia mexer em dado."""
 
 
+class ErroItem(erp_base.ErroERP):
+    """Este item não entrou; a linha é cancelada e o próximo pode entrar."""
+
+
+class ItemPulado(ErroItem):
+    """O ERP disse que o produto não existe (não cadastrado / código errado)."""
+
+
+# Caixas da busca que querem dizer "este código não é um produto" (sem acento,
+# minúsculas — comparadas com erp.normalizar).
+NAO_CADASTRADO = ("nao cadastrad", "nao encontrad", "inexistente", "invalid",
+                  "nao existe")
+SIM = ["Sim", "&Sim", "Yes", "&Yes"]
+
+
+def num_br(s):
+    """'1.234,50' / '4' / '4,000' -> float; None se não for número."""
+    s = str(s or "").strip().replace("R$", "").replace(" ", "")
+    if not s:
+        return None
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def fmt_qtd(q):
+    """Como digitar a quantidade no ERP: '4', '2,5'."""
+    q = float(q)
+    return str(int(q)) if q == int(q) else f"{q:.3f}".rstrip("0").replace(".", ",")
+
+
+def mesmo_codigo(a, b):
+    """Código do ERP comparado sem zeros à esquerda ('006859' = '6859')."""
+    return (str(a or "").strip().lstrip("0") or "0") == (str(b or "").strip().lstrip("0") or "0")
+
+
 def _data(s):
     try:
         return datetime.strptime((s or "").strip()[:10], "%d/%m/%Y")
@@ -203,6 +242,18 @@ class DriverEntradas:
         self.log("Grade aberta.")
 
     def abrir_form(self):
+        """Volta ao formulário. Os botões Grade/Form se alternam: com o Form à
+        vista só o Grade aparece (conferido no RADGe em 28/09/2026). Sem o
+        botão Form e com o Grade visível, já estamos no formulário."""
+        try:
+            self.j.achar("form", self._spec("form"), visivel=True)
+        except erp_base.ErroERP:
+            try:
+                self.j.achar("grade", self._spec("grade"), visivel=True)
+            except erp_base.ErroERP:
+                raise erp_base.ErroERP("não achei nem o botão Form nem o Grade na tela "
+                                       "Entradas; a tela está no estado esperado?")
+            return
         self.j.clicar("form", self._spec("form"))
         self._espera("espera_grade_s", 1.5)
 
@@ -332,3 +383,257 @@ class DriverEntradas:
             raise ErroTela(f"a grade não parou na nota esperada (linha {linha['i']}: "
                            f"esperava lançamento {linha['lancamento']}, está em "
                            f"{atual['lancamento'] or 'vazio'})")
+
+    # ── itens da nota (nf.incluir_itens) ─────────────────────────────────────
+    # Fluxo manual confirmado pelo usuário (28/09/2026): Incluir -> modo de
+    # inclusão -> F9 abre uma janela de busca com o campo já focado -> código de
+    # barras + Enter -> se o ERP não conhecer o código, aparece uma caixa. A
+    # quantidade vai em `qtd_caixa`, como veio no pedido. Gravar / Cancelar.
+    def nota_atual(self):
+        """A nota carregada no Form: número, lançamento, fornecedor, datas,
+        valor e se está aberta."""
+        self.abrir_form()
+        v = self.ler_campos(["numero", "lancamento", "fornecedor", "entrada", "valor"])
+        nota = {k: (v.get(k) or "") for k in v}
+        nota["aberta"] = self.aberta() if (nota["numero"] or nota["lancamento"]) else False
+        return nota
+
+    def _travado(self):
+        """Caixa modal aberta desabilita a janela principal inteira (visto com
+        a TfrmMensagens): botão nenhum responde e `habilitado` mente."""
+        try:
+            return not self.j.win.is_enabled()
+        except Exception:
+            return False
+
+    def _destravar(self, momento):
+        """Fecha caixas pendentes (Não/OK). Se a janela continuar travada, para
+        o pedido com uma mensagem que diz o porquê."""
+        textos = self._caixas_item(momento) if self.j.dialogos() else []
+        if self._travado():
+            time.sleep(0.5)
+            textos += self._caixas_item(momento)
+        if self._travado():
+            raise ErroTela("o ERP está travado por uma janela que eu não reconheço como "
+                           "caixa de mensagem; feche-a na tela e peça de novo")
+        return textos
+
+    def em_inclusao(self):
+        """Em modo de inclusão o Gravar fica habilitado; fora dele, não."""
+        self._destravar("conferindo o modo de inclusao")
+        return self.j.habilitado("item_gravar", self._spec("item_gravar"))
+
+    def ler_linha_item(self):
+        v = self.ler_campos(["item_codigo", "item_descricao"])
+        return {"codigo": v.get("item_codigo") or "", "descricao": v.get("item_descricao") or ""}
+
+    def _caixas_item(self, momento):
+        """Caixas do ERP durante o item. NUNCA responde Sim: fecha com Não ou OK
+        e devolve os textos. Caixa sem Não/OK trava tudo (ErroTela)."""
+        textos = []
+        for _ in range(5):
+            dlg = self.j.dialogos()
+            if not dlg:
+                break
+            for d in dlg:
+                textos.append(d["texto"])
+                if not self.j.responder(d, NEGATIVOS + FECHAR):
+                    raise ErroTela(f"caixa do ERP ({momento}) sem botão que eu possa apertar: "
+                                   f"'{d['texto']}' ({d['botoes']})")
+                self.log(f"  caixa do ERP ({momento}): {d['texto']}")
+            time.sleep(float(self.m.get("espera_aviso_curta_s", 0.4)))
+        return textos
+
+    def entrar_inclusao(self):
+        if self.em_inclusao():
+            return
+        self.j.clicar("item_incluir", self._spec("item_incluir"))
+        self._espera("espera_incluir_s", 1.0)
+        caixas = self._caixas_item("Incluir")
+        if caixas:
+            raise ErroTela(f"o ERP respondeu ao Incluir: {' / '.join(caixas)}")
+        if not self.em_inclusao():
+            raise ErroTela("cliquei em Incluir e o ERP não entrou em modo de inclusão")
+        self.log("Modo de inclusao de itens.")
+
+    def _janelas_processo(self):
+        """Janelas visíveis do processo do ERP que não são a principal nem
+        caixa de diálogo — a janela de busca do F9 aparece aqui."""
+        pid = self.j.win.process_id()
+        saida = {}
+        for w in erp_base.Desktop(backend="win32").windows(process=pid, visible_only=True):
+            if w.handle == self.j.win.handle or w.class_name() in self.j.classes_dialogo:
+                continue
+            saida[w.handle] = w
+        return saida
+
+    def _campo_busca(self, janela):
+        spec = self.c.get("busca_codigo") or {"class_name": "TEdit", "ordinal": 0}
+        cands = janela.descendants(class_name=spec.get("class_name", "TEdit"))
+        i = int(spec.get("ordinal", 0))
+        return cands[i] if 0 <= i < len(cands) else None
+
+    @staticmethod
+    def _existe(w):
+        try:
+            return w.is_visible()
+        except Exception:
+            return False
+
+    def _fechar_busca(self, busca):
+        if self._existe(busca):
+            try:
+                busca.type_keys("{ESC}", set_foreground=False)
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+    def buscar_produto(self, barras):
+        """F9 -> janela de busca -> código + Enter. ItemPulado se o ERP disser
+        que o código não existe; ErroItem se a busca não abrir ou não fechar."""
+        antes = set(self._janelas_processo())
+        self.j.teclas(self.m.get("abrir_busca_produto", "{F9}"))
+        busca = None
+        fim = time.time() + float(self.m.get("espera_busca_produto_s", 4))
+        while time.time() < fim and busca is None:
+            time.sleep(0.2)
+            novas = [w for h, w in self._janelas_processo().items() if h not in antes]
+            if novas:
+                busca = novas[0]
+            elif self.j.dialogos():
+                raise ErroItem(f"o ERP respondeu ao F9: {' / '.join(self._caixas_item('F9'))}")
+        if busca is None:
+            raise ErroItem("apertei F9 e a janela de busca de produto não abriu")
+        if not getattr(self, "_busca_logada", False):
+            self.log(f"Janela de busca: {busca.class_name()} '{busca.window_text()}'")
+            self._busca_logada = True
+        campo = self._campo_busca(busca)
+        if campo is None:
+            self._fechar_busca(busca)
+            raise ErroItem("não achei o campo de código na janela de busca")
+        try:
+            campo.set_focus()
+        except Exception:
+            pass
+        campo.type_keys(barras, set_foreground=False, pause=0.03)
+        time.sleep(float(self.m.get("espera_enter_s", 0.35)))
+        campo.type_keys("{ENTER}", set_foreground=False)
+        # espera a janela fechar; caixa no meio = o ERP não achou o código
+        fim = time.time() + float(self.m.get("espera_selecao_s", 4))
+        segundo_enter = False
+        while True:
+            time.sleep(0.25)
+            if self.j.dialogos():
+                caixas = self._caixas_item("busca")
+                self._fechar_busca(busca)
+                txt = " / ".join(caixas)
+                if any(p in erp_base.normalizar(txt) for p in NAO_CADASTRADO):
+                    raise ItemPulado(f"o ERP não achou o código: {txt}")
+                raise ErroItem(f"o ERP respondeu à busca: {txt}")
+            if not self._existe(busca):
+                # A caixa "não cadastrado" aparece DEPOIS que a busca fecha
+                # (visto no RADGe em 28/09/2026): ler a linha nessa hora dava
+                # "linha sem produto", a caixa ficava aberta e travava o
+                # Cancelar. Espera `espera_aviso_s` por ela antes de seguir.
+                self._aviso_pos_busca()
+                return
+            if time.time() > fim:
+                if segundo_enter:
+                    break
+                # a busca pode ter mostrado a lista e esperar Enter para escolher
+                segundo_enter = True
+                self.log("  a busca continuou aberta; Enter de novo para selecionar.")
+                try:
+                    campo.type_keys("{ENTER}", set_foreground=False)
+                except Exception:
+                    pass
+                fim = time.time() + float(self.m.get("espera_fechar_busca_s", 3))
+        self._fechar_busca(busca)
+        raise ErroItem("a janela de busca não fechou depois do Enter")
+
+    def _aviso_pos_busca(self):
+        """Caixa que o ERP abre logo depois da busca fechar. Responde Não (ou
+        OK), e o item vira pulado (código não cadastrado) ou falha."""
+        fim = time.time() + float(self.m.get("espera_aviso_s", 1.2))
+        while time.time() < fim:
+            if self.j.dialogos():
+                txt = " / ".join(self._caixas_item("busca"))
+                if any(p in erp_base.normalizar(txt) for p in NAO_CADASTRADO):
+                    raise ItemPulado(f"o ERP não achou o código: {txt}")
+                raise ErroItem(f"o ERP respondeu à busca: {txt}")
+            time.sleep(0.15)
+
+    def _ler_numero(self, nome):
+        """Número de um campo cx: o texto do controle ou, se vier vazio, o da
+        caixa de edição interna (a "casca" do agente antigo)."""
+        c = self.j.achar(nome, self._spec(nome), visivel=True)
+        textos = [c.window_text()]
+        try:
+            textos += [f.window_text() for f in c.children()]
+        except Exception:
+            pass
+        for t in textos:
+            n = num_br(t)
+            if n is not None:
+                return n, textos
+        return None, textos
+
+    def escrever_qtd(self, qtd):
+        texto = fmt_qtd(qtd)
+        lido, textos = None, []
+        for tentativa in range(1, 4):
+            self.j.escrever("qtd_caixa", self._spec("qtd_caixa"), texto)
+            time.sleep(float(self.m.get("espera_qtd_s", 0.2)))
+            caixas = self._caixas_item("quantidade")
+            if caixas:
+                raise ErroItem(f"o ERP reclamou da quantidade {texto}: {' / '.join(caixas)}")
+            lido, textos = self._ler_numero("qtd_caixa")
+            if lido is not None and abs(lido - float(qtd)) < 1e-6:
+                return
+            self.log(f"  quantidade: digitei {texto}, o campo ficou {textos} "
+                     f"(tentativa {tentativa}).")
+        raise ErroItem(f"a quantidade nao entrou: pedi {texto} e o campo ficou {lido} "
+                       f"({textos})")
+
+    def gravar_item(self):
+        """Gravar e conferir que a linha esvaziou (o registro foi salvo e o ERP
+        abriu a próxima). Caixa + linha cheia = recusa (o item falha). Linha
+        cheia sem caixa = não sei se gravou: ErroTela, que para o pedido sem
+        cancelar nada."""
+        self._destravar("antes do Gravar")
+        self.j.clicar("item_gravar", self._spec("item_gravar"))
+        self._espera("espera_gravar_s", 1.0)
+        caixas = self._caixas_item("Gravar")
+        depois = self.ler_linha_item()
+        cheia = bool(depois["codigo"] or depois["descricao"])
+        if caixas and cheia:
+            raise ErroItem(f"o ERP recusou a gravacao: {' / '.join(caixas)}")
+        if cheia:
+            raise ErroTela(f"cliquei em Gravar e a linha continuou preenchida ({depois}); "
+                           "confira a nota no ERP antes de continuar")
+        return depois
+
+    def cancelar_item(self):
+        """Descarta a linha em edição e sai do modo de inclusão. A pergunta de
+        confirmação do cancelamento é a ÚNICA que leva Sim (descartar a linha
+        não salva é a intenção); qualquer outra leva Não/OK."""
+        textos = []
+        for tentativa in range(1, 3):
+            # caixa aberta bloqueia o formulário e o clique no Canc é ignorado
+            # (foi o que deixou o ERP em modo de inclusão no pedido #72)
+            textos += self._caixas_item("antes do Cancelar")
+            if not self.em_inclusao():
+                return {"cancelado": True, "caixa": " / ".join(textos)}
+            self.j.clicar("item_cancelar", self._spec("item_cancelar"))
+            self._espera("espera_cancelar_s", 0.8)
+            for d in self.j.dialogos():
+                textos.append(d["texto"])
+                if "cancel" in erp_base.normalizar(d["texto"]) and "?" in d["texto"]:
+                    self.j.responder(d, SIM)
+                else:
+                    self.j.responder(d, NEGATIVOS + FECHAR)
+                time.sleep(0.4)
+            if not self.em_inclusao():
+                return {"cancelado": True, "caixa": " / ".join(textos)}
+            self.log(f"  Cancelar nao tirou do modo de inclusao (tentativa {tentativa}).")
+        return {"cancelado": False, "caixa": " / ".join(textos)}

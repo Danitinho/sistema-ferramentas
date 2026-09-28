@@ -333,6 +333,8 @@ def _linha(r, exato):
         "encontrado": True, "exato": exato, "ambiguo": False,
         "codigo_barras": r["codigo_barras"], "descricao": r["descricao"],
         "venda": r["venda"], "custo": r["custo"],
+        # código do produto no ERP: o agente geral confere a linha da nota por ele
+        "codigo_interno": r["codigo_interno"] or "",
     }
 
 
