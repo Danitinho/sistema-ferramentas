@@ -239,7 +239,17 @@ def incluir(fid: str, mes: str, pedido_abrir: int, usuario: str, maquina: str = 
     """Confere o pedido de abrir, reserva os vencidos DAQUELE MÊS e cria o
     pedido de inclusão. Devolve (ok, msg, pedido)."""
     if not _MES_RE.match(mes or ""):
-        return False, "Escolha o mês dos vencidos a incluir.", None
+        # tela aberta antes da separação por mês não manda o mês: se o
+        # fornecedor só tem um, não há o que misturar; com mais de um, recusa
+        conn = _conn()
+        try:
+            meses = {_mes(r) for r in _pendentes(conn, fid)}
+        finally:
+            conn.close()
+        if len(meses) != 1:
+            return False, ("Esta tela está desatualizada e não informou o mês dos vencidos. "
+                           "Recarregue a página (Ctrl+F5) e escolha o mês."), None
+        mes = meses.pop()
     ag = _agente()
     f = _fornecedor(fid)
     if not f or not f.get("numero"):
