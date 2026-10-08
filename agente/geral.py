@@ -12,9 +12,9 @@ Uso (na máquina):
     python -m agente.geral                 (lê agente/config.json)
     python -m agente.geral outro.json
 
-config.json: {"servidor_url": "http://192.168.0.52", "token_geral": "..."}
-(`token_geral` é o token da MÁQUINA, gerado em /agente; o `token` do mesmo
-arquivo é o do operador da reclassificação, e os dois convivem.)
+config.json: nada a preencher. Sem token, o agente pede acesso sozinho e
+espera o admin aprovar em /agente (ver agente/pareamento.py); o token da
+MÁQUINA fica gravado em `token_maquina` e serve também à reclassificação.
 
 Capacidades (o agente declara no /api/status; o servidor só entrega o que ele
 declarou):
@@ -32,11 +32,12 @@ import time
 
 from agente import erp as erp_base
 from agente import entradas
+from agente import pareamento
 from agente.entradas import DriverEntradas, _data, _int
 from agente.servidor import Cliente, ErroServidor, TokenInvalido
 from agente.tecla_esc import esc_segurado
 
-VERSAO = "1.1"
+VERSAO = "1.2"
 PASTA = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -46,6 +47,12 @@ class Interrompido(Exception):
 
 class ErroPedido(Exception):
     """O pedido não pôde ser feito; a mensagem vai para quem pediu."""
+
+
+# Prefixo do erro de um pedido que grava e falhou ANTES de tocar em qualquer
+# dado do ERP. Contrato com scripts/vencidos_notas.py: com ele, os itens voltam
+# à fila; sem ele, ficam "conferir no ERP".
+NADA_GRAVADO = "nada gravado:"
 
 
 # ── capacidades ──────────────────────────────────────────────────────────────
@@ -110,29 +117,35 @@ def nf_incluir_itens(ag, params):
     segunda chave); `forcar_simulacao` no config.json da máquina vence o
     pedido; nota fechada é recusada antes do Incluir.
     """
-    pedido = ag.pedido_atual or {}
-    if not pedido.get("autorizado_por"):
-        raise ErroPedido("pedido de gravação sem autorização de uma pessoa")
-    itens = params.get("itens") or []
-    if not itens:
-        raise ErroPedido("pedido sem itens")
-    simular = bool(params.get("simular")) or ag.forcar_simulacao
-    if params.get("fornecedor"):
-        aberta = nf_abrir_ultima(ag, params)
-        if not aberta.get("encontrada"):
-            raise ErroPedido(f"fornecedor {params['fornecedor']}: {aberta.get('msg')}")
-    drv = ag.driver()
-    drv.conferir_tela()
-    nota = drv.nota_atual()
-    if not (nota["numero"] or nota["lancamento"]):
-        raise ErroPedido("não há nota carregada na tela Entradas: abra a nota antes")
-    if not nota["aberta"]:
-        raise ErroPedido(f"a nota {nota['numero'] or nota['lancamento']} está FECHADA; "
-                         "o ERP não aceita item em nota fechada")
-    alvo = str(params.get("nota") or "")
-    if alvo and _int(alvo) not in (_int(nota["numero"]), _int(nota["lancamento"])):
-        raise ErroPedido(f"a nota na tela é {nota['numero']} (lançamento "
-                         f"{nota['lancamento']}), não a {alvo} pedida")
+    # Tudo até a lista começar é conferência: nada foi digitado no ERP. O erro
+    # sai com o prefixo NADA_GRAVADO, e quem pediu (o /vencidos) sabe que pode
+    # devolver os itens à fila em vez de mandar alguém conferir a nota.
+    try:
+        pedido = ag.pedido_atual or {}
+        if not pedido.get("autorizado_por"):
+            raise ErroPedido("pedido de gravação sem autorização de uma pessoa")
+        itens = params.get("itens") or []
+        if not itens:
+            raise ErroPedido("pedido sem itens")
+        simular = bool(params.get("simular")) or ag.forcar_simulacao
+        if params.get("fornecedor"):
+            aberta = nf_abrir_ultima(ag, params)
+            if not aberta.get("encontrada"):
+                raise ErroPedido(f"fornecedor {params['fornecedor']}: {aberta.get('msg')}")
+        drv = ag.driver()
+        drv.conferir_tela()
+        nota = drv.nota_atual()
+        if not (nota["numero"] or nota["lancamento"]):
+            raise ErroPedido("não há nota carregada na tela Entradas: abra a nota antes")
+        if not nota["aberta"]:
+            raise ErroPedido(f"a nota {nota['numero'] or nota['lancamento']} está FECHADA; "
+                             "o ERP não aceita item em nota fechada")
+        alvo = str(params.get("nota") or "")
+        if alvo and _int(alvo) not in (_int(nota["numero"]), _int(nota["lancamento"])):
+            raise ErroPedido(f"a nota na tela é {nota['numero']} (lançamento "
+                             f"{nota['lancamento']}), não a {alvo} pedida")
+    except (ErroPedido, erp_base.ErroERP) as e:
+        raise ErroPedido(f"{NADA_GRAVADO} {e}")
     ag.log(f"Nota {nota['numero'] or nota['lancamento']} ({nota['fornecedor']}) — "
            f"{len(itens)} item(ns)" + (", em SIMULACAO." if simular else "."))
     res = {"nota": nota, "simulado": simular, "total": len(itens), "gravados": 0,
@@ -146,8 +159,12 @@ def nf_incluir_itens(ag, params):
             linha = {"codigo": cb, "qtd": qtd}
             res["itens"].append(linha)
             ag.log(f"Item {n}/{len(itens)}: codigo {cb}, qtd {entradas.fmt_qtd(qtd)}.")
+            # fase: só uma falha DEPOIS de clicar em Gravar deixa dúvida sobre o
+            # que entrou na nota; antes disso o item certamente não foi gravado
+            fase = "incluir"
             try:
                 drv.entrar_inclusao()
+                fase = "buscar"
                 antes = drv.ler_linha_item()
                 drv.buscar_produto(cb)
                 prod = drv.ler_linha_item()
@@ -179,6 +196,7 @@ def nf_incluir_itens(ag, params):
                     res["simulados"] += 1
                     ag.log("  -> simulado (cancelado, nada gravado)")
                 else:
+                    fase = "gravar"
                     linha["apos_gravar"] = drv.gravar_item()
                     linha["situacao"] = "gravado"
                     res["gravados"] += 1
@@ -202,6 +220,18 @@ def nf_incluir_itens(ag, params):
                 res["falhados"] += 1
                 ag.log(f"  -> falhou: {e}")
                 drv.cancelar_item()
+            except erp_base.ErroERP as e:
+                # campo não achado, ERP sumiu... O ERP não está num estado em que
+                # dê para seguir a lista. Para aqui, mas com o resultado parcial:
+                # sem ele, TODO item do pedido viraria "conferir no ERP".
+                if fase == "gravar":
+                    linha.update(situacao="falhou", detalhe=f"parei aqui: {e}")
+                else:
+                    linha.update(situacao="falhou", detalhe=f"não gravado ({fase}): {e}")
+                res["falhados"] += 1
+                res["interrompido"] = f"erro do ERP: {e}"
+                ag.log(f"  -> PAREI ({fase}): {e}")
+                break
     except Interrompido as e:
         res["interrompido"] = str(e)
         ag.log(f"Interrompido: {e}")
@@ -230,10 +260,8 @@ CAPACIDADES = {
 # ── o agente ─────────────────────────────────────────────────────────────────
 class AgenteGeral:
     def __init__(self, cfg, fabrica_driver=None, esc=esc_segurado, capacidades=None):
-        token = cfg.get("token_geral") or cfg.get("token_agente")
-        self.cli = Cliente(cfg["servidor_url"], token,
-                           msg_401="o servidor recusou o token desta máquina: gere outro "
-                                   "no painel /agente e cole em token_geral no config.json")
+        token = cfg.get("token_maquina") or cfg.get("token_geral") or cfg.get("token_agente")
+        self.cli = Cliente(cfg["servidor_url"], token)
         self.maquina = socket.gethostname()
         self.fabrica_driver = fabrica_driver or (lambda mapa, log: DriverEntradas(mapa, log))
         self.capacidades = capacidades or CAPACIDADES
@@ -398,15 +426,15 @@ def main(argv=None):
         pass
     caminho = argv[0] if argv else os.path.join(PASTA, "config.json")
     try:
-        with open(caminho, encoding="utf-8") as f:
-            cfg = json.load(f)
-    except FileNotFoundError:
-        print(f"Falta o arquivo {caminho}. Copie config.exemplo.json para config.json "
-              "e preencha servidor_url e token_geral (gerado no painel /agente).")
+        token = pareamento.obter_token(caminho, programa=f"geral v{VERSAO}",
+                                       extras=("token_agente",))
+    except KeyboardInterrupt:
+        print("Encerrado.")
+        return 0
+    if not token:
         return 2
-    if not cfg.get("servidor_url") or not (cfg.get("token_geral") or cfg.get("token_agente")):
-        print("config.json precisa de servidor_url e token_geral (gerado no painel /agente).")
-        return 2
+    cfg = pareamento.carregar(caminho)
+    cfg["token_maquina"] = token
     agente = AgenteGeral(cfg)
     try:
         agente.rodar()
@@ -417,6 +445,10 @@ def main(argv=None):
         except ErroServidor:
             pass
         print("Encerrado.")
+    if agente.cli.recusado:
+        pareamento.esquecer_token(caminho, ("token_agente",))
+        print("Acesso revogado no servidor. Ao abrir o agente de novo, ele pede acesso outra vez.")
+        return 2
     return 0
 
 

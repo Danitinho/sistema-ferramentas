@@ -54,6 +54,10 @@ class ItemPulado(ErroItem):
 NAO_CADASTRADO = ("nao cadastrad", "nao encontrad", "inexistente", "invalid",
                   "nao existe")
 SIM = ["Sim", "&Sim", "Yes", "&Yes"]
+# Texto EXATO dos botões da coluna de itens (inspecionados em 28/09/2026). O
+# "Incluir"/"Cancelar" sem & e em outra posição são os botões da NOTA.
+BOTOES_ITEM_TEXTO = {"item_incluir": "&Incluir", "item_gravar": "Gravar",
+                     "item_cancelar": "&Canc"}
 
 
 def num_br(s):
@@ -247,21 +251,47 @@ class DriverEntradas:
         self._espera("espera_grade_s", 1.5)
         self.log("Grade aberta.")
 
+    def vista(self):
+        """'form' | 'grade' | '' — pela alternância dos botões Grade/Form: com
+        o formulário à vista só o Grade aparece, com a lista só o Form
+        (conferido no RADGe em 28/09/2026: 38 e 26 TcxButton visíveis)."""
+        form = self.j._resolver(self._spec("form"), True)
+        grade = self.j._resolver(self._spec("grade"), True)
+        if grade is not None and form is None:
+            return "form"
+        if form is not None and grade is None:
+            return "grade"
+        return ""
+
     def abrir_form(self):
-        """Volta ao formulário. Os botões Grade/Form se alternam: com o Form à
-        vista só o Grade aparece (conferido no RADGe em 28/09/2026). Sem o
-        botão Form e com o Grade visível, já estamos no formulário."""
-        try:
-            self.j.achar("form", self._spec("form"), visivel=True)
-        except erp_base.ErroERP:
-            try:
-                self.j.achar("grade", self._spec("grade"), visivel=True)
-            except erp_base.ErroERP:
-                raise erp_base.ErroERP("não achei nem o botão Form nem o Grade na tela "
-                                       "Entradas; a tela está no estado esperado?")
+        """Volta ao formulário e CONFIRMA que voltou. O clique em Form às vezes
+        é ignorado (ERP recém-restaurado, foco na grade); a leitura da nota
+        funciona até com a lista à frente, então nada acusava — só o Incluir
+        não aparecia ("26 de 51 TcxButton visíveis", pedido #90)."""
+        v = ""
+        for tentativa in range(1, 4):
+            fim = time.time() + 2.0
+            v = self.vista()
+            while not v and time.time() < fim:      # redesenhando: espera
+                time.sleep(0.3)
+                v = self.vista()
+            if v == "form":
+                return
+            if v == "grade":
+                if tentativa > 1:
+                    self.log(f"  Form nao abriu; clicando de novo (tentativa {tentativa}).")
+                btn = self.j._resolver(self._spec("form"), True)
+                try:
+                    self.j.trazer_para_frente()
+                    btn.click()
+                except Exception:
+                    btn.click_input()
+                self._espera("espera_grade_s", 1.5)
+        v = self.vista()
+        if v == "form":
             return
-        self.j.clicar("form", self._spec("form"))
-        self._espera("espera_grade_s", 1.5)
+        raise ErroTela(f"não consegui mostrar o formulário da nota (vista: {v or 'indefinida'}); "
+                       "clique em Form no ERP e peça de novo")
 
     def _grade(self):
         return self.j.achar("grade_notas", self._spec("grade_notas"), visivel=True)
@@ -424,10 +454,43 @@ class DriverEntradas:
                            "caixa de mensagem; feche-a na tela e peça de novo")
         return textos
 
+    def _botao_item(self, nome):
+        """Botão da coluna de itens: pela posição do mapa e, se ela falhar,
+        pelo texto EXATO. Nunca pelo texto normalizado — "Incluir" sem & é o
+        botão da NOTA (cria uma nota nova)."""
+        try:
+            return self.j.achar(nome, self._spec(nome), visivel=True)
+        except erp_base.ErroERP as e:
+            texto = BOTOES_ITEM_TEXTO.get(nome)
+            if not texto:
+                raise
+            try:
+                c = self.j.achar(f"{nome}_texto", {"class_name": "TcxButton",
+                                                   "texto_exato": texto},
+                                 visivel=True, espera=0)
+            except erp_base.ErroERP:
+                raise e
+            self.log(f"  '{nome}' achado pelo texto '{texto}' (a posição do mapa falhou).")
+            return c
+
+    def _clicar_item(self, nome):
+        c = self._botao_item(nome)
+        try:
+            c.click()
+        except Exception:
+            try:
+                c.click_input()
+            except Exception as e:
+                self.j.esquecer()
+                raise erp_base.ErroERP(f"não consegui clicar em '{nome}': {e}")
+
     def em_inclusao(self):
         """Em modo de inclusão o Gravar fica habilitado; fora dele, não."""
         self._destravar("conferindo o modo de inclusao")
-        return self.j.habilitado("item_gravar", self._spec("item_gravar"))
+        try:
+            return self._botao_item("item_gravar").is_enabled()
+        except Exception:
+            return False
 
     def ler_linha_item(self):
         v = self.ler_campos(["item_codigo", "item_descricao"])
@@ -453,7 +516,7 @@ class DriverEntradas:
     def entrar_inclusao(self):
         if self.em_inclusao():
             return
-        self.j.clicar("item_incluir", self._spec("item_incluir"))
+        self._clicar_item("item_incluir")
         self._espera("espera_incluir_s", 1.0)
         caixas = self._caixas_item("Incluir")
         if caixas:
@@ -607,7 +670,7 @@ class DriverEntradas:
         cheia sem caixa = não sei se gravou: ErroTela, que para o pedido sem
         cancelar nada."""
         self._destravar("antes do Gravar")
-        self.j.clicar("item_gravar", self._spec("item_gravar"))
+        self._clicar_item("item_gravar")
         self._espera("espera_gravar_s", 1.0)
         caixas = self._caixas_item("Gravar")
         depois = self.ler_linha_item()
@@ -630,7 +693,7 @@ class DriverEntradas:
             textos += self._caixas_item("antes do Cancelar")
             if not self.em_inclusao():
                 return {"cancelado": True, "caixa": " / ".join(textos)}
-            self.j.clicar("item_cancelar", self._spec("item_cancelar"))
+            self._clicar_item("item_cancelar")
             self._espera("espera_cancelar_s", 0.8)
             for d in self.j.dialogos():
                 textos.append(d["texto"])

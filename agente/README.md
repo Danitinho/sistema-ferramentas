@@ -11,27 +11,31 @@ simulação e o **mapa dos campos do ERP** vêm do painel.
 | `entradas.py` | driver da tela Entradas (notas fiscais) usado pelo agente geral |
 | `erp.py` | base comum: achar a janela, localizar campos pelo mapa, digitar, clicar, caixas de diálogo |
 | `servidor.py` | conversa HTTP com o sistema (token no `X-Token`) |
+| `pareamento.py` | pede acesso ao servidor e guarda o token da máquina |
 | `tecla_esc.py` | ESC **segurado** (0,6 s) para o lote na hora |
 
 ## Instalar numa máquina
 
 1. Python 3.13 (python.org) e, na pasta do projeto:
    `python -m pip install -r agente/requirements.txt`
-2. No painel `/reclassificacao`, gere o token do operador.
-3. Copie `agente/config.exemplo.json` para `agente/config.json` e preencha
-   `servidor_url` e `token`. (O `config.json` não vai para o git.)
-4. Abra o RADGe na tela **Produtos** e rode `agente/iniciar_reclassificacao.bat`.
-   Deixe a janela preta aberta; o resto é pelo navegador.
+2. Abra o RADGe e rode `agente/iniciar_reclassificacao.bat` (tela **Produtos**)
+   ou `agente/iniciar_geral.bat` (tela **Entradas**).
+3. Na primeira vez a janela preta diz "pediu acesso ao sistema": o
+   administrador aprova a máquina no painel `/agente` ("Máquinas pedindo
+   acesso", confira nome e IP). Pronto — o agente segue sozinho.
+
+Não há token para gerar nem arquivo para editar: o `config.json` é criado e
+preenchido pelo próprio agente (`pareamento.py`). O acesso é da **máquina** e
+vale para os dois programas. Revogado no painel, o agente para; aberto de novo,
+pede acesso outra vez. Deixar `"forcar_simulacao": true` no `config.json`
+continua impedindo qualquer gravação naquela máquina.
 
 Para parar o lote na hora, **segure ESC por um segundo** (um toque não para:
 o ESC também fecha as caixas do ERP).
 
-### Agente geral
-
-1. No painel `/agente`, gere o token da máquina (nome do computador no Windows).
-2. Cole em `token_geral` no mesmo `agente/config.json`.
-3. Abra o RADGe na tela **Entradas** e rode `agente/iniciar_geral.bat`.
-4. Os pedidos são feitos no painel; o resultado e o log aparecem lá.
+Os pedidos do agente geral são feitos no painel `/agente`; o resultado e o log
+aparecem lá. Só usuário com **acesso ao agente** (liberado pelo admin em
+Sistema › Usuários) manda pedido ou liga a reclassificação.
 
 Os dois programas podem ficar abertos juntos, mas **não peça tarefa ao geral
 com a reclassificação rodando na mesma máquina**: os dois digitam no mesmo ERP

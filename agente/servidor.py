@@ -4,8 +4,9 @@ agente/servidor.py
 Conversa HTTP com o sistema (Flask) — só biblioteca padrão, para a máquina do
 operador precisar de uma dependência a menos.
 
-O token vai no cabeçalho `X-Token`. É ele que diz ao servidor QUEM é o
-operador: o nome nunca vai no corpo (ver CLAUDE.md, seção 10-B).
+O token vai no cabeçalho `X-Token`. É ele que diz ao servidor QUEM é a
+máquina/operador: o nome nunca vai no corpo (ver CLAUDE.md, seção 10-B). Quem
+consegue o token é `agente/pareamento.py`.
 """
 import json
 import urllib.error
@@ -23,12 +24,13 @@ class TokenInvalido(ErroServidor):
 
 class Cliente:
     def __init__(self, url_base, token, timeout=20,
-                 msg_401="o servidor recusou o token: peça um novo ao "
-                         "coordenador no painel da reclassificação"):
+                 msg_401="o servidor recusou o acesso desta maquina (revogado no "
+                         "painel do agente). Abra o agente de novo para pedir acesso."):
         self.url_base = url_base.rstrip("/")
         self.token = (token or "").strip()
         self.timeout = timeout
         self.msg_401 = msg_401
+        self.recusado = False       # 401 visto: o main apaga o token guardado
 
     def _pedir(self, metodo, caminho, corpo=None, query=None):
         url = self.url_base + caminho
@@ -45,6 +47,7 @@ class Cliente:
                 return json.loads(resp.read().decode("utf-8") or "{}")
         except urllib.error.HTTPError as e:
             if e.code == 401:
+                self.recusado = True
                 raise TokenInvalido(self.msg_401)
             try:
                 corpo_erro = json.loads(e.read().decode("utf-8"))

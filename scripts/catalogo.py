@@ -350,33 +350,157 @@ def consultar(codigo_barras):
       • mais de uma → `ambiguo`, sem preencher nada. Melhor não preencher do
         que preencher o preço de outro produto.
     Devolve sempre um dict, com `atualizado_em` (a idade da foto) junto."""
-    cb = _SO_DIGITOS.sub("", str(codigo_barras or ""))
-    base = {"encontrado": False, "exato": False, "ambiguo": False, "parecidos": [],
-            "atualizado_em": None, "atualizado_fmt": ""}
-    if not cb:
-        return base
     conn = _conn()
     try:
-        ult = conn.execute(
-            "SELECT quando FROM importacoes ORDER BY id DESC LIMIT 1").fetchone()
-        if ult:
-            base["atualizado_em"] = ult["quando"]
-            base["atualizado_fmt"] = _fmt_dt(ult["quando"])
-        r = conn.execute("SELECT * FROM produtos WHERE codigo_barras = ?", (cb,)).fetchone()
-        if r:
-            base.update(_linha(r, True))
-            return base
-        rs = conn.execute("SELECT * FROM produtos WHERE cb_chave = ? LIMIT 5",
-                          (cb.lstrip("0") or "0",)).fetchall()
+        base = _base_consulta(conn)
+        base.update(_buscar(conn, codigo_barras))
+        return base
     finally:
         conn.close()
-    if len(rs) == 1:
-        base.update(_linha(rs[0], False))
-    elif len(rs) > 1:
-        base["ambiguo"] = True
-        base["parecidos"] = [{"codigo_barras": x["codigo_barras"],
-                              "descricao": x["descricao"]} for x in rs]
+
+
+MAX_LISTA = 2000
+
+
+def consultar_lista(codigos):
+    """Vários códigos de uma vez (a página /catalogo), com as MESMAS regras de
+    `consultar` — exato, variante única de zeros, ambíguo. Uma conexão só.
+    Mantém a ordem digitada; código repetido sai uma vez."""
+    vistos, lista = set(), []
+    for c in codigos or []:
+        cb = _SO_DIGITOS.sub("", str(c or ""))
+        if cb and cb not in vistos:
+            vistos.add(cb)
+            lista.append(cb)
+    if len(lista) > MAX_LISTA:
+        raise ValueError(f"no máximo {MAX_LISTA} códigos por consulta")
+    conn = _conn()
+    try:
+        base = _base_consulta(conn)
+        itens = []
+        for cb in lista:
+            r = {"digitado": cb}
+            r.update(_buscar(conn, cb))
+            r["margem"] = _margem(r)
+            r["observacao"] = _observacao(r)
+            itens.append(r)
+    finally:
+        conn.close()
+    return {"itens": itens, "atualizado_em": base["atualizado_em"],
+            "atualizado_fmt": base["atualizado_fmt"],
+            "encontrados": sum(1 for i in itens if i["encontrado"]),
+            "repetidos": sum(1 for c in codigos or [] if _SO_DIGITOS.sub("", str(c or ""))) - len(lista)}
+
+
+def _margem(i):
+    """Margem sobre a venda, em %. None sem custo ou sem venda: um 0% ou 100%
+    inventado seria pior que a célula vazia."""
+    v, c = i.get("venda"), i.get("custo")
+    if v is None or c is None or not v > 0:
+        return None
+    return round((v - c) / v * 100, 2)
+
+
+def _observacao(i):
+    """O texto da tela e do Excel sai daqui, num lugar só."""
+    if not i["encontrado"] and i["ambiguo"]:
+        return (f"Código não existe; há {len(i['parecidos'])} cadastros que só diferem "
+                "nos zeros à esquerda: " + ", ".join(
+                    f"{p['codigo_barras']} ({p['descricao']})" for p in i["parecidos"]))
+    if not i["encontrado"]:
+        return "Não está no catálogo."
+    partes = []
+    if not i["exato"]:
+        partes.append(f"Casou com o cadastro {i['codigo_barras']} (diferença só nos "
+                      "zeros à esquerda) — confira.")
+    if i.get("venda") is None:
+        partes.append("Sem preço de venda no ERP.")
+    if i.get("custo") is None:
+        partes.append("Sem custo no ERP.")
+    return " ".join(partes)
+
+
+def gerar_excel_lista(res):
+    """Excel da consulta em lista: tabela plana com autofiltro (seção 16 — o
+    Excel é para trabalhar, não para apresentar). A linha 1 diz de QUANDO é a
+    foto do catálogo; sem ela o arquivo circularia com preço velho parecendo
+    de hoje. Devolve BytesIO."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Consulta ao catálogo"
+    faltam = len(res["itens"]) - res["encontrados"]
+    ws["A1"] = (f"Catálogo — foto do ERP de {res['atualizado_fmt'] or 'data desconhecida'}"
+                f" · gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                f" · {len(res['itens'])} código(s), {res['encontrados']} encontrado(s)"
+                + (f", {faltam} não encontrado(s)" if faltam else ""))
+    ws["A1"].font = Font(bold=True, size=11, color="1F3A5F")
+    cols = [("Código de barras", 18), ("Cód. ERP", 11), ("Produto", 46),
+            ("Custo", 12), ("Venda", 12), ("Margem", 10), ("Observação", 60)]
+    for n, (titulo, larg) in enumerate(cols, 1):
+        c = ws.cell(row=2, column=n, value=titulo)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", start_color="1F3A5F")
+        c.alignment = Alignment(vertical="center")
+        ws.column_dimensions[get_column_letter(n)].width = larg
+    falta = PatternFill("solid", start_color="FCEBEB")
+    confere = PatternFill("solid", start_color="FDF3DC")
+    for lin, i in enumerate(res["itens"], 3):
+        valores = [i["digitado"], i.get("codigo_interno") or "",
+                   i.get("descricao") if i["encontrado"] else "",
+                   i.get("custo"), i.get("venda"),
+                   i["margem"] / 100 if i["margem"] is not None else None,
+                   i["observacao"]]
+        fill = falta if not i["encontrado"] else (confere if not i["exato"] else None)
+        for n, v in enumerate(valores, 1):
+            c = ws.cell(row=lin, column=n, value=v)
+            if n in (1, 2):
+                c.number_format = "@"          # zero à esquerda é dado, não enfeite
+            elif n in (4, 5):
+                c.number_format = '"R$" #,##0.00'
+            elif n == 6:
+                c.number_format = "0.0%"
+            if fill:
+                c.fill = fill
+    ws.freeze_panes = "A3"
+    ws.auto_filter.ref = f"A2:{get_column_letter(len(cols))}{max(ws.max_row, 2)}"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _base_consulta(conn):
+    base = {"encontrado": False, "exato": False, "ambiguo": False, "parecidos": [],
+            "atualizado_em": None, "atualizado_fmt": ""}
+    ult = conn.execute("SELECT quando FROM importacoes ORDER BY id DESC LIMIT 1").fetchone()
+    if ult:
+        base["atualizado_em"] = ult["quando"]
+        base["atualizado_fmt"] = _fmt_dt(ult["quando"])
     return base
+
+
+def _buscar(conn, codigo_barras):
+    cb = _SO_DIGITOS.sub("", str(codigo_barras or ""))
+    out = {"encontrado": False, "exato": False, "ambiguo": False, "parecidos": []}
+    if not cb:
+        return out
+    r = conn.execute("SELECT * FROM produtos WHERE codigo_barras = ?", (cb,)).fetchone()
+    if r:
+        out.update(_linha(r, True))
+        return out
+    rs = conn.execute("SELECT * FROM produtos WHERE cb_chave = ? LIMIT 5",
+                      (cb.lstrip("0") or "0",)).fetchall()
+    if len(rs) == 1:
+        out.update(_linha(rs[0], False))
+    elif len(rs) > 1:
+        out["ambiguo"] = True
+        out["parecidos"] = [{"codigo_barras": x["codigo_barras"],
+                             "descricao": x["descricao"]} for x in rs]
+    return out
 
 
 def status():

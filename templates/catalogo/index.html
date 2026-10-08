@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Consulta ao catálogo{% endblock %}
+{% block header_title %}Consulta ao catálogo{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro · Consulta ao catálogo{% endblock %}
+
+{% block extra_head %}
+<style>
+  .cat-foto { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .cat-foto b { color: var(--ink-2); }
+  #codigos { width: 100%; min-height: 150px; font-family: var(--mono); font-size: 14px; }
+  .cat-acoes { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .cat-acoes .ev { font-size: 13px; color: var(--muted); }
+  .cat-resumo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .cat-tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .cat-tbl th { text-align: left; font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--muted); font-weight: 650; padding: 9px 12px;
+                border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .cat-tbl td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .cat-tbl tr:last-child td { border-bottom: none; }
+  .cat-tbl .dir { text-align: right; white-space: nowrap; }
+  .cat-tbl tr.falta td { background: var(--danger-bg); }
+  .cat-tbl tr.confere td { background: var(--warning-bg); }
+  .cat-obs { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .cat-sem { color: var(--muted); }
+  .cat-wrap { overflow-x: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="cat-foto">
+    {% if status.vazio %}
+      <b>O catálogo está vazio.</b> Importe o arquivo de produtos do ERP pelo
+      <a href="/vencidos">Controle de vencidos</a> (botão de atualizar o catálogo).
+    {% else %}
+      {{ "{:,}".format(status.total).replace(",", ".") }} produtos · foto do ERP de
+      <b>{{ status.ultima.quando_fmt if status.ultima else "data desconhecida" }}</b>
+      — os preços são os daquela exportação, não os de agora.
+    {% endif %}
+  </div>
+  <label for="codigos">Códigos de barras (um por linha, ou separados por espaço, vírgula ou ponto e vírgula)</label>
+  <textarea id="codigos" spellcheck="false" placeholder="7896022200756&#10;7791293035895"></textarea>
+  <div class="cat-acoes">
+    <button class="btn btn-primary" id="b-consultar" onclick="consultar()" style="width:auto">Consultar</button>
+    <button class="btn btn-secondary" onclick="limpar()" style="width:auto">Limpar</button>
+    <span class="ev">Até {{ maximo }} códigos por vez. Ctrl+Enter consulta.</span>
+  </div>
+</div>
+
+<div class="card card-flush full" id="resultado" style="display:none">
+  <div class="card-head">
+    <div class="cat-resumo" id="resumo"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="copiar()" style="width:auto"
+              title="Copia a tabela para colar no Excel">Copiar tabela</button>
+      <button class="btn btn-primary btn-sm" id="b-excel" onclick="baixarExcel()" style="width:auto"
+              title="Baixa a consulta exibida como planilha .xlsx">Exportar Excel</button>
+    </div>
+  </div>
+  <div class="cat-wrap">
+    <table class="cat-tbl">
+      <thead><tr>
+        <th>#</th><th>Código de barras</th><th>Cód. ERP</th><th>Produto</th>
+        <th class="dir">Custo</th><th class="dir">Venda</th><th class="dir">Margem</th>
+      </tr></thead>
+      <tbody id="linhas"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let _itens = [], _consultados = [];
+
+// Margem (sobre a venda) e observação vêm do servidor: são as mesmas do Excel.
+const margem = i => i.margem;
+const pct = v => v == null ? "" : v.toLocaleString("pt-BR", {minimumFractionDigits: 1, maximumFractionDigits: 1}) + "%";
+const din = v => v == null ? "" : brl(v);
+
+const obs = i => i.observacao || "";
+
+async function consultar() {
+  const codigos = $("codigos").value.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+  if (!codigos.length) { $("codigos").focus(); return; }
+  const b = $("b-consultar"); b.disabled = true;
+  try {
+    const r = await postJSON("/catalogo/api/consultar", {codigos});
+    if (!r.ok) { alert(r.erro || r.msg || "Não consegui consultar."); return; }
+    _itens = r.itens; _consultados = codigos;
+    desenhar(r);
+  } finally { b.disabled = false; }
+}
+
+function desenhar(r) {
+  const faltam = r.itens.length - r.encontrados;
+  $("resumo").innerHTML =
+    `<span class="pill p-quitado">${r.encontrados} encontrado(s)</span>`
+    + (faltam ? `<span class="pill p-aberto">${faltam} não encontrado(s)</span>` : "")
+    + (r.repetidos ? `<span class="tag">${r.repetidos} repetido(s) ignorado(s)</span>` : "")
+    + (r.atualizado_fmt ? `<span class="cat-obs">foto do ERP de ${esc(r.atualizado_fmt)}</span>` : "");
+  $("linhas").innerHTML = r.itens.map((i, n) => {
+    const o = obs(i), classe = !i.encontrado ? "falta" : (!i.exato ? "confere" : "");
+    return `<tr class="${classe}">
+      <td class="num">${n + 1}</td>
+      <td class="num">${esc(i.digitado)}</td>
+      <td class="num">${esc(i.codigo_interno || "")}</td>
+      <td>${i.encontrado ? esc(i.descricao) : '<span class="cat-sem">—</span>'}
+        ${o ? `<div class="cat-obs">${esc(o)}</div>` : ""}</td>
+      <td class="num dir">${din(i.custo)}</td>
+      <td class="num dir">${din(i.venda)}</td>
+      <td class="num dir">${pct(margem(i))}</td></tr>`;
+  }).join("");
+  $("resultado").style.display = "";
+}
+
+async function copiar() {
+  // Números no formato pt-BR, que é o que o Excel da loja entende ao colar.
+  const num = v => v == null ? "" : v.toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const linhas = [["Código de barras", "Cód. ERP", "Produto", "Custo", "Venda", "Margem %", "Observação"].join("\t")]
+    .concat(_itens.map(i => [i.digitado, i.codigo_interno || "", i.encontrado ? i.descricao : "",
+      num(i.custo), num(i.venda), margem(i) == null ? "" : num(margem(i)), obs(i)]
+      .map(v => String(v).replace(/[\t\r\n]+/g, " ")).join("\t")));
+  const txt = linhas.join("\n");
+  try { await navigator.clipboard.writeText(txt); }
+  catch (e) {                        // http sem clipboard API: cai no execCommand
+    const t = document.createElement("textarea"); t.value = txt; document.body.appendChild(t);
+    t.select(); document.execCommand("copy"); t.remove();
+  }
+  alert(`${_itens.length} linha(s) copiadas. Cole no Excel.`);
+}
+
+// Exporta a consulta EXIBIDA (_consultados), não o que está no campo agora:
+// editar a lista sem reconsultar não pode gerar um arquivo diferente da tela.
+async function baixarExcel() {
+  if (!_consultados.length) return;
+  const b = $("b-excel"); b.disabled = true;
+  try {
+    const res = await fetch("/catalogo/api/consultar/excel", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({codigos: _consultados})});
+    if (!res.ok) {
+      let msg = "Erro ao gerar o Excel.";
+      try { msg = (await res.json()).erro || msg; } catch (e) {}
+      alert(msg); return;
+    }
+    const blob = await res.blob();
+    const nome = (res.headers.get("Content-Disposition") || "")
+                   .match(/filename=([^;]+)/)?.[1]?.replace(/"/g, "").trim() || "consulta_catalogo.xlsx";
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  } finally { b.disabled = false; }
+}
+
+function limpar() {
+  $("codigos").value = ""; _itens = []; _consultados = [];
+  $("resultado").style.display = "none"; $("codigos").focus();
+}
+
+$("codigos").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); consultar(); }
+});
+$("codigos").focus();
+</script>
+{% endblock %}

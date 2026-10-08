@@ -12,8 +12,10 @@ Uso (na máquina do operador):
     python -m agente.reclassificacao            (lê agente/config.json)
     python -m agente.reclassificacao outro.json
 
-config.json: {"servidor_url": "http://192.168.0.52", "token": "..."}.
-O resto (bloco, simulação, limiar, mapa do ERP) vem do servidor.
+config.json: nada a preencher. Sem token, o agente pede acesso sozinho e
+espera o admin aprovar em /agente (agente/pareamento.py); o operador passa a
+ser a própria máquina. O resto (bloco, simulação, limiar, mapa do ERP) vem do
+servidor. Um `token` antigo, por operador, ainda vale se estiver lá.
 
 Regras que não podem afrouxar:
   • Antes de escrever no ERP, reconfirma que o item ainda é MEU (/api/item):
@@ -36,6 +38,7 @@ import time
 from agente.servidor import Cliente, ErroServidor, TokenInvalido
 from agente.tecla_esc import esc_segurado
 from agente import erp as erp_base
+from agente import pareamento
 
 VERSAO = "2.0"
 PASTA = os.path.dirname(os.path.abspath(__file__))
@@ -379,7 +382,7 @@ class DriverProdutos:
 # ── o agente ─────────────────────────────────────────────────────────────────
 class Agente:
     def __init__(self, cfg, fabrica_driver=None, esc=esc_segurado):
-        self.cli = Cliente(cfg["servidor_url"], cfg["token"])
+        self.cli = Cliente(cfg["servidor_url"], pareamento.token_de(cfg, ("token",)))
         self.mapa_local = cfg.get("mapa_erp")
         # trava da máquina: com ela, nada é salvo, diga o painel o que disser
         # (máquina de teste, ou a primeira rodada numa instalação nova)
@@ -667,15 +670,15 @@ def main(argv=None):
         pass
     caminho = argv[0] if argv else os.path.join(PASTA, "config.json")
     try:
-        with open(caminho, encoding="utf-8") as f:
-            cfg = json.load(f)
-    except FileNotFoundError:
-        print(f"Falta o arquivo {caminho}. Copie config.exemplo.json para config.json "
-              "e preencha servidor_url e token (o token é gerado no painel).")
+        token = pareamento.obter_token(caminho, programa=f"reclassificacao v{VERSAO}",
+                                       extras=("token",))
+    except KeyboardInterrupt:
+        print("Encerrado.")
+        return 0
+    if not token:
         return 2
-    if not cfg.get("servidor_url") or not cfg.get("token"):
-        print("config.json precisa de servidor_url e token.")
-        return 2
+    cfg = pareamento.carregar(caminho)
+    cfg["token_maquina"] = token
     agente = Agente(cfg)
     try:
         agente.rodar()
@@ -686,6 +689,10 @@ def main(argv=None):
         except ErroServidor:
             pass
         print("Encerrado.")
+    if agente.cli.recusado:
+        pareamento.esquecer_token(caminho, ("token",))
+        print("Acesso revogado no servidor. Ao abrir o agente de novo, ele pede acesso outra vez.")
+        return 2
     return 0
 
 

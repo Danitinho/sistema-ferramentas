@@ -42,6 +42,7 @@ except ImportError:                     # máquina sem pywinauto: só os testes 
 # `formulario=MDI_ATIVO`: procura só dentro da tela ativa do RADGe, seja qual
 # for a classe dela (o título diz qual é; quem chama confere).
 MDI_ATIVO = "@ativo"
+ESPERA_ACHAR_S = 3.0      # quanto esperar um controle que precisa estar visível
 WM_MDIGETACTIVE = 0x0229
 
 
@@ -181,7 +182,7 @@ class Janela:
         w = self._raiz()
         return w.descendants(class_name=class_name) if class_name else w.descendants()
 
-    def achar(self, nome, spec, visivel=False):
+    def achar(self, nome, spec, visivel=False, espera=None):
         """Resolve uma spec do mapa num controle. `nome` só serve de chave do
         cache e para a mensagem de erro."""
         c = self._cache.get(nome)
@@ -192,17 +193,39 @@ class Janela:
             except Exception:
                 pass
         c = self._resolver(spec, visivel)
+        # Controle que precisa estar visível e não está: o ERP pode ter acabado
+        # de ser restaurado e ainda estar redesenhando. Tenta por até
+        # ESPERA_ACHAR_S antes de desistir (falha passageira vista em 28/09/2026
+        # no &Incluir, logo depois de o ERP voltar do minimizado).
+        if espera is None:
+            espera = ESPERA_ACHAR_S if visivel else 0
+        fim = time.time() + espera
+        while c is None and time.time() < fim:
+            time.sleep(0.4)
+            c = self._resolver(spec, visivel)
         if c is None:
-            dica = ""
-            try:
-                if not self.win.is_visible() or self.win.is_minimized():
-                    dica = " — o ERP está minimizado ou escondido; deixe a janela dele aberta"
-            except Exception:
-                pass
             raise ErroERP(f"não achei o campo '{nome}' na tela do ERP "
-                          f"({ {k: v for k, v in spec.items()} }){dica}")
+                          f"({ {k: v for k, v in spec.items()} }){self._diagnostico(spec)}")
         self._cache[nome] = c
         return c
+
+    def _diagnostico(self, spec):
+        """O estado da tela quando um controle não é achado — para a próxima
+        falha dizer o porquê em vez de deixar só suposição."""
+        try:
+            partes = []
+            if not self.win.is_visible() or self.win.is_minimized():
+                partes.append("o ERP está minimizado ou escondido; deixe a janela dele aberta")
+            raiz = self._raiz()
+            partes.append(f"tela ativa {raiz.class_name()}")
+            classe = spec.get("class_name")
+            if classe:
+                todos = self._todos(classe)
+                partes.append(f"{sum(1 for c in todos if c.is_visible())} de {len(todos)} "
+                              f"{classe} visíveis")
+            return " — " + "; ".join(partes)
+        except Exception as e:
+            return f" — (sem diagnóstico: {e})"
 
     def _resolver(self, spec, visivel):
         classe = spec.get("class_name")
@@ -220,6 +243,10 @@ class Janela:
         if "texto" in spec:
             alvo = normalizar(spec["texto"])
             cands = [c for c in cands if normalizar(c.window_text()) == alvo]
+        if "texto_exato" in spec:
+            # sem normalizar: "&Incluir" (item) e "Incluir" (NOTA) são botões
+            # diferentes na tela Entradas, e confundi-los cria uma nota nova
+            cands = [c for c in cands if (c.window_text() or "").strip() == spec["texto_exato"]]
         if "x" in spec and "y" in spec:
             wl, wt, _, _ = _rect(self.win.wrapper_object())
             px, py = wl + int(spec["x"]), wt + int(spec["y"])

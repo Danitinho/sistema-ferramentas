@@ -172,15 +172,21 @@ def _detalhe_vencido(x):
 def _detalhe_aviso(a):
     p = []
     risco = a.get("risco")
-    if risco:
+    dias = a.get("dias_para_vencer")
+    if dias is not None and dias < 0:
+        # já venceu: estimativa de venda não se aplica; o que importa é o atraso
+        estoque = (a.get("quantidade") or 0) * (a.get("custo") or 0)
+        p.append(f"<b>venceu há {-dias} dia(s)</b> e ainda não foi registrado "
+                 f"como vencido · estoque avisado {brl(estoque)}")
+    elif risco:
         p.append(f"<b>risco {_NIVEL_LABEL.get(risco['nivel'], risco['nivel'])}</b>: "
                  f"sobra estimada {num(risco['sobra'], 1)} un "
                  f"({brl(risco['valor_sobra'])}), venda esperada até o vencimento "
                  f"{num(risco['venda_esperada'], 1)} un")
     else:
         p.append("sem venda registrada no período — sem estimativa de sobra")
-    if a.get("dias_para_vencer") is not None:
-        p.append(f"vence em {a['dias_para_vencer']} dia(s)")
+    if dias is not None and dias >= 0:
+        p.append(f"vence em {dias} dia(s)")
     if a.get("codigo_barras"):
         p.append(f"cód {a['codigo_barras']}")
     if a.get("responsavel"):
@@ -330,3 +336,145 @@ def gerar_pdf_relatorio(rel, destino):
                           rodape_esq=f"Controle de vencidos · {rel['escopo']}",
                           gerado_em=rel["gerado_em"],
                           assunto="Relatório de vencidos")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Relatório de AVISOS DE VENCIMENTO (`vencidos_relatorio.montar_relatorio_avisos`)
+# ══════════════════════════════════════════════════════════════════════════════
+# Mesmo desenho do mensal: capa executiva e, depois, uma parte por faixa de
+# urgência — do que já venceu sem registro até os antecipados.
+_FAIXA_COR = {"vencido": base.INK, "critico": base.VERM, "atencao": base.AMBAR,
+              "programado": base.NAVY, "antecipado": base.MUTED}
+
+
+def _alertas_avisos(rel, est):
+    r = rel["resumo"]
+    caixas = []
+    if r["ja_venceram"]:
+        caixas.append((
+            f"{r['ja_venceram']} aviso(s) já vencido(s) sem registro",
+            f"{brl(r['ja_venceram_valor'])} em estoque avisado cujo prazo passou e "
+            f"que não chegou ao escritório. Conferir na gôndola: retirar e registrar "
+            f"o vencido, ou excluir o aviso se vendeu tudo.",
+            base.VERM, base.VERM_BG))
+    else:
+        caixas.append(("Nenhum aviso vencido em aberto",
+                       "Todo aviso cujo prazo já passou foi registrado como vencido.",
+                       base.VERDE, base.VERDE_BG))
+    if r["criticos"]:
+        caixas.append((
+            f"{r['criticos']} produto(s) vencem em até 7 dias",
+            f"Sobra estimada de {brl(r['criticos_valor_sobra'])} no ritmo atual de "
+            f"venda; {r['criticos_alto']} em risco alto. Última janela para "
+            f"rebaixa, troca ou transferência.",
+            base.AMBAR, base.AMBAR_BG))
+    else:
+        caixas.append(("Nada vencendo nos próximos 7 dias",
+                       "Nenhum aviso ativo na faixa crítica.",
+                       base.VERDE, base.VERDE_BG))
+    return base.alertas(caixas, est)
+
+
+def _capa_avisos(rel, est, f):
+    r = rel["resumo"]
+    story = base.cabecalho_documento(
+        "AVISOS DE VENCIMENTO", rel["escopo"].capitalize(),
+        f"Posição de {v._fmt_dia(rel['hoje'])} · relatório gerado em "
+        f"{rel['gerado_em']} · Sistema de Ferramentas", est)
+    story += [
+        Spacer(1, 8 * mm),
+        base.cartoes_kpi([
+            (str(r["a_vencer"]), "AVISOS A VENCER", f"{num(r['quantidade'])} un avisadas",
+             base.NAVY),
+            (brl(r["valor"]), "ESTOQUE AVISADO (CUSTO)", "o que está em jogo", base.INK),
+            (brl(r["valor_sobra"]), "SOBRA ESTIMADA",
+             f"{r['alto']} em risco alto", base.VERM),
+            (str(r["ja_venceram"]), "JÁ VENCERAM SEM REGISTRO",
+             brl(r["ja_venceram_valor"]),
+             base.VERM if r["ja_venceram"] else base.VERDE),
+        ], est),
+        Spacer(1, 10 * mm),
+        Paragraph("ESTOQUE AVISADO POR FAIXA DE URGÊNCIA (CUSTO)", est["bloco"]),
+        Spacer(1, 2 * mm),
+        base.BarraEmpilhada([(_rotulo_faixa(p), p["totais"]["valor"],
+                              _FAIXA_COR.get(p["chave"], base.INK))
+                             for p in rel["partes"]],
+                            base.UTIL, f, vazio="Nenhum aviso ativo no horizonte."),
+        Spacer(1, 9 * mm),
+        _alertas_avisos(rel, est),
+        Spacer(1, 10 * mm),
+    ]
+    rk = rel["rankings"]
+    story += base.tabela_ranking(
+        "FORNECEDORES COM MAIS ESTOQUE AVISADO",
+        ["Fornecedor", "Avisos", "≤7d", "Estoque"],
+        [(g["fornecedor"], str(g["avisos"]), str(g["criticos"]), brl(g["valor"]))
+         for g in rk["fornecedores"]],
+        [104, 22, 22, 34], est, vazio="Nenhum aviso no horizonte.")
+    story.append(Spacer(1, 8 * mm))
+    story += base.tabela_ranking(
+        "MAIOR SOBRA ESTIMADA NO VENCIMENTO",
+        ["Produto", "Vence", "Sobra", "Valor"],
+        [(a["produto"], a.get("data_venc_fmt") or "", num(a["risco"]["sobra"], 1),
+          brl(a["risco"]["valor_sobra"])) for a in rk["sobra"]],
+        [104, 22, 22, 34], est,
+        vazio="Nenhum produto com sobra estimada (ou sem histórico de venda).")
+    story += [
+        Spacer(1, 9 * mm),
+        Paragraph(
+            "A sobra estimada é a quantidade avisada menos a venda esperada até o "
+            "vencimento, pela média mensal dos últimos meses fechados no módulo de "
+            "relatórios de venda. Produto sem venda registrada fica sem estimativa "
+            f"({r['sem_estimativa']} neste relatório). {r['fora_prazo']} aviso(s) "
+            f"foram feitos com menos de {v.DIAS_MINIMO} dias de antecedência.",
+            est["nota"]),
+    ]
+    return story
+
+
+def _rotulo_faixa(parte):
+    return {"vencido": "Já venceu", "critico": "≤7d", "atencao": "8–30d",
+            "programado": "31–90d", "antecipado": ">90d"}.get(parte["chave"],
+                                                              parte["chave"])
+
+
+def _parte_faixa(ordem, parte, est, f):
+    t = parte["totais"]
+    story = [
+        base.barra_secao(f"Parte {ordem} — {parte['titulo']}", est),
+        Spacer(1, 2 * mm),
+        Paragraph(esc(parte["nota"]), est["nota"]),
+        Spacer(1, 3 * mm),
+    ]
+    if parte["itens"]:
+        story.append(_tabela_avisos(parte["itens"], est, f))
+        resumo = f"{num(t['quantidade'])} un · estoque {brl(t['valor'])}"
+        if parte["chave"] != "vencido":
+            resumo += f" · sobra est. {brl(t['valor_sobra'])}"
+        story.append(base.linha_total([f"TOTAL — {t['qtd']} aviso(s)", resumo], est))
+    else:
+        story.append(Paragraph("Nenhum aviso nesta faixa.", est["vazio"]))
+    return story
+
+
+def gerar_pdf_avisos(rel, destino):
+    """PDF do relatório de avisos. `destino` é caminho ou file-like."""
+    base.verificar()
+    f = base.registrar_fontes()
+    est = base.estilos(f)
+
+    story = _capa_avisos(rel, est, f)
+    for ordem, parte in enumerate(rel["partes"], 1):
+        bloco = _parte_faixa(ordem, parte, est, f)
+        if parte["itens"] or ordem == 1:
+            story.append(PageBreak())
+            story += bloco
+        else:
+            story.append(Spacer(1, 7 * mm))
+            story.append(KeepTogether(bloco))
+
+    return base.construir(destino, story,
+                          titulo=f"Avisos de vencimento — {rel['escopo']}",
+                          rodape_esq=f"Avisos de vencimento · {rel['escopo']}",
+                          gerado_em=rel["gerado_em"],
+                          assunto="Relatório de avisos de vencimento")

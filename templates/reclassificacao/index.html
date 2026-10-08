@@ -22,10 +22,6 @@
   .aviso { background: var(--accent-soft); color: var(--accent); font-weight: 600;
            padding: 12px 16px; border-radius: var(--radius); margin-bottom: 18px;
            font-size: 13.5px; }
-  .token-box { background: var(--surface-2); border: 1px dashed var(--line-2);
-               border-radius: var(--radius); padding: 16px; margin-bottom: 18px; }
-  .token-val { font-family: var(--mono); font-size: 15px; font-weight: 650;
-               word-break: break-all; display: block; margin: 8px 0; color: var(--ink); }
   .linha-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   .linha-form > div { flex: 1 1 220px; }
   .ev { font-size: 12.5px; color: var(--muted); }
@@ -89,18 +85,6 @@
 </div>
 {% endif %}
 
-{% if token_novo %}
-<div class="token-box full">
-  <div style="font-weight:650">Token de <b>{{ nome_novo }}</b></div>
-  <code class="token-val">{{ token_novo }}</code>
-  <div class="ev">
-    Cole no <code>config.json</code> da máquina do operador, no campo
-    <b>token</b> — junto do endereço do servidor, é a única coisa que fica lá.
-    Ele aparece <b>uma vez só</b>; se perder, gere outro (o antigo deixa de valer).
-  </div>
-</div>
-{% endif %}
-
 <!-- Painel do lote -->
 <div class="painel full">
   <div class="stat-card">
@@ -159,16 +143,12 @@
     <div class="ttl">Máquinas</div>
     <div class="hint">o programa da máquina não tem tela: ligar, pausar e configurar é aqui</div>
   </div>
-  <div class="card-body">
-    <form method="post" action="/reclassificacao/operadores" class="linha-form">
-      <div>
-        <label for="nome">Cadastrar operador (gera o token da máquina)</label>
-        <input type="text" id="nome" name="nome" placeholder="ex.: Daniel" required>
-      </div>
-      <div style="flex:0 0 auto">
-        <button class="btn btn-primary btn-sm" type="submit">Gerar token</button>
-      </div>
-    </form>
+  <div class="card-body ev">
+    Cada máquina aparece aqui sozinha: rode <code>agente\iniciar_reclassificacao.bat</code>
+    nela e aprove o pedido de acesso no <a href="/agente">painel do agente</a>. Não há
+    token para gerar nem arquivo para editar.
+    {% if not perm.agente %}<b>Seu usuário só acompanha: ligar, pausar e configurar
+    exige acesso ao agente.</b>{% endif %}
   </div>
 
   <div class="card-body" style="padding-top:0">
@@ -180,6 +160,7 @@
           <div class="maq-pc">{{ o.maquina or "máquina ainda não identificada" }}</div>
         </div>
         <span class="est e-parado" data-campo="estado"><span class="ponto"></span>—</span>
+        {% if perm.agente %}
         <div class="maq-acts">
           {% for cmd, rotulo, classe in [('rodar', 'Iniciar', 'btn-primary'),
                                          ('pausar', 'Pausar', 'btn-secondary'),
@@ -194,13 +175,15 @@
           </form>
           {% endfor %}
         </div>
+        {% endif %}
       </div>
 
       <div class="maq-corpo">
         <div class="maq-linha" data-campo="msg">
           Comando atual: <b>{{ o.comando }}</b>{% if o.comando_por %} (por {{ o.comando_por }}){% endif %}.
-          {% if not o.tem_token %}
-          <span style="color:var(--danger)">Sem token — o agente não consegue conectar.</span>
+          {% if not o.tem_token and o.nome not in maquinas_ok %}
+          <span style="color:var(--danger)">Sem acesso — o agente desta máquina não consegue
+          conectar (aprove a máquina no <a href="/agente">painel do agente</a>).</span>
           {% endif %}
         </div>
         <div class="maq-linha ev">
@@ -209,6 +192,7 @@
           concluídos no total: <b>{{ o.concluidos }}</b>
         </div>
 
+        {% if perm.agente %}
         <form method="post" action="/reclassificacao/agente/parametros" class="params">
           <input type="hidden" name="operador" value="{{ o.nome }}">
           <div class="campo">
@@ -239,21 +223,26 @@
             Devolver {{ o.reservados }} à fila
           </button>
           {% endif %}
-          {% if o.tem_token %}
+          {% if o.tem_token and perm.admin %}
           <button class="btn btn-danger btn-sm" type="submit"
-                  formaction="/reclassificacao/operadores/revogar" name="nome" value="{{ o.nome }}">
-            Revogar token
+                  formaction="/reclassificacao/operadores/revogar" name="nome" value="{{ o.nome }}"
+                  title="Token antigo, por operador. As máquinas novas se revogam no painel do agente.">
+            Revogar token antigo
           </button>
           {% endif %}
         </form>
+        {% else %}
+        <div class="maq-linha ev">Bloco {{ o.bloco }} · limiar {{ o.limiar }} ·
+          {{ "só ativos" if o.so_ativos else "ativos e inativos" }}{% if o.simular %} · <b>simulação</b>{% endif %}</div>
+        {% endif %}
 
         <div class="log" data-campo="log"><span class="h">sem log ainda</span></div>
       </div>
     </div>
     {% else %}
     <div class="sem">
-      Nenhum operador cadastrado. Cadastre um acima para receber o token — é a
-      única coisa que precisa ser configurada na máquina dele.
+      Nenhuma máquina ainda. Rode o agente numa máquina e aprove o pedido de acesso
+      no painel do agente.
     </div>
     {% endfor %}
   </div>
@@ -281,7 +270,7 @@
   </div>
 
   <div class="linha-form">
-    {% if resumo.por_estado.get('falhou', 0) %}
+    {% if resumo.por_estado.get('falhou', 0) and perm.agente %}
     <form method="post" action="/reclassificacao/devolver" style="flex:0 0 auto">
       <input type="hidden" name="estado" value="falhou">
       <button class="btn btn-secondary btn-sm" type="submit">
@@ -289,7 +278,7 @@
       </button>
     </form>
     {% endif %}
-    {% if resumo.por_estado.get('simulado', 0) %}
+    {% if resumo.por_estado.get('simulado', 0) and perm.agente %}
     <form method="post" action="/reclassificacao/devolver" style="flex:0 0 auto">
       <input type="hidden" name="estado" value="simulado">
       <button class="btn btn-secondary btn-sm" type="submit">
@@ -313,11 +302,12 @@
 </div>
 
 <!-- Mapa do ERP -->
+{% if perm.agente %}
 <div class="card full mapa-erp">
   <div class="card-title">Mapa do ERP</div>
   <div class="ev" style="margin-bottom:12px">
     Onde ficam os campos do RADGe (classes, âncoras, botões e esperas). Fica no
-    servidor para que instalar uma máquina nova seja só colar o token, e para que
+    servidor para que instalar uma máquina nova seja só aprovar o acesso, e para que
     recalibrar depois de uma atualização do ERP seja editar aqui em vez de ir de
     PC em PC. <b>Vazio = cada agente usa o <code>config.json</code> local.</b>
   </div>
@@ -329,6 +319,7 @@
     </button>
   </form>
 </div>
+{% endif %}
 
 <!-- Últimos eventos -->
 <div class="card card-flush full">

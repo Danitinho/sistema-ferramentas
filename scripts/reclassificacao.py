@@ -442,6 +442,19 @@ class FilaBanco:
             self.con.commit()
             return {"nome": nome, "token": token, "criado_em": agora}
 
+    def garantir_operador(self, nome: str) -> None:
+        """Operador de uma MÁQUINA pareada (token do /agente). Nasce com o
+        comando `parar` e os parâmetros padrão: aprovar a máquina dá acesso,
+        não põe ninguém para rodar."""
+        with self.lock:
+            cur = self.con.execute(
+                "INSERT OR IGNORE INTO operadores (nome, maquina, visto_em, criado_em,"
+                " criado_por) VALUES (?,?,?,?,?)",
+                (nome, nome, None, time.strftime("%Y-%m-%d %H:%M:%S"), "pareamento"))
+            if cur.rowcount:
+                self._evento("token", "", nome, "maquina pareada pelo /agente")
+            self.con.commit()
+
     def revogar_operador(self, nome: str, por: str = "") -> bool:
         with self.lock:
             agora = time.strftime("%Y-%m-%d %H:%M:%S")

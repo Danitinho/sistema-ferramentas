@@ -8,6 +8,10 @@ Login simples do sistema (usuários + senhas) — sem dependências externas.
   • Persiste em dados/sistema.db.
   • Também guarda/gera a SECRET_KEY do Flask (dados/secret.key), para que as
     sessões sobrevivam a reinícios do serviço.
+  • Dois papéis: `admin` e `usuario`. Só o admin cria/exclui contas e decide
+    quem tem ACESSO AO AGENTE do ERP (`acesso_agente`): mandar pedido ao robô
+    que digita no RADGe, ligar/pausar as máquinas, aprovar máquina nova. O
+    admin tem esse acesso sempre.
 
 Camada de lógica: NÃO importa Flask.
 """
@@ -36,13 +40,60 @@ def _conn():
             usuario   TEXT PRIMARY KEY,
             nome      TEXT,
             senha     TEXT NOT NULL,   -- pbkdf2$iter$salt$hash
-            papel     TEXT NOT NULL DEFAULT 'admin',
+            papel     TEXT NOT NULL DEFAULT 'usuario',
             criado_em TEXT NOT NULL,
             criado_por TEXT
         );
+        CREATE TABLE IF NOT EXISTS config (
+            chave TEXT PRIMARY KEY,
+            valor TEXT
+        );
+        CREATE TABLE IF NOT EXISTS auditoria (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            quando      TEXT NOT NULL,
+            usuario     TEXT,
+            entidade    TEXT NOT NULL,
+            entidade_id TEXT,
+            acao        TEXT NOT NULL,
+            detalhe     TEXT
+        );
     """)
+    _migrar(conn)
     conn.commit()
     return conn
+
+
+# Único admin depois da migração de papéis (pedido do usuário, 29/09/2026).
+ADMIN_INICIAL = "danielcadastro"
+PAPEIS = ("admin", "usuario")
+
+
+def _migrar(conn):
+    """Idempotente. Acrescenta `acesso_agente` e, UMA vez, rebaixa todo mundo a
+    `usuario` menos o ADMIN_INICIAL — até aqui toda conta nascia admin, então o
+    papel não dizia nada. Se o ADMIN_INICIAL não existir (instalação nova, cujo
+    admin veio do /setup), ninguém é rebaixado: rebaixar sem ter um admin
+    trancaria o sistema do lado de fora."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(usuarios)")}
+    if "acesso_agente" not in cols:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN acesso_agente INTEGER NOT NULL DEFAULT 0")
+    feito = conn.execute("SELECT valor FROM config WHERE chave='migracao_papeis'").fetchone()
+    if feito:
+        return
+    if conn.execute("SELECT 1 FROM usuarios WHERE usuario=?", (ADMIN_INICIAL,)).fetchone():
+        conn.execute("UPDATE usuarios SET papel = CASE WHEN usuario=? THEN 'admin'"
+                     " ELSE 'usuario' END", (ADMIN_INICIAL,))
+        _auditar(conn, "sistema", "usuarios", "", "migrar_papeis",
+                 f"so {ADMIN_INICIAL} continua admin")
+    conn.execute("UPDATE usuarios SET papel='usuario' WHERE papel NOT IN ('admin','usuario')")
+    conn.execute("INSERT INTO config (chave, valor) VALUES ('migracao_papeis', ?)", (_agora(),))
+
+
+def _auditar(conn, usuario, entidade, entidade_id, acao, detalhe=""):
+    conn.execute(
+        "INSERT INTO auditoria (quando, usuario, entidade, entidade_id, acao, detalhe)"
+        " VALUES (?,?,?,?,?,?)", (_agora(), usuario or "", entidade, entidade_id or "",
+                                  acao, detalhe))
 
 
 def _agora():
@@ -81,14 +132,17 @@ def listar_usuarios():
     conn = _conn()
     try:
         return [dict(r) for r in conn.execute(
-            "SELECT usuario, nome, papel, criado_em FROM usuarios ORDER BY usuario"
+            "SELECT usuario, nome, papel, acesso_agente, criado_em FROM usuarios"
+            " ORDER BY papel <> 'admin', usuario"
         ).fetchall()]
     finally:
         conn.close()
 
 
-def criar_usuario(usuario, senha, nome="", papel="admin", criado_por=None):
+def criar_usuario(usuario, senha, nome="", papel="usuario", criado_por=None):
     usuario = (usuario or "").strip().lower()
+    if papel not in PAPEIS:
+        return False, "Papel inválido."
     if not usuario or not senha:
         return False, "Usuário e senha são obrigatórios."
     if len(senha) < 4:
@@ -100,6 +154,7 @@ def criar_usuario(usuario, senha, nome="", papel="admin", criado_por=None):
             "VALUES (?, ?, ?, ?, ?, ?)",
             (usuario, (nome or "").strip(), _hash(senha), papel, _agora(), criado_por),
         )
+        _auditar(conn, criado_por, "usuario", usuario, "criar", f"papel {papel}")
         conn.commit()
         return True, "Usuário criado."
     except sqlite3.IntegrityError:
@@ -134,15 +189,57 @@ def alterar_senha(usuario, nova_senha):
         conn.close()
 
 
-def excluir_usuario(usuario):
+def excluir_usuario(usuario, por=None):
     usuario = (usuario or "").strip().lower()
     conn = _conn()
     try:
         if conn.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0] <= 1:
             return False, "Não é possível excluir o único usuário do sistema."
+        alvo = conn.execute("SELECT papel FROM usuarios WHERE usuario=?", (usuario,)).fetchone()
+        if alvo and alvo["papel"] == "admin" and conn.execute(
+                "SELECT COUNT(*) FROM usuarios WHERE papel='admin'").fetchone()[0] <= 1:
+            return False, "Não é possível excluir o único administrador."
         r = conn.execute("DELETE FROM usuarios WHERE usuario = ?", (usuario,))
+        if r.rowcount:
+            _auditar(conn, por, "usuario", usuario, "excluir")
         conn.commit()
         return (True, "Usuário excluído.") if r.rowcount else (False, "Usuário não encontrado.")
+    finally:
+        conn.close()
+
+
+def permissoes(usuario):
+    """{papel, admin, agente} de quem está logado, lido do banco a cada
+    pedido: tirar o acesso vale na hora, sem esperar a sessão expirar.
+    Usuário que não existe mais não pode nada."""
+    conn = _conn()
+    try:
+        r = conn.execute("SELECT papel, acesso_agente FROM usuarios WHERE usuario=?",
+                         ((usuario or "").strip().lower(),)).fetchone()
+    finally:
+        conn.close()
+    if not r:
+        return {"papel": "", "admin": False, "agente": False}
+    admin = r["papel"] == "admin"
+    return {"papel": r["papel"], "admin": admin, "agente": admin or bool(r["acesso_agente"])}
+
+
+def definir_acesso_agente(usuario, permitir, por=None):
+    usuario = (usuario or "").strip().lower()
+    conn = _conn()
+    try:
+        r = conn.execute("SELECT papel FROM usuarios WHERE usuario=?", (usuario,)).fetchone()
+        if not r:
+            return False, "Usuário não encontrado."
+        if r["papel"] == "admin":
+            return False, "O administrador sempre tem acesso ao agente."
+        conn.execute("UPDATE usuarios SET acesso_agente=? WHERE usuario=?",
+                     (1 if permitir else 0, usuario))
+        _auditar(conn, por, "usuario", usuario, "acesso_agente",
+                 "liberado" if permitir else "retirado")
+        conn.commit()
+        return True, ("Acesso ao agente liberado." if permitir
+                      else "Acesso ao agente retirado.")
     finally:
         conn.close()
 

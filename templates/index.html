@@ -91,6 +91,12 @@
       <div class="tool-desc">Consulta quantidade vendida por produto</div>
     </a>
 
+    <a href="/catalogo/" class="tool-card" data-nome="catálogo produtos consulta código de barras lista custo preço venda margem nome erp">
+      <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5v14"/><path d="M7 5v14"/><path d="M11 5v14"/><path d="M14 5v14"/><path d="M18 5v14"/><path d="M20 5v14"/></svg></div>
+      <div class="tool-name">Consulta ao catálogo</div>
+      <div class="tool-desc">Nome, custo e venda de uma lista de códigos</div>
+    </a>
+
     <a href="/vencidos" class="tool-card" data-nome="produtos vencidos avisos vencimento baixa perda devolução fornecedor promoção">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z"/><path d="M8 6h8"/><path d="M9 12l2 2 4-4"/></svg></div>
       <div class="tool-name">Controle de vencidos</div>
@@ -160,11 +166,13 @@
       <div class="tool-desc">Contas de acesso ao sistema</div>
     </a>
 
+    {% if perm.agente %}
     <a href="/agente" class="tool-card" data-nome="agente erp radge robô máquina nota fiscal entrada abrir última nota fornecedor">
       <div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="M8 10l2 2-2 2"/><path d="M13 14h3"/></svg></div>
       <div class="tool-name">Agente do ERP</div>
       <div class="tool-desc">Máquinas e tarefas no RADGe</div>
     </a>
+    {% endif %}
 
   </div>
 </section>

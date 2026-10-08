@@ -612,8 +612,10 @@ contrato, do log gravado no `agente_log` e do `config.mapa_erp`. É a **única**
 parte que não roda no servidor; o código, porém, fica aqui para não se perder
 de novo.
 
-Na máquina do operador ficou: `servidor_url` e `token` no `config.json`. Só.
-Bloco, simulação, limiar e até o **mapa dos campos do RADGe** vêm do servidor.
+Na máquina do operador não se configura nada: o agente pede acesso sozinho e o
+admin aprova no `/agente` (**pareamento**, seção 18). O `config.json` só guarda
+o que o próprio agente grava (`servidor_url` padrão e `token_maquina`). Bloco,
+simulação, limiar e até o **mapa dos campos do RADGe** vêm do servidor.
 
 ### Arquivos
 
@@ -846,7 +848,7 @@ O agente não tem tela, então o painel é o console. Mora tudo em colunas de
 - **`agente_log`** — o log que antes rolava na janela do programa. Aparado em
   `APARA_LOG` (400) linhas por operador.
 - **`config.mapa_erp`** — o mapa dos campos do RADGe, guardado no servidor.
-  Instalar uma máquina nova passa a ser colar o token; recalibrar depois de uma
+  Instalar uma máquina nova passa a ser aprovar o acesso; recalibrar depois de uma
   atualização do ERP é editar um campo no painel em vez de ir de PC em PC.
   Vazio = cada agente usa o `config.json` local (rede de segurança).
 
@@ -856,7 +858,7 @@ O painel atualiza sozinho a cada 4 s (`/painel/api/estado`).
 
 As páginas das pessoas (painel e curadoria) usam a guarda de sessão normal. A
 API do agente **não pode** usar sessão de navegador: autentica por **token** no
-cabeçalho `X-Token`, gerado no painel. Por isso os endpoints dela começam com
+cabeçalho `X-Token`. Por isso os endpoints dela começam com
 `api_` e o prefixo `reclassificacao.api_` está em `PREFIXOS_PUBLICOS`
 (`auth_routes.py`), isentando-os da guarda de sessão — eles têm guarda própria em
 `_guarda_token`.
@@ -873,9 +875,13 @@ em vez de um redirecionamento para a tela de login).
 corpo, qualquer um se diria outro e fecharia produto alheio — e `concluido` é
 terminal, não tem desfazer.
 
-O token aparece **uma vez só**, na volta do *Gerar token*. Gerar de novo
-invalida o anterior. Revogar zera o token e o agente passa a receber 401 com
-mensagem pedindo outro ao coordenador.
+**Desde 29/09/2026 o token é o da MÁQUINA** (pareamento, seção 18), e o
+operador é a própria máquina: `_guarda_token` aceita o token de operador antigo
+e, se não for um, o de máquina do `agente.db` (`_operador_da_maquina`), criando a
+linha em `operadores` na primeira vez (`garantir_operador`, comando `parar` —
+aprovar dá acesso, não põe ninguém para rodar). Não há mais *Gerar token* aqui;
+o botão "Revogar token antigo" (só admin) sobrou para os tokens por operador.
+Revogar a máquina em `/agente` corta os dois agentes dela.
 
 ### Contrato da API (consumido pelo agente)
 
@@ -1146,6 +1152,24 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
   públicos: `auth.login`, `auth.logout`, `auth.setup`, `static`. APIs deslogadas
   recebem `401 JSON`; páginas são redirecionadas para `/login`.
 - Primeiro acesso: banco de usuários vazio → `/setup` cria o admin.
+- **Papéis** (29/09/2026): `admin` e `usuario`. Migração de uma vez
+  (`config.migracao_papeis` no `sistema.db`) deixou **só `danielcadastro`**
+  (`auth.ADMIN_INICIAL`) como admin; conta nova nasce `usuario` e a tela não
+  promove ninguém. Não dá para excluir o último admin.
+- **Acesso ao agente** (`usuarios.acesso_agente`, o admin tem sempre): o admin
+  marca por usuário em `/sistema/usuarios`. Sem ele: o `/agente` inteiro (menos a
+  API da máquina), as ações do console da reclassificação (iniciar/pausar,
+  parâmetros, devolver à fila, mapa) e "Incluir nas notas" do `/vencidos`. Ver a
+  página da reclassificação e a curadoria continuam livres.
+- **Onde se barra:** `ENDPOINTS_ADMIN`/`ENDPOINTS_AGENTE` + `_exigencia` em
+  `auth_routes.py`, dentro da guarda global (403 JSON em `/api/`, página
+  `sistema/sem_acesso.html` no resto). As permissões são lidas do banco a cada
+  requisição (`permissoes_atuais`), então tirar o acesso vale na hora. Os
+  templates recebem `perm` (`perm.admin`, `perm.agente`) para **esconder**
+  botões — esconder é conforto; quem barra é a guarda. **Endpoint novo que
+  manda o agente trabalhar tem de entrar em `ENDPOINTS_AGENTE`.**
+- Só admin: criar/excluir usuário, mudar acesso ao agente, aprovar/recusar/
+  revogar máquina. Auditoria em `sistema.db.auditoria`.
 - Cada mutação de dado sensível grava o autor na auditoria via
   `session.get("usuario")` (ver `debitos_routes._usuario` / `vencidos_routes._usuario`).
 
@@ -1211,6 +1235,17 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   sub-linha).
 - **Relatório** (PDF de apresentação + Excel de trabalho): ver seção 16.
   `vencidos.py` só produz os dados — quem formata são os módulos de relatório.
+- **Relatório de avisos de vencimento** (`montar_relatorio_avisos` +
+  `gerar_pdf_avisos`/`gerar_excel_avisos`; `GET /vencidos/avisos/pdf` e
+  `/avisos/excel`, `?dias=7|15|30|60|90|todos`, padrão 30): o controle da
+  vigília, separado do relatório mensal. **Independe do mês da tela** — é
+  ancorado em hoje. Só avisos ativos, uma parte por faixa de urgência (só as que
+  cabem no horizonte). **O aviso que já venceu sem registro de vencido entra
+  SEMPRE**, na parte 1, qualquer que seja o horizonte: é a falha do controle
+  (ou vendeu e o aviso pede limpeza, ou está vencido na gôndola). Os KPIs "a
+  vencer" e a sobra estimada **não somam** esses já vencidos — o que já venceu
+  não se salva mais e tem conta própria. Excel: aba plana com a coluna "Faixa"
+  + aba "Por fornecedor". Botões no topo da aba Avisos.
 - **Inclusão na nota de vencido pelo agente do ERP** (botão "Incluir nas
   notas"): rodada por fornecedor que termina em baixa `devolucao` automática —
   ver seção 18, "Segundo cliente". Vencido `em_andamento` não pode ser editado,
@@ -1439,8 +1474,15 @@ Tabela **plana**: uma linha por registro, **autofiltro**, painel congelado em
 `scripts/catalogo.py` + `catalogo_routes.py` + `dados/catalogo.db`. Espelho do
 cadastro do ERP, alimentado por um TXT exportado ("todos os produtos"). Serve
 para que **bipar o código de barras já preencha nome, custo e venda** nos
-formulários de aviso e de vencido. Não tem página própria: a atualização mora
-num modal do `/vencidos`, que é onde o catálogo é usado.
+formulários de aviso e de vencido. A página `/catalogo/` (card "Consulta ao
+catálogo", setor Cadastro) é a **consulta em lista**: cola-se ou bipa-se uma
+lista de códigos e sai código ERP, nome, custo, venda e margem sobre a venda de
+cada um, com "Copiar tabela" (TSV pt-BR para colar no Excel) e "Exportar
+Excel" (`gerar_excel_lista`, `POST /catalogo/api/consultar/excel`, mesmo corpo;
+exporta a consulta EXIBIDA, não o que está no campo). Margem e observação são
+calculadas no servidor (`_margem`/`_observacao`), as mesmas na tela e no Excel;
+a linha 1 do Excel diz de quando é a foto do catálogo. A atualização do
+catálogo continua num modal do `/vencidos`.
 
 **Não é fonte da verdade — é uma FOTO**, com a idade da última importação. Toda
 consulta devolve `atualizado_em`, e a tela mostra essa data junto do preço: um
@@ -1503,10 +1545,19 @@ Regras da tela (`aplicarCatalogo` no template):
 > guarda `custo`) — ali o catálogo preenche produto e custo. O de **aviso**
 > recebe produto, custo e venda.
 
+### Consulta em lista (`consultar_lista`)
+Mesmas regras de `consultar` — o miolo é um só (`_buscar`), numa conexão só:
+exato; variante única de zeros sai marcada para conferir (linha âmbar); mais de
+uma é `ambiguo` e não mostra preço. Mantém a ordem digitada, código repetido sai
+uma vez (conta em `repetidos`), teto de `MAX_LISTA` (2000). A margem é calculada
+na tela e fica em branco sem custo ou sem venda — nunca 0% ou 100% inventado.
+
 ### Rotas
+`GET /catalogo/` · `POST /catalogo/api/consultar {codigos[]}` ·
+`POST /catalogo/api/consultar/excel {codigos[]}` ·
 `GET /catalogo/api/produto?cb=` · `GET /catalogo/api/status` ·
 `POST /catalogo/api/importar` (multipart, campo `arquivo`; grava em `uploads/`,
-importa e apaga). As três exigem login: só `reclassificacao.api_` e
+importa e apaga). Todas exigem login: só `reclassificacao.api_` e
 `agente.api_` estão em `PREFIXOS_PUBLICOS`, então a guarda global de sessão
 cobre este blueprint normalmente (deslogado, o `fetch` recebe 401 JSON por causa
 do `/api/` no caminho).
@@ -1543,10 +1594,27 @@ preguiçosa (em `pegar` e nas leituras do painel), sem timer.
 - `criar_pedido(tipo, params, por, modulo=...)` é a porta para outros módulos
   (fiscal, vencidos) pedirem ao agente; `modulo` registra quem pediu.
 
-### Máquinas e autenticação
-Token **por máquina** (não por pessoa), gerado no painel e colado em
-`token_geral` no `agente/config.json` — o mesmo arquivo do agente da
-reclassificação, que usa `token`. API do agente = endpoints `api_*` com guarda
+### Máquinas e autenticação — pareamento (29/09/2026)
+Token **por máquina** (não por pessoa), e **ninguém o gera nem o cola**:
+1. o agente (geral ou reclassificação — `agente/pareamento.py`) sem token sorteia
+   uma **chave** que fica só na máquina e chama `POST /agente/api/parear
+   {maquina, chave, programa}` a cada 5 s;
+2. o painel mostra "Máquinas pedindo acesso" com nome, **IP** e hora; o **admin**
+   aprova (`aprovar_pareamento` → `criar_maquina`) ou recusa;
+3. na volta seguinte o servidor entrega o token **uma vez** a quem tem a chave
+   (`solicitar_pareamento`, tabela `pareamentos`, guarda só o **hash** da chave)
+   e o agente grava `token_maquina` no `config.json`.
+Regras: um pedido com o mesmo nome e chave diferente é **outro pedido**, lado a
+lado na tela — nunca herda a aprovação do primeiro (é o que impede outro PC de
+se dizer "CADASTRO-PC" e levar o token). Teto de 20 pendentes e validade de 7
+dias, porque a rota é aberta. Os dois agentes da mesma máquina dividem a chave
+e o token (`estado: entregue` = o outro já buscou; relê o arquivo). Revogar no
+painel → 401 → o agente apaga o token e, aberto de novo, pede acesso outra vez.
+`token_geral` (o nome antigo, gerado à mão) continua valendo. `config.json`
+nem precisa existir: nasce com `servidor_url` = `http://192.168.0.52`.
+
+`api_parear` está isenta até da guarda de token (como `api_ping`) — é por ela
+que se consegue um. API do agente = endpoints `api_*` com guarda
 por `X-Token`; `agente.api_` está em `PREFIXOS_PUBLICOS`. Os da tela se chamam
 `painel_*`/`maquina_*`/`mapa_*` (a regra da seção 10-B vale aqui também).
 `comando` da máquina: `ativo` | `pausado` (pausada não pega pedido).
@@ -1555,6 +1623,7 @@ por `X-Token`; `agente.api_` está em `PREFIXOS_PUBLICOS`. Os da tela se chamam
 | Rota | Corpo | Devolve |
 |---|---|---|
 | `GET /agente/api/ping` | — | `{ok, servidor, agora}` (sem token) |
+| `POST /agente/api/parear` | `{maquina, chave, programa}` | `{ok, estado: pendente\|aprovado\|entregue\|recusado\|lotado, token?}` (sem token) |
 | `POST /agente/api/status` | `{estado, msg, versao, capacidades[], maquina, log[]}` | `{ok, comando, mapa_erp, pausa_s}` |
 | `POST /agente/api/pegar` | `{capacidades[]}` | `{pedido: {id, tipo, params, criado_por, autorizado_por} \| null}` |
 | `POST /agente/api/concluir` | `{id, ok, resultado, erro}` | `{ok}` ou `{ok:false, motivo}` |
@@ -1586,6 +1655,18 @@ Armadilhas (vistas no log antigo, agora tratadas):
   `conectar()` restaura, mas só roda uma vez: `DriverEntradas.conferir_tela`
   chama `trazer_para_frente()` **a cada pedido**, e o erro de campo não achado
   diz quando o ERP está minimizado.
+- **Controle visível que não aparece: `achar` espera até `ESPERA_ACHAR_S` (3 s)**
+  antes do erro, e o erro traz um diagnóstico (janela minimizada? tela ativa?
+  quantos controles da classe visíveis?). Houve uma falha passageira no
+  &Incluir logo depois de o ERP voltar do minimizado que não se reproduziu na
+  inspeção. Testes de existência (Form/Grade) passam `espera=0`.
+- **Botões de item: posição do mapa + texto EXATO como reserva**
+  (`BOTOES_ITEM_TEXTO`: `&Incluir`, `Gravar`, `&Canc`; `texto_exato` no
+  `_resolver`). Nunca o texto normalizado: "Incluir" sem & é o botão da NOTA.
+- **Erro antes de digitar qualquer item sai com o prefixo `nada gravado:`**
+  (`geral.NADA_GRAVADO`), e o `/vencidos` devolve os itens à rodada em vez de
+  "conferir no ERP". Erro do ERP no meio da lista para a lista e devolve o
+  resultado parcial; só a falha **depois do Gravar** vira "a conferir".
 - **`janela_titulo_regex` sem `^` vale em qualquer ponto do título.** O
   pywinauto casa `title_re` a partir do início, e o mapa antigo traz só
   `RADGe` (o título começa com "Sistema de Gestão…"); `Janela._padrao_titulo`
@@ -1636,7 +1717,11 @@ RADGe real em 28/09/2026.
   com as caixas fechadas antes — com uma caixa aberta o clique era ignorado e o
   ERP ficava em modo de inclusão. Se não sair, o log diz "ATENCAO".
 - **Os botões Grade/Form se alternam**: com o formulário à vista só o Grade
-  existe; `abrir_form` não clica nada nesse caso.
+  existe (38 de 51 `TcxButton` visíveis), com a lista só o Form (26 de 51, e
+  os botões de item somem). `DriverEntradas.vista()` diz qual está à frente, e
+  **`abrir_form` confere que o Form apareceu** (até 3 cliques): o clique às
+  vezes é ignorado, a leitura da nota funciona com a lista à frente e nada
+  acusava — o `nf.incluir_itens` falhava no &Incluir (pedidos #84/#88/#90).
 - **Botões de item ≠ botões da nota**: "Incluir"/"Cancelar" com texto em
   (9,190)/(9,215) são da NOTA; os de item são `&Incluir`, `Gravar`, `&Canc` na
   coluna x=90 (`item_incluir`/`item_gravar`/`item_cancelar` no mapa).
@@ -1657,6 +1742,14 @@ aberta uma vez), um fornecedor por vez:
 → "Aprovar e incluir" → `nf.incluir_itens {itens, nota: lançamento}` autorizado
 por ela → cada item **gravado** vira baixa `devolucao` com `baixa_ref = "Nota N"`
 e `baixa_por` = quem autorizou. Os pedidos saem com `modulo="vencidos"`.
+- **Uma nota, um mês** (pedido do usuário, 08/10/2026): o grupo é
+  **fornecedor + mês de registro** (`criado_em`, o mesmo mês da tela e do
+  relatório; `chave = "fid|AAAA-MM"`). O modal lista os meses com pendência e
+  **nenhum vem marcado** — a pessoa escolhe os da rodada. `incluir` exige `mes`
+  e só reserva vencidos dele. Como o mesmo fornecedor em dois meses abriria a
+  **mesma** nota aberta, `incluir` também confere os vencidos já ligados àquela
+  nota (incluídos, com o agente ou a conferir — `_meses_da_nota`, chave =
+  lançamento) e **recusa** se forem de outro mês, pedindo uma nota nova no ERP.
 - **Troca/perda é por fornecedor** (quem decide é ele), guardada em
   `fornecedor_destino` e usada como padrão da próxima rodada. Perda ainda não
   anda (fica pendente, "aguardando a nota de perda"); `incluir` recusa no

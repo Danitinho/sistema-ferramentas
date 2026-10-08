@@ -113,6 +113,43 @@ def excel():
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+# ── Relatório de avisos de vencimento ─────────────────────────────────────────
+# Independe do mês da tela: ancorado em hoje, com horizonte `?dias=` (7/15/30/
+# 60/90, 'todos' = sem limite). Os já vencidos sem registro entram sempre.
+def _relatorio_avisos():
+    return rel.montar_relatorio_avisos(rel.horizonte_valido(request.args.get("dias")))
+
+
+def _nome_avisos(r, ext):
+    sufixo = f"{r['horizonte']}d" if r["horizonte"] else "todos"
+    return f"avisos_vencimento_{r['hoje']}_{sufixo}.{ext}"
+
+
+@vencidos_bp.route("/avisos/pdf")
+def avisos_pdf():
+    if not vpdf.DISPONIVEL:
+        return ("<h3>Relatório em PDF indisponível</h3>"
+                "<p>A biblioteca <code>reportlab</code> não está instalada neste "
+                "servidor. Instale com o python do serviço:<br>"
+                "<code>python -m pip install -r requirements.txt</code> "
+                "e reinicie o serviço.</p>"
+                f"<p><small>{vpdf.ERRO_IMPORT}</small></p>", 503)
+    r = _relatorio_avisos()
+    buf = io.BytesIO()
+    vpdf.gerar_pdf_avisos(r, buf)
+    return _entregar(buf, _nome_avisos(r, "pdf"), "application/pdf")
+
+
+@vencidos_bp.route("/avisos/excel")
+def avisos_excel():
+    r = _relatorio_avisos()
+    buf = io.BytesIO()
+    rel.gerar_excel_avisos(r, buf)
+    return _entregar(
+        buf, _nome_avisos(r, "xlsx"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 # ── API — Avisos ──────────────────────────────────────────────────────────────
 @vencidos_bp.route("/api/aviso", methods=["POST"])
 def api_aviso():
@@ -227,7 +264,7 @@ def rodada_incluir(fid):
         pedido_abrir = int(d.get("pedido_abrir"))
     except (TypeError, ValueError):
         return jsonify({"ok": False, "msg": "Abra a nota antes de incluir."})
-    ok, msg, p = vn.incluir(fid, pedido_abrir, _usuario(), d.get("maquina", ""),
+    ok, msg, p = vn.incluir(fid, d.get("mes", ""), pedido_abrir, _usuario(), d.get("maquina", ""),
                             simular=bool(d.get("simular")))
     return jsonify({"ok": ok, "msg": msg, "pedido": p})
 
@@ -238,6 +275,13 @@ def rodada_pedido(pid):
     vencidos (uma vez só — chamadas seguintes não mexem em nada)."""
     from scripts import vencidos_notas as vn
     return jsonify(vn.aplicar_resultado(pid))
+
+
+@vencidos_bp.route("/api/rodada/pedido/<int:pid>/liberar", methods=["POST"])
+def rodada_liberar_pedido(pid):
+    from scripts import vencidos_notas as vn
+    ok, msg, n = vn.liberar_pedido(pid, usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg, "liberados": n})
 
 
 @vencidos_bp.route("/api/vencido/<id_vencido>/liberar-nota", methods=["POST"])

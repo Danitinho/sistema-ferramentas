@@ -6,7 +6,9 @@ agente geral do ERP (seção 18 do CLAUDE.md). Sem Flask.
 
 Fluxo de uma RODADA (pedido do usuário, 28/09/2026):
   1. todos os vencidos com baixa pendente e ainda fora de nota, AGRUPADOS por
-     fornecedor — cada nota é aberta uma vez só;
+     fornecedor E MÊS de registro (`criado_em`, o mesmo mês da tela e do
+     relatório) — a pessoa escolhe os meses da rodada, e cada nota recebe
+     vencidos de UM mês só (pedido do usuário, 08/10/2026);
   2. por fornecedor: TROCA (nota de vencido do fornecedor) ou PERDA (nota de
      perda — ainda não implementada, o grupo fica esperando). Quem decide é o
      fornecedor; a última escolha dele vira o padrão;
@@ -23,12 +25,16 @@ nota.** Incluir de novo duplicaria o item no ERP, e ninguém veria. Por isso:
     pegam o mesmo item;
   • pedido que terminou sem resultado depois de pego pela máquina vira
     `a_conferir`, não volta sozinho: a pessoa olha a nota e libera;
+  • nota que já recebeu vencidos de um mês não recebe de outro: o mesmo
+    fornecedor em dois meses abriria a MESMA nota aberta, e por isso
+    `incluir` confere os vencidos já ligados àquela nota (`_meses_da_nota`);
   • aplicar o resultado é idempotente (só mexe em quem ainda está
     `em_andamento` com aquele pedido).
 """
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 
 from scripts import vencidos as v
@@ -37,6 +43,10 @@ DESTINOS = ("troca", "perda")
 DESTINO_PADRAO = "troca"
 TIPO_NOTA_VENCIDO = "3"
 LIVRES = ("", "pulado", "falhou")          # nota_situacao que pode entrar numa rodada
+# prefixo do erro do agente quando o pedido falhou antes de tocar no ERP
+# (contrato com agente/geral.py:NADA_GRAVADO)
+NADA_GRAVADO = "nada gravado:"
+_MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
 def _conn():
@@ -97,13 +107,21 @@ def definir_destino(fid: str, destino: str, usuario=None):
         conn.close()
 
 
-def _pendentes(conn, fid=None):
+def _mes(r) -> str:
+    """Mês do vencido para a rodada: o do REGISTRO, como na tela e no relatório."""
+    return (r["criado_em"] or "")[:7]
+
+
+def _pendentes(conn, fid=None, mes=None):
     sql = ("SELECT * FROM vencidos WHERE excluido_em IS NULL AND baixa_status='pendente' "
            "AND COALESCE(nota_situacao, '') IN (?,?,?)")
     args = list(LIVRES)
     if fid is not None:
         sql += " AND fornecedor_id = ?"
         args.append(fid)
+    if mes is not None:
+        sql += " AND substr(criado_em, 1, 7) = ?"
+        args.append(mes)
     return [dict(r) for r in conn.execute(sql + " ORDER BY criado_em", args)]
 
 
@@ -111,13 +129,15 @@ def _item(r):
     cb = (r["codigo_barras"] or "").strip()
     return {"id": r["id"], "produto": r["produto"], "codigo_barras": cb,
             "quantidade": r["quantidade"], "fornecedor": r["fornecedor"] or "",
+            "mes": _mes(r),
             "situacao": r.get("nota_situacao") or "", "detalhe": r.get("nota_detalhe") or "",
             "no_catalogo": _no_catalogo(cb) if cb else False,
             "sem_codigo": not cb}
 
 
 def montar_rodada() -> dict:
-    """Grupos por fornecedor + o que está travado e por quê."""
+    """Grupos por (fornecedor, mês) + os meses com pendência + o que está
+    travado e por quê. Quem escolhe os meses da rodada é a tela; aqui sai tudo."""
     conn = _conn()
     try:
         pend = _pendentes(conn)
@@ -133,21 +153,31 @@ def montar_rodada() -> dict:
         if not fid:
             sem_fornecedor.append(_item(r))
             continue
-        grupos.setdefault(fid, []).append(r)
-    saida = []
-    for fid, rs in grupos.items():
-        f = _fornecedor(fid) or {}
+        grupos.setdefault((fid, _mes(r)), []).append(r)
+    saida, cadastro = [], {}
+    for (fid, mes), rs in grupos.items():
+        if fid not in cadastro:
+            cadastro[fid] = _fornecedor(fid) or {}
+        f = cadastro[fid]
         itens = [_item(r) for r in rs]
         saida.append({
+            "chave": f"{fid}|{mes}",
             "fornecedor_id": fid,
+            "mes": mes,
+            "mes_rotulo": v.rotulo_mes(mes),
             "nome": f.get("nome") or rs[0]["fornecedor"] or "(fornecedor)",
             "numero": f.get("numero") or "",
             "destino": dest.get(fid, DESTINO_PADRAO),
             "itens": itens,
             "incluiveis": sum(1 for i in itens if not i["sem_codigo"]),
         })
-    saida.sort(key=lambda g: g["nome"].upper())
-    return {"grupos": saida, "sem_fornecedor": sem_fornecedor,
+    saida.sort(key=lambda g: (g["mes"], g["nome"].upper()))
+    contagem = {}
+    for r in pend:
+        contagem[_mes(r)] = contagem.get(_mes(r), 0) + 1
+    meses = [{"mes": m, "rotulo": v.rotulo_mes(m), "itens": n}
+             for m, n in sorted(contagem.items())]
+    return {"grupos": saida, "meses": meses, "sem_fornecedor": sem_fornecedor,
             "andamento": [_item(r) | {"pedido": r.get("nota_pedido") or ""} for r in andamento],
             "maquinas": _maquinas()}
 
@@ -179,10 +209,37 @@ def abrir_nota(fid: str, usuario: str, maquina: str = ""):
 
 
 # ── passo 2: incluir (depois da conferência da pessoa) ───────────────────────
-def incluir(fid: str, pedido_abrir: int, usuario: str, maquina: str = "",
+def _chave_nota(nota: dict) -> str:
+    nota = nota or {}
+    return str(nota.get("lancamento") or nota.get("numero") or "").strip()
+
+
+def _meses_da_nota(conn, fid: str, nota: dict) -> set:
+    """Meses dos vencidos deste fornecedor que já estão (ou podem estar) nesta
+    nota: incluídos, com o agente ou esperando conferência."""
+    chave = _chave_nota(nota)
+    meses = set()
+    if not chave:
+        return meses
+    for r in conn.execute(
+            "SELECT criado_em, nota_numero FROM vencidos WHERE fornecedor_id=? "
+            "AND excluido_em IS NULL AND nota_situacao IN ('incluido','em_andamento','a_conferir')",
+            (fid,)):
+        try:
+            outra = json.loads(r["nota_numero"] or "{}")
+        except (ValueError, TypeError):
+            continue
+        if _chave_nota(outra) == chave:
+            meses.add(_mes(r))
+    return meses
+
+
+def incluir(fid: str, mes: str, pedido_abrir: int, usuario: str, maquina: str = "",
             simular: bool = False):
-    """Confere o pedido de abrir, reserva os vencidos e cria o pedido de
-    inclusão. Devolve (ok, msg, pedido)."""
+    """Confere o pedido de abrir, reserva os vencidos DAQUELE MÊS e cria o
+    pedido de inclusão. Devolve (ok, msg, pedido)."""
+    if not _MES_RE.match(mes or ""):
+        return False, "Escolha o mês dos vencidos a incluir.", None
     ag = _agente()
     f = _fornecedor(fid)
     if not f or not f.get("numero"):
@@ -202,13 +259,24 @@ def incluir(fid: str, pedido_abrir: int, usuario: str, maquina: str = "",
     if not conferir:
         return False, "A nota aberta não tem número nem lançamento para conferir.", None
 
+    conn = _conn()
+    try:
+        outros = _meses_da_nota(conn, fid, nota) - {mes}
+    finally:
+        conn.close()
+    if outros:
+        return False, (f"A {_ref_nota(nota)} já recebeu vencidos de "
+                       + ", ".join(v.rotulo_mes(m) for m in sorted(outros))
+                       + f". Vencidos de {v.rotulo_mes(mes)} não entram nela: feche essa nota e "
+                       "crie uma nota de vencido nova no ERP para este mês."), None
+
     # reserva: UPDATE condicional -> só entra quem ainda está livre
     marca = f"reserva-{v._uid()}"
     conn = _conn()
     try:
-        ids = [r["id"] for r in _pendentes(conn, fid) if (r["codigo_barras"] or "").strip()]
+        ids = [r["id"] for r in _pendentes(conn, fid, mes) if (r["codigo_barras"] or "").strip()]
         if not ids:
-            return False, "Nenhum vencido deste fornecedor para incluir.", None
+            return False, f"Nenhum vencido deste fornecedor em {v.rotulo_mes(mes)} para incluir.", None
         marcas = ",".join("?" * len(ids))
         conn.execute(
             f"UPDATE vencidos SET nota_situacao='em_andamento', nota_pedido=?, nota_em=?, "
@@ -241,7 +309,7 @@ def incluir(fid: str, pedido_abrir: int, usuario: str, maquina: str = "",
                          "VALUES (?,?,?)", [(pid, i, r["id"]) for i, r in enumerate(itens)])
         for r in itens:
             v._auditar(conn, "vencido", r["id"], "incluir_nota",
-                       f"pedido #{pid} ao agente · {_ref_nota(nota)}"
+                       f"pedido #{pid} ao agente · {_ref_nota(nota)} · {v.rotulo_mes(mes)}"
                        + (" · SIMULACAO" if simular else ""), usuario)
         conn.commit()
     finally:
@@ -336,6 +404,11 @@ def aplicar_resultado(pedido_id) -> dict:
             # nenhuma máquina pegou: o ERP não foi tocado
             for vid in list(vivos):
                 marcar(vid, "livre", f"pedido {p['estado']}: {p.get('erro') or ''}")
+        elif (p.get("erro") or "").startswith(NADA_GRAVADO):
+            # o agente falhou na conferência, antes de digitar qualquer item
+            # (tela errada, nota fechada, ERP que não responde): nada entrou
+            for vid in list(vivos):
+                marcar(vid, "livre", p["erro"])
         else:
             # erro depois de pego: não se sabe o que entrou -> alguém confere
             for vid in list(vivos):
@@ -344,6 +417,29 @@ def aplicar_resultado(pedido_id) -> dict:
     finally:
         conn.close()
     return {"ok": True, "pedido": p, "aplicado": contagem}
+
+
+def liberar_pedido(pedido_id, usuario=None):
+    """"Não entrou" para todos os itens `a_conferir` de um pedido de uma vez
+    (a pessoa conferiu a nota no ERP). Devolve (ok, msg, quantos)."""
+    pid = str(pedido_id)
+    conn = _conn()
+    try:
+        ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM vencidos WHERE nota_pedido=? AND nota_situacao='a_conferir' "
+            "AND excluido_em IS NULL", (pid,))]
+        if not ids:
+            return False, "Nenhum item deste pedido aguardando conferência.", 0
+        conn.execute("UPDATE vencidos SET nota_situacao=NULL, nota_pedido=NULL, "
+                     "nota_detalhe=NULL, nota_em=? WHERE nota_pedido=? "
+                     "AND nota_situacao='a_conferir'", (v._agora(), pid))
+        for vid in ids:
+            v._auditar(conn, "vencido", vid, "nota_liberar",
+                       f"conferido no ERP: pedido #{pid} nao entrou na nota", usuario)
+        conn.commit()
+        return True, f"{len(ids)} item(ns) liberados para a próxima rodada.", len(ids)
+    finally:
+        conn.close()
 
 
 def liberar_conferido(id_vencido: str, usuario=None):

@@ -6,7 +6,7 @@ Blueprint da reclassificação merceológica (/reclassificacao).
 Duas plateias no mesmo módulo:
 
 * **As pessoas**, pelo navegador: o coordenador importa a planilha, acompanha o
-  lote, gera tokens, LIGA E PARA o agente de cada máquina e vê o log dele; o
+  lote, LIGA E PARA o agente de cada máquina e vê o log dele; o
   curador confirma o destino dos produtos em `/curadoria` — de TODOS eles, pois
   nada é gravado no ERP sem uma pessoa passar antes. Protegido pela guarda de
   login do sistema, como todo o resto.
@@ -57,12 +57,40 @@ def _guarda_token():
         return None
     if ep == "api_ping":               # serve para testar o endereço
         return None
-    nome = r.banco().operador_do_token(request.headers.get("X-Token", ""))
+    token = request.headers.get("X-Token", "")
+    nome = r.banco().operador_do_token(token) or _operador_da_maquina(token)
     if not nome:
         return jsonify({"ok": False,
                         "erro": "token do operador ausente ou revogado"}), 401
     request.operador = nome
     return None
+
+
+_maquinas_vistas: set = set()
+
+
+def _operador_da_maquina(token: str) -> str | None:
+    """Token de MÁQUINA (pareada e aprovada em /agente): o operador passa a ser
+    a própria máquina. É o caminho normal hoje; o token por operador ficou só
+    para as instalações antigas. Revogar a máquina em /agente corta os dois
+    agentes dela."""
+    try:
+        from scripts import agente_erp
+        nome = agente_erp.banco().maquina_do_token(token)
+    except Exception:  # noqa: BLE001 — módulo do agente fora do ar
+        return None
+    if nome and nome not in _maquinas_vistas:
+        r.banco().garantir_operador(nome)
+        _maquinas_vistas.add(nome)
+    return nome
+
+
+def _maquinas_com_acesso() -> set:
+    try:
+        from scripts import agente_erp
+        return {m["nome"] for m in agente_erp.banco().listar_maquinas() if m["tem_token"]}
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def _corpo() -> dict:
@@ -197,8 +225,7 @@ def index():
                             indent=1) if b.ler_config("mapa_erp") else "",
         estrutura_ok=est.estrutura().carregada,
         estrutura_erro=est.estrutura().erro,
-        token_novo=request.args.get("token", ""),
-        nome_novo=request.args.get("nome", ""),
+        maquinas_ok=_maquinas_com_acesso(),
         aviso=request.args.get("aviso", ""),
     )
 
@@ -223,16 +250,6 @@ def importar():
                f"({res['sem_destino']:,} deles sem sugestão de destino) — "
                "nenhum produto é liberado sem confirmação."
                ).replace(",", ".")))
-
-
-@reclassificacao_bp.post("/operadores")
-def criar_operador():
-    nome = (request.form.get("nome") or "").strip()
-    try:
-        novo = r.banco().criar_operador(nome, _usuario())
-    except ValueError as e:
-        return redirect(url_for(".index", aviso=str(e)))
-    return redirect(url_for(".index", token=novo["token"], nome=novo["nome"]))
 
 
 @reclassificacao_bp.post("/operadores/revogar")

@@ -5,9 +5,10 @@ Blueprint do agente geral do ERP (/agente).
 
 Duas plateias, como na reclassificação:
 
-* **As pessoas**, pelo navegador (guarda de sessão normal): geram o token de
-  cada máquina, ligam/pausam, pedem tarefas ("abrir a última nota") e leem o
-  resultado e o log.
+* **As pessoas**, pelo navegador (guarda de sessão normal + ACESSO AO AGENTE,
+  ver `auth_routes.ENDPOINTS_*`): ligam/pausam, pedem tarefas ("abrir a última
+  nota") e leem o resultado e o log. O admin aprova as máquinas que pedem
+  acesso e revoga as que não devem mais ter.
 * **O agente**, por HTTP com `X-Token`: endpoints `api_*`, isentos da guarda de
   sessão via `PREFIXOS_PUBLICOS` (auth_routes.py) porque têm guarda própria
   logo abaixo. **Nenhum endpoint das pessoas pode se chamar `api_*`.**
@@ -35,7 +36,9 @@ def _corpo() -> dict:
 @agente_bp.before_request
 def _guarda_token():
     ep = (request.endpoint or "").rsplit(".", 1)[-1]
-    if not ep.startswith("api_") or ep == "api_ping":
+    # api_parear é aberta DE PROPÓSITO: é por ela que a máquina sem token pede
+    # um. Não entrega nada sem a aprovação do admin e sem a chave do pedido.
+    if not ep.startswith("api_") or ep in ("api_ping", "api_parear"):
         return None
     nome = ag.banco().maquina_do_token(request.headers.get("X-Token", ""))
     if not nome:
@@ -48,6 +51,20 @@ def _guarda_token():
 @agente_bp.get("/api/ping")
 def api_ping():
     return jsonify({"ok": True, "servidor": "AgenteGeral/1.0", "agora": time.time()})
+
+
+@agente_bp.post("/api/parear")
+def api_parear():
+    """A máquina pede acesso e volta aqui a cada poucos segundos até o admin
+    decidir. Serve aos dois agentes (geral e reclassificação): o token é da
+    MÁQUINA."""
+    d = _corpo()
+    try:
+        return jsonify({"ok": True, **ag.banco().solicitar_pareamento(
+            d.get("maquina", ""), d.get("chave", ""), ip=request.remote_addr or "",
+            programa=d.get("programa", ""))})
+    except ValueError as e:
+        return jsonify({"ok": False, "erro": str(e)}), 400
 
 
 @agente_bp.post("/api/status")
@@ -91,24 +108,30 @@ def index():
         maquinas=b.listar_maquinas(),
         capacidades={k: v["rotulo"] for k, v in ag.CAPACIDADES.items()},
         mapa_txt=json.dumps(mapa, ensure_ascii=False, indent=2) if mapa else "",
-        token_novo=request.args.get("token", ""), nome_novo=request.args.get("nome", ""),
         aviso=request.args.get("aviso", ""))
-
-
-@agente_bp.post("/maquina")
-def maquina_criar():
-    try:
-        m = ag.banco().criar_maquina(request.form.get("nome", ""),
-                                     request.form.get("apelido", ""), _usuario())
-    except ValueError as e:
-        return redirect(url_for(".index", aviso=str(e)))
-    return redirect(url_for(".index", token=m["token"], nome=m["nome"]))
 
 
 @agente_bp.post("/maquina/<nome>/revogar")
 def maquina_revogar(nome):
     ag.banco().revogar_maquina(nome, _usuario())
-    return redirect(url_for(".index", aviso=f"Token de {nome} revogado."))
+    return redirect(url_for(".index", aviso=f"Acesso de {nome} revogado. Se o agente "
+                            "for aberto de novo lá, ele volta a pedir acesso."))
+
+
+@agente_bp.post("/painel/api/pareamento/<int:pid>/aprovar")
+def pareamento_aprovar(pid):
+    try:
+        r = ag.banco().aprovar_pareamento(pid, _usuario())
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True, **r})
+
+
+@agente_bp.post("/painel/api/pareamento/<int:pid>/recusar")
+def pareamento_recusar(pid):
+    if not ag.banco().recusar_pareamento(pid, _usuario()):
+        return jsonify({"erro": "este pedido de acesso não está mais pendente"}), 400
+    return jsonify({"ok": True})
 
 
 @agente_bp.post("/mapa")
@@ -126,6 +149,7 @@ def mapa_gravar():
 def painel_estado():
     b = ag.banco()
     return jsonify({"maquinas": b.listar_maquinas(), "pedidos": b.listar_pedidos(25),
+                    "pareamentos": b.listar_pareamentos(),
                     "log": b.ler_log(request.args.get("maquina", ""), 80)})
 
 

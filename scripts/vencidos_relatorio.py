@@ -385,3 +385,204 @@ def gerar_excel_vencidos(rel, destino):
 
     wb.save(destino)
     return destino
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Relatório de AVISOS DE VENCIMENTO — o controle da vigília
+# ══════════════════════════════════════════════════════════════════════════════
+# Documento à parte do relatório mensal: aquele fecha o mês (o que venceu e que
+# destino teve); este olha para FRENTE e responde "o que foi avisado e está
+# para vencer, e o que fazer com cada um". Não depende do mês da tela — é
+# ancorado no dia de hoje, com um horizonte em dias.
+#
+# Regras:
+#   • Só avisos ATIVOS (não resolvidos): o resolvido já virou vencido e está no
+#     relatório mensal.
+#   • O aviso que JÁ VENCEU e não foi registrado como vencido entra SEMPRE,
+#     qualquer que seja o horizonte, numa parte própria no topo: é a falha do
+#     controle — ou o produto vendeu (e o aviso pede limpeza), ou está na
+#     gôndola vencido.
+#   • As partes seguem as faixas de urgência de `vencidos._enriquecer_aviso`
+#     (crítico ≤7d · atenção 8–30d · programado 31–90d · antecipado >90d) e só
+#     aparecem as que cabem no horizonte.
+
+HORIZONTES = [7, 15, 30, 60, 90]     # None = sem limite
+HORIZONTE_PADRAO = 30
+
+# (chave = status do aviso, menor nº de dias da faixa, título, nota)
+FAIXAS_AVISO = [
+    ("vencido", None, "Já venceram — sem registro de vencido",
+     "O prazo passou e o produto não chegou ao escritório como vencido. Conferir "
+     "na loja: se ainda está na gôndola, retirar e registrar; se vendeu tudo, o "
+     "aviso pode ser excluído."),
+    ("critico", 0, "Críticos — vencem em até 7 dias",
+     "Última janela para agir: rebaixa de preço, troca com o fornecedor ou "
+     "transferência. O que sobrar vira vencido."),
+    ("atencao", 8, "Atenção — vencem de 8 a 30 dias",
+     "Ainda dá para escoar no ritmo normal ou com promoção. Os de risco alto "
+     "pedem ação já."),
+    ("programado", 31, "Programados — vencem de 31 a 90 dias",
+     "Acompanhar. A estimativa de sobra indica quem pode precisar de promoção."),
+    ("antecipado", 91, "Antecipados — vencem em mais de 90 dias",
+     "Avisados com bastante folga; só monitorar."),
+]
+FAIXA_LABEL = {
+    "vencido": "Já venceu", "critico": "Crítico (≤7d)", "atencao": "Atenção (8–30d)",
+    "programado": "Programado (31–90d)", "antecipado": "Antecipado (>90d)",
+}
+
+
+def horizonte_valido(dias):
+    """Converte o `?dias=` da query: vazio = padrão; 'todos'/0 = sem limite."""
+    bruto = str(dias if dias is not None else "").strip().lower()
+    if not bruto:
+        return HORIZONTE_PADRAO
+    if bruto == "todos":
+        return None
+    try:
+        n = int(bruto)
+    except ValueError:
+        return HORIZONTE_PADRAO
+    if n < 0:
+        return HORIZONTE_PADRAO
+    return n or None
+
+
+def _valor_estoque(a):
+    return round((a.get("quantidade") or 0) * (a.get("custo") or 0), 2)
+
+
+def _por_fornecedor_avisos(avisos):
+    grupos = {}
+    for a in avisos:
+        nome = (a.get("fornecedor") or "").strip() or "(sem fornecedor)"
+        g = grupos.setdefault(nome.upper(), {
+            "fornecedor": nome, "avisos": 0, "quantidade": 0.0, "valor": 0.0,
+            "sobra": 0.0, "valor_sobra": 0.0, "criticos": 0, "vencidos": 0})
+        g["avisos"] += 1
+        g["quantidade"] += a.get("quantidade") or 0
+        g["valor"] += _valor_estoque(a)
+        if a.get("risco"):
+            g["sobra"] += a["risco"]["sobra"]
+            g["valor_sobra"] += a["risco"]["valor_sobra"]
+        if a.get("status") == "critico":
+            g["criticos"] += 1
+        elif a.get("status") == "vencido":
+            g["vencidos"] += 1
+    for g in grupos.values():
+        g["quantidade"] = round(g["quantidade"], 3)
+        g["sobra"] = round(g["sobra"], 1)
+        g["valor"] = round(g["valor"], 2)
+        g["valor_sobra"] = round(g["valor_sobra"], 2)
+    return sorted(grupos.values(), key=lambda g: (-g["valor"], g["fornecedor"]))
+
+
+def montar_relatorio_avisos(horizonte=HORIZONTE_PADRAO):
+    """Avisos ativos que vencem em até `horizonte` dias a partir de hoje (None =
+    todos), mais os que já venceram sem registro. Leitura pura."""
+    hoje = v._hoje()
+    ativos_todos = v.listar_avisos(incluir_resolvidos=False, limite=0, ordem="vencimento")
+
+    def entra(a):
+        if a["status"] == "vencido" or horizonte is None:
+            return True
+        d = a.get("dias_para_vencer")
+        return d is not None and d <= horizonte
+
+    avisos = [a for a in ativos_todos if entra(a)]
+    for a in avisos:
+        a["valor_estoque"] = _valor_estoque(a)
+        a["faixa_label"] = FAIXA_LABEL.get(a["status"], a["status"])
+    # mais urgente primeiro; empatou no dia, quem tem mais sobra sobe
+    avisos.sort(key=lambda a: (a.get("data_vencimento") or "",
+                               -((a.get("risco") or {}).get("sobra") or 0)))
+
+    partes = []
+    for chave, desde, titulo, nota in FAIXAS_AVISO:
+        # faixa inteira além do horizonte não é parte deste relatório
+        if desde is not None and horizonte is not None and desde > horizonte:
+            continue
+        itens = [a for a in avisos if a["status"] == chave]
+        partes.append({"chave": chave, "titulo": titulo, "nota": nota,
+                       "itens": itens, "totais": _totais_avisos(itens)})
+
+    # "a vencer" = o que ainda dá para salvar; o já vencido tem conta própria
+    a_vencer = [a for a in avisos if a["status"] != "vencido"]
+    t = _totais_avisos(a_vencer)
+    ja_venceram = [a for a in avisos if a["status"] == "vencido"]
+    criticos = [a for a in avisos if a["status"] == "critico"]
+
+    sobra_rk = sorted((a for a in a_vencer
+                       if a.get("risco") and a["risco"]["valor_sobra"] > 0),
+                      key=lambda a: -a["risco"]["valor_sobra"])
+    por_forn = _por_fornecedor_avisos(avisos)
+    return {
+        "hoje":       hoje,
+        "horizonte":  horizonte,
+        "escopo":     (f"vencendo nos próximos {horizonte} dias" if horizonte
+                       else "todos os avisos ativos"),
+        "gerado_em":  datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "itens":      avisos,
+        "partes":     partes,
+        "por_fornecedor": por_forn,
+        "resumo": {
+            "a_vencer":       t["qtd"],
+            "quantidade":     t["quantidade"],
+            "valor":          t["valor"],
+            "sobra":          t["sobra"],
+            "valor_sobra":    t["valor_sobra"],
+            "alto":           t["alto"],
+            "sem_estimativa": t["sem_estimativa"],
+            "criticos":       len(criticos),
+            "criticos_valor_sobra": round(sum(a["risco"]["valor_sobra"]
+                                              for a in criticos if a.get("risco")), 2),
+            "criticos_alto":  sum(1 for a in criticos
+                                  if (a.get("risco") or {}).get("nivel") == "alto"),
+            "ja_venceram":    len(ja_venceram),
+            "ja_venceram_valor": round(sum(a["valor_estoque"] for a in ja_venceram), 2),
+            "fora_prazo":     sum(1 for a in avisos if not a.get("no_prazo")),
+        },
+        "rankings": {
+            "fornecedores": por_forn[:RANKING_LIMITE],
+            "sobra":        sobra_rk[:RANKING_LIMITE],
+        },
+    }
+
+
+# Excel do relatório de avisos: a lista inteira (com a faixa, para filtrar) e o
+# resumo por fornecedor — o que se leva para negociar a troca.
+COLUNAS_RELATORIO_AVISOS = (COLUNAS_AVISOS[:5]
+                            + [("Faixa", lambda a: a.get("faixa_label") or "", 20, None)]
+                            + COLUNAS_AVISOS[5:])
+
+COLUNAS_FORN_AVISOS = [
+    ("Fornecedor",        lambda g: g["fornecedor"],    36, None),
+    ("Avisos",            lambda g: g["avisos"],        10, "#,##0"),
+    ("Quantidade",        lambda g: g["quantidade"],    12, _XL_QTD),
+    ("Valor do estoque",  lambda g: g["valor"],         16, _XL_MOEDA),
+    ("Sobra estimada",    lambda g: g["sobra"],         15, '#,##0.0'),
+    ("Valor da sobra",    lambda g: g["valor_sobra"],   15, _XL_MOEDA),
+    ("Críticos (≤7d)",    lambda g: g["criticos"],      13, "#,##0"),
+    ("Já venceram",       lambda g: g["vencidos"],      13, "#,##0"),
+]
+_SOMAR_FORN = ("Avisos", "Quantidade", "Valor do estoque", "Sobra estimada",
+               "Valor da sobra", "Críticos (≤7d)", "Já venceram")
+
+
+def gerar_excel_avisos(rel, destino):
+    """Planilha do relatório de avisos (`rel` = `montar_relatorio_avisos`)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Avisos"
+    titulo = (f"Avisos de vencimento — {rel['escopo']} — {len(rel['itens'])} aviso(s) "
+              f"— gerado em {rel['gerado_em']}")
+    _escrever_aba(ws, rel["itens"], COLUNAS_RELATORIO_AVISOS, titulo, _SOMAR_AVISOS)
+
+    ws = wb.create_sheet()
+    ws.title = "Por fornecedor"
+    titulo = (f"Avisos por fornecedor — {rel['escopo']} — "
+              f"{len(rel['por_fornecedor'])} fornecedor(es)")
+    _escrever_aba(ws, rel["por_fornecedor"], COLUNAS_FORN_AVISOS, titulo, _SOMAR_FORN)
+
+    wb.save(destino)
+    return destino

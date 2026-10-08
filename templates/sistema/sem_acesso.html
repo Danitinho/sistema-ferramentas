@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sem acesso — Sistema{% endblock %}
+{% block header_title %}Sem acesso{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Sem acesso{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="empty-state">
+    <p style="font-weight:650;margin:0 0 8px">{{ msg }}</p>
+    <p style="color:var(--muted);font-size:14px;margin:0 0 16px">
+      Quem libera o acesso é o administrador, em Sistema › Usuários.</p>
+    <a class="btn btn-secondary" href="/" style="width:auto">Voltar ao menu</a>
+  </div>
+</div>
+{% endblock %}

@@ -22,9 +22,13 @@ Regras:
     esperando uma máquina desligada não pode disparar horas depois, com a tela
     de outra pessoa na frente.
   • Capacidade que GRAVA no ERP exige `autorizado_por` (uma pessoa).
+  • Ninguém gera nem cola token: a máquina PEDE acesso sozinha (`/api/parear`)
+    e o admin aprova no painel. O token volta para quem guarda a CHAVE daquele
+    pedido e para mais ninguém — ver `solicitar_pareamento`.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -86,6 +90,23 @@ CREATE TABLE IF NOT EXISTS log (
 );
 CREATE INDEX IF NOT EXISTS ix_ag_log ON log(maquina, id);
 
+-- Pedidos de acesso das máquinas (pareamento). A máquina se apresenta com o
+-- nome do Windows e uma CHAVE aleatória que só ela conhece; guarda-se o hash.
+CREATE TABLE IF NOT EXISTS pareamentos (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    maquina      TEXT NOT NULL,
+    chave_hash   TEXT NOT NULL UNIQUE,
+    ip           TEXT,
+    programa     TEXT,
+    pedido_em    TEXT,
+    visto_em     REAL,
+    estado       TEXT NOT NULL DEFAULT 'pendente',  -- pendente|aprovado|entregue|recusado
+    decidido_em  TEXT,
+    decidido_por TEXT,
+    token        TEXT       -- só entre aprovar e a máquina buscar; depois NULL
+);
+CREATE INDEX IF NOT EXISTS ix_ag_par ON pareamentos(estado);
+
 CREATE TABLE IF NOT EXISTS config (
     chave TEXT PRIMARY KEY,
     valor TEXT,
@@ -117,6 +138,9 @@ PRAZO_PEGAR_S = 120        # pedido que ninguém pegou em 2 min não vale mais
 TETO_EXECUCAO_S = 300      # pego e sem resposta em 5 min = a máquina travou
 VIVO_S = 30                # o agente fala a cada ~2 s; 30 s calado = sem contato
 APARA_LOG = 600            # linhas de log guardadas por máquina
+PAREAR_MAX_PENDENTES = 20  # a rota de pareamento é aberta: teto contra enxurrada
+PAREAR_VALIDADE_S = 7 * 86400   # pedido de acesso esquecido some em 7 dias
+PAREAR_VIVO_S = 60         # a máquina repete o pedido a cada ~5 s enquanto espera
 
 
 def _so_digitos(v) -> str:
@@ -309,7 +333,7 @@ class BancoAgente:
                 self.con.execute(
                     "INSERT INTO maquinas (nome, apelido, token, criado_em, criado_por)"
                     " VALUES (?,?,?,?,?)", (nome, apelido.strip(), token, _agora(), por))
-            self._auditar(por, "maquina", nome, "token", "token gerado")
+            self._auditar(por, "maquina", nome, "token", "acesso aprovado")
             self.con.commit()
         return {"nome": nome, "token": token}
 
@@ -331,6 +355,93 @@ class BancoAgente:
                 "SELECT nome FROM maquinas WHERE token=? AND revogado_em IS NULL",
                 (token,)).fetchone()
         return r["nome"] if r else None
+
+    # ── pareamento: a máquina pede acesso, o admin aprova ────────────────────
+    @staticmethod
+    def _hash_chave(chave: str) -> str:
+        return hashlib.sha256(chave.encode("utf-8")).hexdigest()
+
+    def solicitar_pareamento(self, maquina: str, chave: str, ip: str = "",
+                             programa: str = "") -> dict:
+        """Chamado pela máquina, sem token, repetidamente até ser decidido.
+
+        Devolve {estado} e, UMA vez, {token}. A chave é o que impede outra
+        máquina de levar o token de um pedido já aprovado: ela é gerada na
+        máquina e nunca sai de lá, e aqui só fica o hash. Quem aprova vê nome,
+        IP e hora — um nome repetido com chave diferente é OUTRO pedido, na
+        tela ao lado do primeiro, nunca substitui o dele.
+        """
+        maquina = re.sub(r"[^A-Z0-9._-]", "", (maquina or "").strip().upper())[:60]
+        chave = (chave or "").strip()
+        if not maquina:
+            raise ValueError("nome do computador ausente")
+        if len(chave) < 20:
+            raise ValueError("chave de pareamento curta demais")
+        h = self._hash_chave(chave)
+        with self.lock:
+            self.con.execute("DELETE FROM pareamentos WHERE estado='pendente' AND visto_em < ?",
+                             (time.time() - PAREAR_VALIDADE_S,))
+            r = self.con.execute("SELECT * FROM pareamentos WHERE chave_hash=?", (h,)).fetchone()
+            if r is None:
+                n = self.con.execute("SELECT COUNT(*) FROM pareamentos WHERE estado='pendente'"
+                                     ).fetchone()[0]
+                if n >= PAREAR_MAX_PENDENTES:
+                    self.con.commit()
+                    return {"estado": "lotado"}
+                self.con.execute(
+                    "INSERT INTO pareamentos (maquina, chave_hash, ip, programa, pedido_em,"
+                    " visto_em) VALUES (?,?,?,?,?,?)",
+                    (maquina, h, str(ip)[:60], str(programa)[:40], _agora(), time.time()))
+                self._auditar("", "pareamento", maquina, "pedir", f"ip {ip}")
+                self.con.commit()
+                return {"estado": "pendente"}
+            self.con.execute("UPDATE pareamentos SET visto_em=?, ip=? WHERE id=?",
+                             (time.time(), str(ip)[:60], r["id"]))
+            out = {"estado": r["estado"], "maquina": r["maquina"]}
+            if r["estado"] == "aprovado" and r["token"]:
+                out["token"] = r["token"]
+                self.con.execute("UPDATE pareamentos SET estado='entregue', token=NULL WHERE id=?",
+                                 (r["id"],))
+                self._log(r["maquina"], "acesso aprovado: token entregue a maquina")
+            self.con.commit()
+            return out
+
+    def aprovar_pareamento(self, pid: int, por: str) -> dict:
+        with self.lock:                 # RLock: criar_maquina reentra
+            r = self.con.execute("SELECT * FROM pareamentos WHERE id=?", (pid,)).fetchone()
+            if r is None or r["estado"] != "pendente":
+                raise ValueError("este pedido de acesso não está mais pendente")
+            m = self.criar_maquina(r["maquina"], por=por)    # (re)gera o token
+            self.con.execute(
+                "UPDATE pareamentos SET estado='aprovado', token=?, decidido_em=?, decidido_por=?"
+                " WHERE id=?", (m["token"], _agora(), por, pid))
+            self._auditar(por, "pareamento", r["maquina"], "aprovar", f"ip {r['ip']}")
+            self.con.commit()
+        return {"maquina": r["maquina"]}
+
+    def recusar_pareamento(self, pid: int, por: str) -> bool:
+        with self.lock:
+            cur = self.con.execute(
+                "UPDATE pareamentos SET estado='recusado', decidido_em=?, decidido_por=?"
+                " WHERE id=? AND estado='pendente'", (_agora(), por, pid))
+            if cur.rowcount:
+                self._auditar(por, "pareamento", pid, "recusar")
+            self.con.commit()
+            return bool(cur.rowcount)
+
+    def listar_pareamentos(self) -> list[dict]:
+        with self.lock:
+            linhas = [dict(r) for r in self.con.execute(
+                "SELECT id, maquina, ip, programa, pedido_em, visto_em FROM pareamentos"
+                " WHERE estado='pendente' ORDER BY id")]
+        agora = time.time()
+        existentes = {m["nome"] for m in self.listar_maquinas() if m["tem_token"]}
+        for p in linhas:
+            p["esperando"] = bool(p["visto_em"]) and agora - p["visto_em"] < PAREAR_VIVO_S
+            p["pedido_fmt"] = data_fmt(p["pedido_em"])
+            # aprovar troca o token da máquina que já tem acesso com esse nome
+            p["substitui"] = p["maquina"] in existentes
+        return linhas
 
     def definir_comando(self, nome: str, comando: str, por: str = "") -> None:
         if comando not in (ATIVO, PAUSADO):

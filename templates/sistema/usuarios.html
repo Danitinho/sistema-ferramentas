@@ -5,7 +5,7 @@
 
 {% block header_actions %}
 <button class="btn btn-secondary btn-sm" onclick="abrirModal('modal-senha')">Trocar minha senha</button>
-<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-user')">+ Novo usuário</button>
+{% if perm.admin %}<button class="btn btn-primary btn-sm" onclick="abrirModal('modal-user')">+ Novo usuário</button>{% endif %}
 {% endblock %}
 
 {% block extra_head %}
@@ -22,6 +22,12 @@
   .u-eu { font-size: 10.5px; background: var(--accent-soft); color: var(--accent);
     padding: 2px 8px; border-radius: 10px; font-weight: 750; text-transform: uppercase;
     letter-spacing: .05em; }
+  .u-papel { font-size: 10.5px; background: var(--surface-3); color: var(--ink-2);
+    padding: 2px 8px; border-radius: 10px; font-weight: 750; text-transform: uppercase;
+    letter-spacing: .05em; }
+  .u-acesso { display: flex; align-items: center; gap: 7px; font-size: 13px;
+    color: var(--ink-2); white-space: nowrap; cursor: pointer; }
+  .u-acesso input { width: 16px; height: 16px; margin: 0; }
 </style>
 {% endblock %}
 
@@ -31,16 +37,32 @@
     <span class="ttl">Usuários do sistema</span>
     <span class="hint">{{ usuarios | length }} conta(s) · cada ação fica registrada por usuário</span>
   </div>
+  <div class="card-body" style="font-size:13px;color:var(--muted);border-bottom:1px solid var(--line)">
+    <b>Acesso ao agente</b> = mandar o robô digitar no RADGe (painel do agente, “Incluir nas
+    notas” dos vencidos, ligar e pausar a reclassificação). O administrador sempre tem;
+    {% if perm.admin %}para os demais, marque aqui.{% else %}para os demais, quem libera é o administrador.{% endif %}
+  </div>
   {% for u in usuarios %}
   <div class="u-row">
     <span class="u-av">{{ (u.nome or u.usuario)[0] | upper }}</span>
     <div class="u-info">
       <div class="u-nome">{{ u.nome or u.usuario }}
+        {% if u.papel == 'admin' %}<span class="u-papel">admin</span>{% endif %}
         {% if u.usuario == atual %}<span class="u-eu">você</span>{% endif %}
       </div>
-      <div class="u-sub num">{{ u.usuario }} · {{ u.papel }} · desde {{ u.criado_em }}</div>
+      <div class="u-sub num">{{ u.usuario }} · desde {{ u.criado_em }}</div>
     </div>
-    {% if u.usuario != atual %}
+    {% if u.papel == 'admin' %}
+    <span class="u-acesso" style="cursor:default">acesso ao agente: sempre</span>
+    {% elif perm.admin %}
+    <label class="u-acesso" title="Pode mandar o agente trabalhar no ERP">
+      <input type="checkbox" {% if u.acesso_agente %}checked{% endif %}
+             onchange="acessoAgente('{{ u.usuario }}', this)"> acesso ao agente
+    </label>
+    {% else %}
+    <span class="u-acesso" style="cursor:default">acesso ao agente: {{ "sim" if u.acesso_agente else "não" }}</span>
+    {% endif %}
+    {% if perm.admin and u.usuario != atual %}
     <button class="btn-lixo" title="Excluir usuário" onclick="excluir('{{ u.usuario }}')">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 4h11M5.5 4V2.5h4V4M4 4l.8 9h6.4l.8-9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
@@ -59,6 +81,10 @@
       <label>Usuário <em>*</em></label><input type="text" id="n-usuario">
       <label>Senha <em>*</em></label><input type="password" id="n-senha">
       <div class="fhelp">Mínimo de 4 caracteres.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <input type="checkbox" id="n-agente" style="width:16px;height:16px;margin:0">
+        Acesso ao agente do ERP
+      </label>
       <div class="result-box error" id="msg-user" style="margin-top:12px">
         <div class="result-value error" id="msg-user-txt"></div>
       </div>
@@ -96,7 +122,8 @@ const $ = id => document.getElementById(id);
 async function criar() {
   const msg = $("msg-user"); msg.classList.remove("show");
   const r = await postJSON("/sistema/usuarios/api/criar", {
-    nome: $("n-nome").value.trim(), usuario: $("n-usuario").value.trim(), senha: $("n-senha").value });
+    nome: $("n-nome").value.trim(), usuario: $("n-usuario").value.trim(), senha: $("n-senha").value,
+    acesso_agente: $("n-agente").checked });
   if (r.ok) location.reload();
   else { $("msg-user-txt").textContent = r.msg; msg.classList.add("show"); }
 }
@@ -105,6 +132,12 @@ async function trocarSenha() {
   const r = await postJSON("/sistema/usuarios/api/senha", { senha: $("s-senha").value });
   if (r.ok) { alert("Senha alterada."); fecharModal("modal-senha"); }
   else { $("msg-senha-txt").textContent = r.msg; msg.classList.add("show"); }
+}
+async function acessoAgente(u, caixa) {
+  caixa.disabled = true;
+  const r = await postJSON("/sistema/usuarios/api/acesso-agente", { usuario: u, permitir: caixa.checked });
+  caixa.disabled = false;
+  if (!r.ok) { caixa.checked = !caixa.checked; alert(r.msg || r.erro); }
 }
 async function excluir(u) {
   if (!confirm(`Excluir o usuário "${u}"?`)) return;

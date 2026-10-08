@@ -12,10 +12,6 @@
   .tbl tr:last-child td { border-bottom: none; }
   .aviso { background: var(--accent-soft); color: var(--accent); font-weight: 600;
            padding: 12px 16px; border-radius: var(--radius); margin-bottom: 18px; font-size: 13.5px; }
-  .token-box { background: var(--surface-2); border: 1px dashed var(--line-2);
-               border-radius: var(--radius); padding: 16px; margin-bottom: 18px; }
-  .token-val { font-family: var(--mono); font-size: 15px; font-weight: 650; word-break: break-all;
-               display: block; margin: 8px 0; color: var(--ink); }
   .ev { font-size: 12.5px; color: var(--muted); }
   .linha-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   .linha-form > div { flex: 1 1 180px; }
@@ -51,15 +47,15 @@
 {% block content %}
 {% if aviso %}<div class="aviso full">{{ aviso }}</div>{% endif %}
 
-{% if token_novo %}
-<div class="token-box full">
-  <div style="font-weight:650">Token da máquina <b>{{ nome_novo }}</b></div>
-  <code class="token-val">{{ token_novo }}</code>
-  <div class="ev">Cole no <code>agente/config.json</code> daquela máquina, no campo
-    <b>token_geral</b>, e rode <code>agente\iniciar_geral.bat</code>. Ele aparece
-    <b>uma vez só</b>; gerar de novo invalida o anterior.</div>
+<!-- Máquinas pedindo acesso (pareamento) -->
+<div class="card card-flush full" id="par-card" style="display:none;border-color:var(--accent)">
+  <div class="card-head"><h3>Máquinas pedindo acesso</h3></div>
+  <div id="pareamentos"></div>
+  <div class="card-body ev" style="border-top:1px solid var(--line)">
+    Confira o nome e o IP antes de aprovar: a máquina aprovada passa a receber pedidos
+    que digitam no ERP.{% if not perm.admin %} <b>Só o administrador aprova.</b>{% endif %}
+  </div>
 </div>
-{% endif %}
 
 <!-- Pedido: abrir a última nota -->
 <div class="card full">
@@ -144,14 +140,10 @@
 <div class="card card-flush full">
   <div class="card-head"><h3>Máquinas</h3></div>
   <div id="maquinas"><div class="sem">Carregando…</div></div>
-  <div class="card-body" style="border-top:1px solid var(--line)">
-    <form method="post" action="/agente/maquina" class="linha-form">
-      <div><label>Nome do computador</label><input name="nome" placeholder="ex.: CADASTRO-PC" required></div>
-      <div><label>Apelido (opcional)</label><input name="apelido" placeholder="ex.: Cadastro"></div>
-      <div style="flex:0 0 auto"><button class="btn btn-secondary">Gerar token</button></div>
-    </form>
-    <div class="ev" style="margin-top:6px">O nome é o do Windows (Configurações › Sistema › Sobre).
-      Gerar para uma máquina que já existe troca o token dela.</div>
+  <div class="card-body ev" style="border-top:1px solid var(--line)">
+    Para instalar numa máquina nova, rode <code>agente\iniciar_geral.bat</code> (ou o da
+    reclassificação) lá: ela aparece aqui pedindo acesso e, aprovada pelo administrador,
+    começa a trabalhar sozinha — sem token nem arquivo para editar.
   </div>
 </div>
 
@@ -189,6 +181,7 @@
 <script>
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let _maquinas = [], _pedidoAtual = null;
+const ADMIN = {{ 'true' if perm.admin else 'false' }};
 
 fornecedorPicker(document.getElementById("f-forn"), {
   aoSelecionar(f) {
@@ -212,7 +205,7 @@ function desenharMaquinas(ms) {
   _maquinas = ms;
   const el = document.getElementById("maquinas");
   const ativas = ms.filter(m => m.tem_token);
-  if (!ativas.length) { el.innerHTML = '<div class="sem">Nenhuma máquina com token. Gere um abaixo.</div>'; }
+  if (!ativas.length) { el.innerHTML = '<div class="sem">Nenhuma máquina com acesso ainda.</div>'; }
   else el.innerHTML = ativas.map(m => `
     <div class="maq">
       <span class="est ${estadoClasse(m.estado)}"><span class="ponto"></span>${esc(m.estado || "—")}</span>
@@ -224,9 +217,9 @@ function desenharMaquinas(ms) {
         ${m.comando === "pausado"
           ? `<button class="btn btn-primary btn-sm" onclick="comando('${esc(m.nome)}','ativo')">Ativar</button>`
           : `<button class="btn btn-secondary btn-sm" onclick="comando('${esc(m.nome)}','pausado')">Pausar</button>`}
-        <form method="post" action="/agente/maquina/${encodeURIComponent(m.nome)}/revogar"
-              onsubmit="return confirm('Revogar o token de ${esc(m.nome)}? O agente dela para de funcionar.')">
-          <button class="btn btn-danger btn-sm">Revogar</button></form>
+        ${ADMIN ? `<form method="post" action="/agente/maquina/${encodeURIComponent(m.nome)}/revogar"
+              onsubmit="return confirm('Revogar o acesso de ${esc(m.nome)}? Os agentes dela param de funcionar.')">
+          <button class="btn btn-danger btn-sm">Revogar</button></form>` : ""}
       </div>
     </div>`).join("");
   // seletor de máquina: só as que sabem abrir nota; a viva vem primeiro
@@ -236,6 +229,29 @@ function desenharMaquinas(ms) {
   sel.innerHTML = aptas.map(m => `<option value="${esc(m.nome)}">${esc(m.apelido || m.nome)}${m.vivo ? "" : " (sem contato)"}</option>`).join("")
                   || '<option value="">nenhuma máquina</option>';
   if (atual && aptas.some(m => m.nome === atual)) sel.value = atual;
+}
+
+function desenharPareamentos(ps) {
+  document.getElementById("par-card").style.display = ps.length ? "" : "none";
+  document.getElementById("pareamentos").innerHTML = ps.map(p => `
+    <div class="maq">
+      <span class="est ${p.esperando ? "e-wa" : ""}"><span class="ponto"></span>${p.esperando ? "aguardando" : "sem contato"}</span>
+      <div>
+        <div class="maq-nome num">${esc(p.maquina)}</div>
+        <div class="maq-msg">IP <span class="num">${esc(p.ip || "?")}</span> · ${esc(p.programa || "agente")} · pediu em ${esc(p.pedido_fmt)}${p.substitui ? " · <b>já existe uma máquina com esse nome: aprovar troca o acesso dela</b>" : ""}</div>
+      </div>
+      ${ADMIN ? `<div class="maq-acts">
+        <button class="btn btn-primary btn-sm" onclick="decidirPar(${p.id}, 'aprovar', '${esc(p.maquina)}')">Aprovar</button>
+        <button class="btn btn-secondary btn-sm" onclick="decidirPar(${p.id}, 'recusar', '${esc(p.maquina)}')">Recusar</button>
+      </div>` : ""}
+    </div>`).join("");
+}
+
+async function decidirPar(id, acao, nome) {
+  if (acao === "recusar" && !confirm(`Recusar o acesso de ${nome}?`)) return;
+  const r = await postJSON(`/agente/painel/api/pareamento/${id}/${acao}`, {});
+  if (r.erro) alert(r.erro);
+  atualizar();
 }
 
 function resumoPedido(p) {
@@ -288,6 +304,7 @@ async function atualizar() {
     if (!r.ok) return;
     const d = await r.json();
     desenharMaquinas(d.maquinas); desenharPedidos(d.pedidos); desenharLog(d.log);
+    desenharPareamentos(d.pareamentos || []);
   } catch (e) {}
 }
 
