@@ -163,6 +163,17 @@ def _params_abrir_ultima(p: dict) -> dict:
     return {"tipo": tipo, "fornecedor": forn}
 
 
+BUSCA_PERDA = "%perda%vencidos"
+
+
+def _params_abrir_perda(p: dict) -> dict:
+    """A nota de perda de vencidos é da loja: só o texto do DCPOA."""
+    dcpoa = re.sub(r"\s+", " ", str(p.get("dcpoa") or BUSCA_PERDA)).strip()
+    if not dcpoa or len(dcpoa) > 60:
+        raise ValueError("texto de busca do DCPOA inválido")
+    return {"dcpoa": dcpoa}
+
+
 MAX_ITENS = 100
 
 
@@ -227,6 +238,11 @@ CAPACIDADES = {
         "rotulo": "Abrir a última nota aberta do fornecedor",
         "grava": False,
         "validar": _params_abrir_ultima,
+    },
+    "nf.abrir_perda": {
+        "rotulo": "Abrir a última nota de perda de vencidos aberta",
+        "grava": False,
+        "validar": _params_abrir_perda,
     },
     "nf.incluir_itens": {
         "rotulo": "Incluir itens na nota de entrada",

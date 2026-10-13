@@ -269,6 +269,29 @@ def rodada_incluir(fid):
     return jsonify({"ok": ok, "msg": msg, "pedido": p})
 
 
+# A nota de perda é da loja: rotas sem fornecedor ("rodada-perda", e não
+# "rodada/perda", para nunca disputar com /api/rodada/<fid>/...).
+@vencidos_bp.route("/api/rodada-perda/abrir", methods=["POST"])
+def rodada_perda_abrir():
+    from scripts import vencidos_notas as vn
+    d = request.get_json() or {}
+    ok, msg, p = vn.abrir_nota_perda(_usuario(), d.get("maquina", ""))
+    return jsonify({"ok": ok, "msg": msg, "pedido": p})
+
+
+@vencidos_bp.route("/api/rodada-perda/incluir", methods=["POST"])
+def rodada_perda_incluir():
+    from scripts import vencidos_notas as vn
+    d = request.get_json() or {}
+    try:
+        pedido_abrir = int(d.get("pedido_abrir"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "msg": "Abra a nota de perda antes de incluir."})
+    ok, msg, p = vn.incluir_perda(d.get("mes", ""), pedido_abrir, _usuario(),
+                                  d.get("maquina", ""), simular=bool(d.get("simular")))
+    return jsonify({"ok": ok, "msg": msg, "pedido": p})
+
+
 @vencidos_bp.route("/api/rodada/pedido/<int:pid>")
 def rodada_pedido(pid):
     """Acompanha um pedido; quando ele termina, aplica o resultado aos

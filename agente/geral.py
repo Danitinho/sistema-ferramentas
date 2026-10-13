@@ -20,6 +20,10 @@ Capacidades (o agente declara no /api/status; o servidor só entrega o que ele
 declarou):
   nf.abrir_ultima {tipo, fornecedor}  abre no ERP a nota ABERTA mais recente
                                       daquele fornecedor e tipo de entrada
+  nf.abrir_perda {dcpoa}              o mesmo, filtrando só pelo DCPOA
+                                      ("%perda%vencidos"): a nota de perda
+                                      de vencidos da loja
+  nf.incluir_itens {itens, nota}      inclui produtos na nota carregada
 
 Para interromper um pedido no meio, SEGURE ESC por um segundo.
 """
@@ -37,7 +41,7 @@ from agente.entradas import DriverEntradas, _data, _int
 from agente.servidor import Cliente, ErroServidor, TokenInvalido
 from agente.tecla_esc import esc_segurado
 
-VERSAO = "1.2"
+VERSAO = "1.4"
 PASTA = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -56,21 +60,36 @@ NADA_GRAVADO = "nada gravado:"
 
 
 # ── capacidades ──────────────────────────────────────────────────────────────
-def nf_abrir_ultima(ag, params):
-    """Abre a nota ABERTA mais recente (pela data de entrada) do fornecedor.
+BUSCA_PERDA = "%perda%vencidos"
 
-    Passos: tela certa -> Limpar (conferido) -> filtro tipo + fornecedor ->
-    busca -> grade -> varre as linhas (lendo cada registro) -> escolhe ->
-    posiciona -> volta ao Form -> confere fornecedor e datas.
+
+def nf_abrir_perda(ag, params):
+    """A nota de perda de vencidos é da LOJA, sem fornecedor nem tipo: acha-se
+    pelo DCPOA. Daí em diante é a mesma varredura da nota do fornecedor."""
+    return nf_abrir_ultima(ag, {"dcpoa": str(params.get("dcpoa") or BUSCA_PERDA)})
+
+
+def nf_abrir_ultima(ag, params):
+    """Abre a nota ABERTA mais recente (pela data de entrada) do fornecedor —
+    ou, com `dcpoa`, a que casa com aquele texto no DCPOA.
+
+    Passos: tela certa -> Limpar (conferido) -> filtro (tipo + fornecedor, ou
+    só o DCPOA) -> busca -> grade -> varre as linhas (lendo cada registro) ->
+    escolhe -> posiciona -> volta ao Form -> confere fornecedor e datas.
     """
-    tipo = str(params.get("tipo") or "3")
-    forn = str(params.get("fornecedor") or "")
-    if not forn:
+    dcpoa = str(params.get("dcpoa") or "")
+    tipo = "" if dcpoa else str(params.get("tipo") or "3")
+    forn = "" if dcpoa else str(params.get("fornecedor") or "")
+    if not dcpoa and not forn:
         raise ErroPedido("pedido sem fornecedor")
     drv = ag.driver()
     drv.conferir_tela()
     drv.limpar(obrigatorio=True)
-    nome = drv.filtrar(tipo, forn)
+    if dcpoa:
+        drv.filtrar_texto("dcpoa", dcpoa)
+        nome = ""                       # nota da loja: não há fornecedor a conferir
+    else:
+        nome = drv.filtrar(tipo, forn)
     caixa = drv.buscar()
     if caixa:
         ag.log(f"O ERP respondeu à busca: {caixa}")
@@ -80,11 +99,14 @@ def nf_abrir_ultima(ag, params):
     ag.log(f"{len(linhas)} nota(s) na lista, {len(abertas)} aberta(s).")
     base = {"tipo": tipo, "fornecedor": forn, "fornecedor_nome": nome,
             "total": len(linhas), "abertas": len(abertas), "linhas": linhas}
+    if dcpoa:
+        base["dcpoa"] = dcpoa
     if not abertas:
         drv.abrir_form()
         drv.limpar(obrigatorio=False)
         return {"encontrada": False, **base,
-                "msg": "nenhuma nota aberta desse tipo para esse fornecedor"}
+                "msg": (f"nenhuma nota aberta com DCPOA '{dcpoa}'" if dcpoa else
+                        "nenhuma nota aberta desse tipo para esse fornecedor")}
     # mais recente = maior data de entrada; empate, o maior lançamento
     nota = max(abertas, key=lambda l: (_data(l["entrada"]), _int(l["lancamento"])))
     drv.ir_para(nota)
@@ -253,6 +275,7 @@ def nf_incluir_itens(ag, params):
 
 CAPACIDADES = {
     "nf.abrir_ultima": nf_abrir_ultima,
+    "nf.abrir_perda": nf_abrir_perda,
     "nf.incluir_itens": nf_incluir_itens,
 }
 
@@ -269,6 +292,9 @@ class AgenteGeral:
         self.mapa_local = cfg.get("mapa_erp")
         # trava da máquina: com ela nada é gravado, diga o pedido o que disser
         self.forcar_simulacao = bool(cfg.get("forcar_simulacao"))
+        # depois de cada pedido, o foco volta ao navegador com o sistema
+        self.voltar_foco = cfg.get("voltar_foco_navegador", True) is not False
+        self.marca_navegador = cfg.get("navegador_titulo") or erp_base.MARCA_TITULO
         self.pedido_atual = None
         self.cfg = {}
         self.estado, self.msg = "iniciando", ""
@@ -405,6 +431,10 @@ class AgenteGeral:
             self.log(f"Pedido #{pid} concluido.")
         else:
             self.log(f"Pedido #{pid} falhou: {erro}")
+        # Terminou (bem ou mal): o foco volta ao navegador ANTES de entregar o
+        # resultado, para a pessoa ver a resposta e poder falar/clicar de novo
+        # sem caçar a janela (pedido do usuário, 08/10/2026).
+        self._voltar_foco()
         for tentativa in range(3):
             try:
                 self.cli.post("/agente/api/concluir",
@@ -416,6 +446,16 @@ class AgenteGeral:
                 self.log(f"Não consegui entregar o resultado do #{pid} ({e}); tentando de novo.")
                 time.sleep(3)
         self.status("ocioso", "aguardando pedido")
+
+
+    def _voltar_foco(self):
+        if not self.voltar_foco:
+            return
+        titulo = erp_base.focar_navegador(self.marca_navegador)
+        if titulo:
+            self.log(f"Foco devolvido ao navegador: {titulo}")
+        else:
+            self.log("Nao achei a janela do navegador para devolver o foco.")
 
 
 def main(argv=None):

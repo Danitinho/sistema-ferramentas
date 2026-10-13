@@ -639,7 +639,7 @@
       <div class="rd-topo">
         <div style="flex:1 1 220px">
           <label>Máquina do agente</label>
-          <select id="rd-maquina"></select>
+          <select id="rd-maquina" onchange="desenharRodada()"></select>
         </div>
         <label class="rd-sim"><input type="checkbox" id="rd-simular"> Simular (faz tudo e cancela — nada é gravado nem baixado)</label>
       </div>
@@ -647,11 +647,13 @@
         <label>Meses com vencidos pendentes</label>
         <div class="lista" id="rd-meses"></div>
       </div>
-      <p class="rd-ajuda">Um fornecedor por vez: o agente abre a <b>última nota de vencido (tipo 3) aberta</b>
-        dele no ERP, você confere a nota na tela do ERP e a lista abaixo, e só então aprova a inclusão.
-        Cada item gravado vira <b>baixa · Devolução ao fornecedor</b> com o nº da nota.
-        <b>Cada nota recebe vencidos de um mês só</b> (mês de registro): para outro mês do mesmo
-        fornecedor, crie uma nota nova no ERP.</p>
+      <p class="rd-ajuda">Uma nota por vez: o agente abre a <b>última nota de vencido (tipo 3) aberta</b>
+        do fornecedor — ou, para os marcados como <b>perda</b>, a última <b>nota de perda de vencidos</b>
+        da loja (DCPOA "%perda%vencidos") —, você confere a nota na tela do ERP e a lista abaixo, e só
+        então aprova a inclusão. Cada item gravado vira baixa · <b>Devolução ao fornecedor</b> (troca)
+        ou <b>Perda</b>, com o nº da nota.
+        A rodada é separada por <b>mês de registro</b>, mas a nota aceita vencidos de qualquer mês
+        (ex.: um produto esquecido no mês anterior).</p>
       <div id="rd-corpo"><div class="empty-state">Carregando…</div></div>
     </div>
     <div class="modal-footer">
@@ -1080,43 +1082,62 @@ async function liberarItem(id) {
   _rd.mudou = true;
   await carregarRodada();
 }
+// Dois tipos de grupo: TROCA (um fornecedor, nota de vencido dele) e PERDA
+// (todos os fornecedores marcados como perda no mês, nota de perda da LOJA,
+// achada pelo DCPOA "%perda%vencidos"). Os passos são os mesmos.
 function htmlGrupo(g) {
   const c = g.chave;
   const e = _rd.est[c] || { etapa: "inicio" };
-  const perda = g.destino === "perda";
-  const cab = `<div class="rd-cab">
+  const perda = g.tipo === "perda";
+  const livre = e.etapa === "inicio" || e.etapa === "semnota";
+  const cab = perda
+    ? `<div class="rd-cab">
+        <span class="rd-nome">${escH(g.nome)}</span>
+        <span class="tag">${escH(g.mes_rotulo)}</span>
+        <span class="ev">${g.itens.length} item(ns) · ${g.fornecedores.length} fornecedor(es)</span></div>
+      <div class="rd-acao ev">Marcados como perda: ${g.fornecedores.map(f => `<span>${escH(f.nome)}
+        <button class="btn btn-secondary btn-sm" onclick="mudarDestino('${f.id}','troca')" ${livre ? "" : "disabled"}
+          title="Os vencidos deste fornecedor voltam para a nota de vencido (troca) dele">mudar para troca</button></span>`).join(" · ")}</div>`
+    : `<div class="rd-cab">
       <span class="rd-nome">${escH(g.nome)}</span>
       <span class="tag">${escH(g.mes_rotulo)}</span>
       ${g.numero ? `<span class="ev num">nº ${escH(g.numero)}</span>`
                  : `<span class="rd-aviso">sem nº do RADGe</span> <button class="btn btn-secondary btn-sm" onclick="pedirNumero('${g.fornecedor_id}')">Informar nº</button>`}
       <span class="ev">${g.itens.length} item(ns)</span>
-      <div class="seg" title="Quem decide é o fornecedor: troca = nota de vencido dele; perda = nota de perda">
-        <button class="${perda ? "" : "ativo"}" onclick="mudarDestino('${g.fornecedor_id}','troca')" ${e.etapa !== "inicio" && e.etapa !== "semnota" ? "disabled" : ""}>Troca</button>
-        <button class="${perda ? "ativo" : ""}" onclick="mudarDestino('${g.fornecedor_id}','perda')" ${e.etapa !== "inicio" && e.etapa !== "semnota" ? "disabled" : ""}>Perda</button>
+      <div class="seg" title="Quem decide é o fornecedor: troca = nota de vencido dele; perda = nota de perda da loja">
+        <button class="ativo" disabled>Troca</button>
+        <button onclick="mudarDestino('${g.fornecedor_id}','perda')" ${livre ? "" : "disabled"}>Perda</button>
       </div></div>`;
   const res = (e.resultado && e.resultado.itens) || [];
-  let pos = 0;   // o resultado vem na ordem dos ENVIADOS (sem código não vai)
-  const itens = `<table class="rd-itens"><thead><tr><th>Produto</th><th>Código de barras</th><th>Qtd</th><th></th></tr></thead><tbody>
+  // o resultado vem na ordem do PEDIDO; o servidor diz qual vencido é cada
+  // posição (e.ids). Sem ids (resposta antiga), cai na posição.
+  const porId = {};
+  (e.ids || []).forEach((id, n) => { if (res[n]) porId[id] = res[n]; });
+  let pos = 0;
+  const itens = `<table class="rd-itens"><thead><tr><th>Produto</th>${perda ? "<th>Fornecedor</th>" : ""}<th>Código de barras</th><th>Qtd</th><th></th></tr></thead><tbody>
     ${g.itens.map(i => {
-      const r = i.sem_codigo ? null : res[pos++];
+      const r = i.sem_codigo ? null : (e.ids && e.ids.length ? porId[i.id] : res[pos++]);
       let st = i.sem_codigo ? '<span class="rd-erro">sem código de barras — não entra</span>'
              : !i.no_catalogo ? '<span class="rd-aviso">fora do catálogo</span>' : "";
       if (i.situacao && !r) st += ` <span class="rd-aviso" title="${escH(i.detalhe)}">antes: ${escH(i.situacao)}</span>`;
       if (r) st = `<span class="pill ${r.situacao === "gravado" ? "p-quit" : r.situacao === "simulado" ? "p-neutro" : "p-open"}">${escH(r.situacao)}</span> <span class="ev">${escH(r.detalhe || "")}</span>`;
-      return `<tr><td>${escH(i.produto)}</td><td class="num">${escH(i.codigo_barras || "—")}</td>
+      return `<tr><td>${escH(i.produto)}</td>${perda ? `<td>${escH(i.fornecedor)}</td>` : ""}<td class="num">${escH(i.codigo_barras || "—")}</td>
         <td class="num">${i.quantidade}</td><td>${st}</td></tr>`;
     }).join("")}</tbody></table>`;
+  const qual = perda ? "a nota de perda de vencidos" : "a nota de vencido (tipo 3)";
   let acao = "";
   const bloqueado = ocupado(c);
-  if (perda) {
-    acao = '<span class="ev">Perda (sem troca): estes vencidos vão para a <b>nota de perda</b>, que o agente ainda não faz. Ficam pendentes.</span>';
-  } else if (!g.numero) {
+  const m = (_rd.dados.maquinas || []).find(x => x.nome === $("rd-maquina").value);
+  const semCapacidade = perda && m && !(m.capacidades || []).includes("nf.abrir_perda");
+  if (!perda && !g.numero) {
     acao = '<span class="rd-aviso">Informe o nº do fornecedor no RADGe para abrir a nota.</span>';
+  } else if (semCapacidade && livre) {
+    acao = `<span class="rd-aviso">O agente de ${escH(m.apelido)} ainda não sabe abrir a nota de perda: atualize o agente nessa máquina (versão 1.3 ou mais nova) e abra-o de novo.</span>`;
   } else if (e.etapa === "inicio") {
-    acao = `<button class="btn btn-primary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado || !g.incluiveis ? "disabled" : ""}>Abrir a nota no ERP</button>
-      ${bloqueado ? '<span class="ev">termine o fornecedor em andamento antes</span>' : ""}`;
+    acao = `<button class="btn btn-primary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado || !g.incluiveis ? "disabled" : ""}>Abrir ${perda ? "a nota de perda" : "a nota"} no ERP</button>
+      ${bloqueado ? '<span class="ev">termine a nota em andamento antes</span>' : ""}`;
   } else if (e.etapa === "abrindo") {
-    acao = '<span class="spinner"></span> O agente está abrindo a última nota de vencido (tipo 3) aberta…';
+    acao = `<span class="spinner"></span> O agente está abrindo a última ${qual.slice(2)} aberta…`;
   } else if (e.etapa === "semnota") {
     acao = `<span class="rd-erro"><b>${escH(e.msg)}</b></span>
       <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado ? "disabled" : ""}>Tentar de novo</button>`;
@@ -1130,10 +1151,10 @@ function htmlGrupo(g) {
           <div><div class="k">Emissão</div><div class="v">${escH(n.emissao || "")}</div></div>
           <div><div class="k">No ERP</div><div class="v">${escH((e.conferencia || {}).fornecedor || "")}</div></div>
         </div>
-        <div style="margin:10px 0 8px"><b>Confira na tela do ERP</b> se esta é a nota certa e se a lista acima está correta.</div>
-        <button class="btn btn-primary btn-sm" onclick="incluirForn('${c}')">Aprovar e incluir ${g.incluiveis} item(ns)</button>
+        <div style="margin:10px 0 8px"><b>Confira na tela do ERP</b> se esta é ${perda ? "a nota de perda de vencidos de " + escH(g.mes_rotulo) : "a nota certa"} e se a lista acima está correta.</div>
+        <button class="btn btn-primary btn-sm" onclick="incluirForn('${c}')">Aprovar e incluir ${g.incluiveis} item(ns)${perda ? " na nota de perda" : ""}</button>
         <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')">Abrir de novo</button>
-        <button class="btn btn-secondary btn-sm" onclick="pularForn('${c}')">Pular este fornecedor</button>
+        <button class="btn btn-secondary btn-sm" onclick="pularForn('${c}')">Pular ${perda ? "esta nota" : "este fornecedor"}</button>
       </div>`;
   } else if (e.etapa === "incluindo") {
     acao = '<span class="spinner"></span> O agente está incluindo os itens na nota…';
@@ -1148,54 +1169,61 @@ function htmlGrupo(g) {
       <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado ? "disabled" : ""}>Tentar de novo</button>`;
   }
   const ativo = ["abrindo", "conferir", "incluindo"].includes(e.etapa);
-  return `<div class="rd-grupo ${ativo ? "ativo" : ""}">${cab}${itens}<div class="rd-acao">${acao}</div></div>`;
+  return `<div class="rd-grupo ${ativo ? "ativo" : ""}" data-chave="${escH(c)}">${cab}${itens}<div class="rd-acao">${acao}</div></div>`;
 }
 function grupo(chave) { return _rd.dados.grupos.find(g => g.chave === chave); }
 function gruposDoFornecedor(fid) { return _rd.dados.grupos.filter(g => g.fornecedor_id === fid); }
 function estado(chave, e) { _rd.est[chave] = Object.assign(_rd.est[chave] || {}, e); desenharRodada(); }
+// rotas de cada tipo: a nota de perda é da loja, não tem fornecedor no caminho
+const urlRodada = (g, acao) => g.tipo === "perda" ? `/vencidos/api/rodada-perda/${acao}`
+                                                  : `/vencidos/api/rodada/${g.fornecedor_id}/${acao}`;
 
 async function mudarDestino(fid, destino) {
   const r = await postJSON(`/vencidos/api/rodada/${fid}/destino`, { destino });
   if (!r.ok) { alert(r.msg); return; }
-  gruposDoFornecedor(fid).forEach(g => g.destino = destino);   // destino é do fornecedor, não do mês
-  desenharRodada();
+  await carregarRodada();   // os itens mudam de grupo (troca do fornecedor <-> perda da loja)
 }
 async function esperarPedido(id) {
   while (true) {
     const r = await (await fetch(`/vencidos/api/rodada/pedido/${id}`)).json();
     if (!r.ok) return { estado: "erro", erro: r.msg };
-    if (FINAIS.includes(r.pedido.estado)) return r.pedido;
+    if (FINAIS.includes(r.pedido.estado)) return Object.assign(r.pedido, { ids: r.ids || [] });
     await new Promise(ok => setTimeout(ok, 1200));
   }
 }
 async function abrirNotaForn(c) {
   const g = grupo(c);
   estado(c, { etapa: "abrindo", resultado: null });
-  const r = await postJSON(`/vencidos/api/rodada/${g.fornecedor_id}/abrir`, { maquina: $("rd-maquina").value });
+  const r = await postJSON(urlRodada(g, "abrir"), { maquina: $("rd-maquina").value });
   if (!r.ok) { estado(c, { etapa: "erro", msg: r.msg }); return; }
   const p = await esperarPedido(r.pedido.id);
   const res = p.resultado || {};
   if (p.estado !== "feito") {
     estado(c, { etapa: "erro", msg: `O agente não abriu a nota (${p.estado}): ${p.erro || ""}` });
   } else if (!res.encontrada) {
-    estado(c, { etapa: "semnota", msg: `Nenhuma nota de vencido (tipo 3) aberta para ${g.nome}. Crie a nota no ERP (para os vencidos de ${g.mes_rotulo}) e clique em Tentar de novo.` });
+    estado(c, { etapa: "semnota", msg: g.tipo === "perda"
+      ? `Nenhuma nota de perda de vencidos aberta (DCPOA "%perda%vencidos"). Crie a nota no ERP (para os vencidos de ${g.mes_rotulo}) e clique em Tentar de novo.`
+      : `Nenhuma nota de vencido (tipo 3) aberta para ${g.nome}. Crie a nota no ERP (para os vencidos de ${g.mes_rotulo}) e clique em Tentar de novo.` });
   } else {
     estado(c, { etapa: "conferir", pedidoAbrir: p.id, nota: res.nota, conferencia: res.conferencia });
   }
 }
-async function incluirForn(c) {
+// opts.voz: a pessoa já disse "confirmar" depois de ouvir a nota (comando de
+// voz) — a caixa de confirmação da janela não se repete.
+async function incluirForn(c, opts = {}) {
   const g = grupo(c), e = _rd.est[c], simular = $("rd-simular").checked;
-  const n = e.nota || {};
-  if (!confirm(`Incluir ${g.incluiveis} item(ns) de ${g.nome} — vencidos de ${g.mes_rotulo} — na nota ${n.numero || n.lancamento}?\n\n`
-      + (simular ? "SIMULAÇÃO: nada será gravado nem baixado." : "Os itens gravados viram baixa · Devolução ao fornecedor.")
+  const n = e.nota || {}, perda = g.tipo === "perda";
+  if (!opts.voz && !confirm(`Incluir ${g.incluiveis} item(ns) ${perda ? `de ${g.fornecedores.length} fornecedor(es)` : `de ${g.nome}`} — vencidos de ${g.mes_rotulo} — na ${perda ? "nota de perda" : "nota"} ${n.numero || n.lancamento}?\n\n`
+      + (simular ? "SIMULAÇÃO: nada será gravado nem baixado."
+                 : `Os itens gravados viram baixa · ${perda ? "Perda" : "Devolução ao fornecedor"}.`)
       + "\n\nO pedido sai autorizado por você.")) return;
   estado(c, { etapa: "incluindo" });
-  const r = await postJSON(`/vencidos/api/rodada/${g.fornecedor_id}/incluir`,
+  const r = await postJSON(urlRodada(g, "incluir"),
     { pedido_abrir: e.pedidoAbrir, mes: g.mes, maquina: $("rd-maquina").value, simular });
   if (!r.ok) { estado(c, { etapa: "erro", msg: r.msg }); return; }
   _rd.mudou = true;
   const p = await esperarPedido(r.pedido.id);
-  if (p.estado === "feito") estado(c, { etapa: "feito", resultado: p.resultado });
+  if (p.estado === "feito") estado(c, { etapa: "feito", resultado: p.resultado, ids: p.ids });
   else estado(c, { etapa: "erro", msg: `A inclusão terminou em ${p.estado}: ${p.erro || ""}. Os itens ficam "conferir no ERP".` });
 }
 function pularForn(c) { estado(c, { etapa: "inicio", nota: null }); }
@@ -1363,5 +1391,232 @@ async function enviarCatalogo() {
     $("cat-enviar").disabled = false;
   }
 }
+
+// ── Comando de voz: vencidos para a nota (base.html ouve e fala; aqui se
+// entende a ordem). Reaproveita os MESMOS passos da tela — abrirNotaForn e
+// incluirForn —, então nenhuma trava muda: reserva antes do
+// pedido, conferência da nota no ERP. A gravação só sai com a palavra exata
+// "confirmar", dita DEPOIS de o sistema ler a nota que o agente abriu.
+// A ordem chega aqui JÁ SEM o nome "Jardél" (base.html exige e tira).
+//   "incluir os vencidos da Hotbel de setembro"   "nota de perda de outubro"
+//   "simular" / "gravar de verdade"   "confirmar" / "cancelar" / "abrir de novo"
+const _voz = { aguardando: null };
+const VOZ_MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho",
+                   "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const VOZ_CONFIRMA = new Set(["confirmar", "confirma", "confirmo", "confirmado"]);
+const VOZ_CANCELA = /^(cancelar|cancela|cancelado|nao|parar|para|pare)$/;
+const VOZ_PALAVRAS = new Set(("incluir inclua inclui incluindo mandar manda mande enviar envia envie lancar lanca "
+  + "colocar coloca coloque botar bota os as o a vencidos vencido produtos produto da do de das dos na no nas nos "
+  + "nota notas para pra pro fornecedor empresa mes simular simulando simulacao em e ai por favor").split(" "));
+const VOZ_FORA_DO_NOME = new Set(("ltda me eireli epp sa comercial comercio distribuidora distribuicao "
+  + "industria e de da do das dos").split(" "));
+
+function vozMesFalado(mesRotulo) { return mesRotulo.replace("/", " de "); }
+function vozItens(n) { return `${n} ${n === 1 ? "item" : "itens"}`; }
+function vozNome(nome) { return String(nome || "").toLowerCase(); }   // CAIXA ALTA a voz soletra
+
+// Mês falado -> "AAAA-MM" entre os meses COM pendência. {mes} | {invalido} | null
+function vozMes(t, meses) {
+  const ano = (t.match(/\b(20\d\d)\b/) || [])[1];
+  let num = null;
+  VOZ_MESES.forEach((m, i) => { if (new RegExp(`\\b${m}\\b`).test(t)) num = i + 1; });
+  if (num === null) {
+    const hoje = new Date();
+    if (/\bmes passado\b/.test(t)) { const d = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1); num = d.getMonth() + 1; }
+    else if (/\b(este|esse|deste|desse) mes\b|\bmes atual\b/.test(t)) num = hoje.getMonth() + 1;
+    else return null;
+  }
+  const mm = String(num).padStart(2, "0");
+  const cands = (meses || []).filter(m => m.mes.slice(5) === mm && (!ano || m.mes.slice(0, 4) === ano));
+  const nomeMes = VOZ_MESES[num - 1] === "marco" ? "março" : VOZ_MESES[num - 1];   // a lista é sem acento
+  if (!cands.length) return { invalido: nomeMes + (ano ? " de " + ano : "") };
+  return { mes: cands[cands.length - 1].mes };        // o mais recente
+}
+function vozConsulta(t) {
+  return t.split(" ").filter(w => w && !VOZ_PALAVRAS.has(w) && !VOZ_MESES.includes(w) && !/^20\d\d$/.test(w)
+                               && w !== "perda").join(" ");
+}
+function vozSimilar(a, b) {
+  if (!a || !b) return 0;
+  const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return 1 - d[m][n] / Math.max(m, n);
+}
+function vozNucleo(nome) {
+  const ws = Voz.norm(nome).split(" ");
+  return ws.filter(w => !VOZ_FORA_DO_NOME.has(w)).join(" ") || ws.join(" ");
+}
+// Contra o núcleo do nome (sem LTDA, COMERCIAL...) E contra o nome inteiro:
+// para desempatar "Marques e Melo" de "Marques e Mello Distribuidora", a
+// palavra que decide é justamente uma das que o núcleo tira.
+function vozPontos(q, nome) {
+  const qw = q.split(" ");
+  return Math.max(...[vozNucleo(nome), Voz.norm(nome)].map(n => {
+    const nw = n.split(" ");
+    let s = Math.max(vozSimilar(q, n), vozSimilar(q, nw.slice(0, qw.length).join(" ")));
+    if (qw.every(w => nw.some(x => x.startsWith(w) || vozSimilar(w, x) >= 0.8))) s = Math.max(s, 0.92);
+    return s;
+  }));
+}
+// Fornecedores (só os que têm grupo de TROCA na lista dada), do mais parecido ao menos.
+function vozFornecedores(alts, grupos) {
+  const forn = {};
+  grupos.forEach(g => { forn[g.fornecedor_id] = g.nome; });
+  const consultas = alts.map(a => vozConsulta(Voz.norm(a))).filter(Boolean);
+  return Object.entries(forn).map(([fid, nome]) => ({
+    fid, nome, pontos: Math.max(0, ...consultas.map(q => vozPontos(q, nome))),
+  })).sort((a, b) => b.pontos - a.pontos);
+}
+
+async function vozGarantirRodada() {
+  if ($("modal-rodada").classList.contains("show")) await carregarRodada();
+  else await abrirRodada();
+}
+function vozRolar(c) {
+  const el = document.querySelector(`.rd-grupo[data-chave="${c}"]`);
+  if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+window.vozHandler = async function (alts) {
+  if (Voz.ocupado) return;
+  Voz.ocupado = true;
+  try { await vozProcessar(alts); }
+  catch (e) { await Voz.falar("Deu um erro aqui na tela: " + (e.message || e)); }
+  finally { Voz.ocupado = false; }
+};
+
+async function vozProcessar(alts) {
+  const t = Voz.norm(alts[0]);
+  // resposta solta a uma nota que está esperando confirmação
+  const c0 = _voz.aguardando;
+  if (c0 && grupo(c0) && (_rd.est[c0] || {}).etapa === "conferir") {
+    if (VOZ_CONFIRMA.has(t)) { _voz.aguardando = null; return vozIncluir(c0); }
+    if (VOZ_CANCELA.test(t)) { _voz.aguardando = null; pularForn(c0); return Voz.falar("Cancelado. Nada foi incluído."); }
+    if (/\bde novo\b/.test(t)) { _voz.aguardando = null; return vozAbrir(c0); }
+  }
+  if (VOZ_CONFIRMA.has(t)) return Voz.falar("Não há nenhuma nota esperando confirmação.");
+  if (VOZ_CANCELA.test(t)) return Voz.falar("Não há nada em andamento para cancelar.");
+  if (/\b(sem simular|sem simulacao|gravar de verdade|desligar simulacao|desliga simulacao)\b/.test(t)) {
+    await vozGarantirRodada(); $("rd-simular").checked = false;
+    return Voz.falar("Simulação desligada: a próxima inclusão grava de verdade.");
+  }
+  if (/^(simular|simulacao|modo simulacao|ligar simulacao|liga simulacao)$/.test(t)) {
+    await vozGarantirRodada(); $("rd-simular").checked = true;
+    return Voz.falar("Simulação ligada: nada será gravado.");
+  }
+  return vozComando(alts);
+}
+
+async function vozComando(alts) {
+  await vozGarantirRodada();
+  const d = _rd.dados, t = Voz.norm(alts[0]);
+  if (/\bsimula(r|ndo|cao)\b/.test(t)) $("rd-simular").checked = true;
+  const perda = alts.some(a => /\bperda\b/.test(Voz.norm(a)));
+  const mi = vozMes(t, d.meses);
+  if (mi && mi.invalido) return Voz.falar(`Não há vencidos pendentes de ${mi.invalido}.`);
+  const noMes = g => !mi || g.mes === mi.mes;
+  let grupos;
+  if (perda) {
+    grupos = d.grupos.filter(g => g.tipo === "perda" && noMes(g));
+    if (!grupos.length) return Voz.falar("Não há vencidos de perda pendentes" + (mi ? " nesse mês." : "."));
+  } else {
+    const troca = d.grupos.filter(g => g.tipo === "troca" && noMes(g));
+    if (!troca.length) return Voz.falar("Não há vencidos de troca pendentes" + (mi ? " nesse mês." : "."));
+    let cands = vozFornecedores(alts, troca);
+    if (!cands.length || cands[0].pontos < 0.6) {
+      const r = await Voz.perguntar("De qual fornecedor?");
+      if (!r.length) return Voz.falar("Não ouvi. Comece de novo pelo microfone.");
+      cands = vozFornecedores(r, troca);
+      if (!cands.length || cands[0].pontos < 0.6) return Voz.falar("Não achei esse fornecedor entre os que têm vencidos pendentes.");
+    }
+    let escolhido = cands[0];
+    if (cands.length > 1 && cands[1].pontos >= cands[0].pontos - 0.08) {
+      const dois = cands.slice(0, 2);
+      const r = await Voz.perguntar(`${vozNome(dois[0].nome)} ou ${vozNome(dois[1].nome)}?`);
+      const resp = vozFornecedores(r, troca.filter(g => dois.some(x => x.fid === g.fornecedor_id)));
+      if (!resp.length || resp[0].pontos < 0.5 || (resp[1] && resp[1].pontos >= resp[0].pontos - 0.08))
+        return Voz.falar("Não entendi qual dos dois. Comece de novo pelo microfone.");
+      escolhido = resp[0];
+    }
+    grupos = troca.filter(g => g.fornecedor_id === escolhido.fid);
+  }
+  if (grupos.length > 1) {
+    const r = await Voz.perguntar("De qual mês? " + grupos.map(g => vozMesFalado(g.mes_rotulo)).join(" ou ") + "?");
+    const m2 = r.map(a => vozMes(Voz.norm(a), d.meses)).find(x => x && x.mes && grupos.some(g => g.mes === x.mes));
+    if (!m2) return Voz.falar("Não entendi o mês. Comece de novo pelo microfone.");
+    grupos = grupos.filter(g => g.mes === m2.mes);
+  }
+  return vozAbrir(grupos[0].chave);
+}
+
+async function vozAbrir(c) {
+  const g = grupo(c);
+  if (!g) return Voz.falar("Essa nota não está mais na lista.");
+  _rd.meses.add(g.mes); desenharRodada(); vozRolar(c);
+  const perda = g.tipo === "perda";
+  const quem = perda ? "Nota de perda" : vozNome(g.nome);
+  if (ocupado(c)) return Voz.falar("Há outra nota em andamento na tela. Termine aquela antes.");
+  if (!(_rd.dados.maquinas || []).length) return Voz.falar("Nenhuma máquina do agente pode incluir itens agora.");
+  if (!perda && !g.numero) return Voz.falar(`${quem} não tem o número de fornecedor do E R P no cadastro. Informe o número na tela antes.`);
+  if (!g.incluiveis) return Voz.falar("Nenhum desses vencidos tem código de barras. Não há o que incluir.");
+  const m = (_rd.dados.maquinas || []).find(x => x.nome === $("rd-maquina").value);
+  if (perda && m && !(m.capacidades || []).includes("nf.abrir_perda"))
+    return Voz.falar("O agente dessa máquina ainda não sabe abrir a nota de perda. Atualize o agente.");
+  const sim = $("rd-simular").checked;
+  await Voz.falar(`${quem}, ${vozMesFalado(g.mes_rotulo)}: ${vozItens(g.incluiveis)}${sim ? ", em simulação" : ""}. `
+                + `Vou abrir ${perda ? "a nota de perda" : "a nota de vencido"} no E R P.`);
+  await abrirNotaForn(c);
+  const e = _rd.est[c] || {};
+  if (e.etapa !== "conferir") return Voz.falar(e.msg || "O agente não abriu a nota.");
+  return vozConfirmar(c);
+}
+
+async function vozConfirmar(c) {
+  const g = grupo(c), n = (_rd.est[c] || {}).nota || {};
+  _voz.aguardando = c;
+  const lanc = n.lancamento && n.lancamento !== n.numero ? `, lançamento ${n.lancamento}` : "";
+  const pergunta = `Achei a nota ${n.numero || n.lancamento}${lanc}, entrada ${n.entrada || "sem data"}. `
+    + `Confira a nota no E R P. Diga confirmar para incluir ${vozItens(g.incluiveis)}`
+    + `${$("rd-simular").checked ? " em simulação" : ""}, ou cancelar.`;
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const r = await Voz.perguntar(tentativa ? "Diga confirmar ou cancelar." : pergunta, 10000);
+    if (_voz.aguardando !== c || (_rd.est[c] || {}).etapa !== "conferir") return;   // decidido pela tela
+    if (!r.length) continue;
+    const t = Voz.norm(r[0]);
+    if (VOZ_CONFIRMA.has(t)) { _voz.aguardando = null; return vozIncluir(c); }
+    if (VOZ_CANCELA.test(t)) { _voz.aguardando = null; pularForn(c); return Voz.falar("Cancelado. Nada foi incluído."); }
+    if (/\bde novo\b/.test(t)) { _voz.aguardando = null; return vozAbrir(c); }
+  }
+  return Voz.falar(`Fico aguardando. Quando quiser, aperte o microfone e diga: ${Voz.nome || "Jardél"}, confirmar. Ou use o botão na tela.`);
+}
+
+async function vozIncluir(c) {
+  const sim = $("rd-simular").checked;
+  await Voz.falar(sim ? "Simulando a inclusão. Aguarde." : "Incluindo na nota. Aguarde.");
+  await incluirForn(c, { voz: true });
+  const e = _rd.est[c] || {};
+  if (e.etapa !== "feito") return Voz.falar(e.msg || "A inclusão não terminou.");
+  const r = e.resultado || {};
+  let fala = r.simulado
+    ? `Simulação concluída: ${vozItens(r.simulados || 0)} simulados, nada foi gravado.`
+    : `Pronto: ${vozItens(r.gravados || 0)} ${r.gravados === 1 ? "gravado" : "gravados"}.`;
+  if (r.pulados) fala += ` ${vozItens(r.pulados)} ${r.pulados === 1 ? "pulado" : "pulados"}.`;
+  if (r.falhados) fala += ` ${vozItens(r.falhados)} com falha.`;
+  if (r.interrompido) fala += " Parou antes do fim: confira o E R P.";
+  if (r.apos_cancelar && r.apos_cancelar.cancelado === false) fala += " Confira o E R P: ele pode ter ficado em modo de inclusão.";
+  return Voz.falar(fala);
+}
+
+// Ordem dada em outra página: o base.html navega para cá com ?voz=alt1|alt2
+(function () {
+  const qs = new URLSearchParams(location.search);
+  const voz = qs.get("voz");
+  if (!voz || !window.Voz) return;
+  history.replaceState(null, "", location.pathname + location.hash);
+  const alts = voz.split("|").filter(Boolean);
+  if (alts.length) { Voz.mostrar("voce", alts[0]); setTimeout(() => window.vozHandler(alts), 300); }
+})();
 </script>
 {% endblock %}

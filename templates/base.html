@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Sistema de Ferramentas{% endblock %}</title>
+{# A marca "Sistema de Ferramentas" em TODO título: é por ela que o agente do
+   ERP acha a janela do navegador para devolver o foco (agente/erp.py). #}
+<title>{% block title %}Sistema de Ferramentas{% endblock %}{% if "Sistema de Ferramentas" not in self.title() %} · Sistema de Ferramentas{% endif %}</title>
 <script>
 /* Aplica o tema salvo ANTES do CSS pintar (evita flash). Claro é o padrão. */
 (function(){try{if(localStorage.getItem("tema")==="escuro")document.documentElement.dataset.theme="escuro";}catch(e){}})();
@@ -158,6 +160,22 @@
   .theme-btn .ico-lua { display: none; }
   html[data-theme="escuro"] .theme-btn .ico-sol { display: none; }
   html[data-theme="escuro"] .theme-btn .ico-lua { display: block; }
+  /* ── comando de voz (microfone no topo + painel da conversa) ── */
+  .voz-btn.indisponivel { opacity: .45; }
+  .voz-btn.ouvindo { color: var(--on-brand); background: var(--danger); border-color: var(--danger); }
+  .voz-painel { position: fixed; right: 16px; bottom: 16px; z-index: 900; width: min(380px, calc(100vw - 32px));
+    background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius);
+    box-shadow: 0 6px 24px rgba(0,0,0,.18); font-size: 13.5px; }
+  .voz-painel[hidden] { display: none; }
+  .voz-cab { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line);
+    background: var(--surface-2); font-weight: 650; color: var(--ink-2); }
+  .voz-cab .x { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; }
+  .voz-cab .dica { font-weight: 500; color: var(--muted); font-size: 12px; }
+  .voz-log { padding: 8px 12px; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .voz-log .l-voce { align-self: flex-end; background: var(--accent-soft); color: var(--ink); padding: 5px 9px;
+    border-radius: var(--radius-sm); max-width: 90%; }
+  .voz-log .l-sistema { color: var(--ink-2); max-width: 95%; }
+  .voz-log .l-aviso { color: var(--warning); }
   .userchip { display: flex; align-items: center; gap: 8px; padding: 4px 5px 4px 11px;
     border: 1px solid rgba(255,255,255,.22); border-radius: 100px; font-size: 13.5px;
     color: var(--appbar-ink); text-decoration: none; transition: border-color .15s; }
@@ -446,6 +464,11 @@
       <a href="/#setor-sistema"    data-setor="sistema">Sistema</a>
     </nav>
     <div class="top-right">
+      {% if session and session.usuario and perm and perm.agente %}
+      <button class="theme-btn voz-btn" id="voz-btn" aria-label="Falar com o Jardél" title="Falar com o Jardél (F2) — comece a frase pelo nome">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
+      </button>
+      {% endif %}
       <button class="theme-btn" id="theme-toggle" title="Alternar tema claro/escuro" aria-label="Alternar tema">
         <svg class="ico-lua" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
         <svg class="ico-sol" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
@@ -617,6 +640,181 @@ document.querySelectorAll(".upload-area").forEach(area => {
   });
 });
 </script>
+{% if session and session.usuario and perm and perm.agente %}
+<div class="voz-painel" id="voz-painel" hidden>
+  <div class="voz-cab"><span id="voz-estado">Jardél</span><span class="dica">F2 · comece por "Jardél"</span>
+    <button class="x" onclick="document.getElementById('voz-painel').hidden = true" aria-label="Fechar">&times;</button></div>
+  <div class="voz-log" id="voz-log"></div>
+</div>
+<script>
+// ── Comando de voz: o Jardél ─────────────────────────────────────────────────
+// O agente atende pelo nome: uma ORDEM NOVA só vale se a frase começar por
+// "Jardél" ("Jardél, incluir os vencidos da Hotbel de setembro"); sem o nome
+// ela é ignorada em silêncio. Dentro de uma conversa que ele mesmo abriu, as
+// respostas às perguntas dele ("de qual mês?", "confirmar ou cancelar?") não
+// precisam do nome — mas aceitam, e ele é tirado antes de interpretar.
+// Reconhecimento e fala do PRÓPRIO navegador (Chrome/Edge). O microfone só é
+// liberado em página segura: no PC do ERP, abra o sistema por http://localhost.
+// Este bloco só ouve e fala; quem entende a ordem é a página (window.vozHandler,
+// hoje só o /vencidos). Em outra página, uma ordem de vencidos navega até lá.
+(function () {
+  const btn = document.getElementById("voz-btn");
+  if (!btn) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const pode = !!SR && window.isSecureContext;
+  const painel = document.getElementById("voz-painel"), log = document.getElementById("voz-log");
+  const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!pode) {
+    btn.classList.add("indisponivel");
+    btn.title = "Jardél: abra o sistema por http://localhost no PC do ERP, no Chrome ou no Edge";
+  }
+  function estado(t) { document.getElementById("voz-estado").textContent = t || NOME; }
+
+  // ── o nome ──
+  const NOME = "Jardél";
+  // como o reconhecedor costuma escrever "Jardél" (já sem acento, por `norm`)
+  const NOME_VARIANTES = new Set(["jardel", "jardeu", "jardell", "jardeo", "jardiel", "jardeli",
+                                  "jardem", "jarde", "gardel", "jadel", "jardels"]);
+  function similar(a, b) {
+    if (!a || !b) return 0;
+    const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return 1 - d[m][n] / Math.max(m, n);
+  }
+  // "Jardél, incluir..." -> {chamou: true, resto: "incluir..."}. O nome vale no
+  // começo da frase (depois de um "oi"/"ok", se houver) e pode vir partido em
+  // dois pedaços pelo reconhecedor ("jar del").
+  function tirarNome(texto) {
+    const ws = norm(texto).split(" ").filter(Boolean);
+    const i = ws.length > 1 && ["ok", "oi", "ola", "ei", "e", "hey", "alo"].includes(ws[0]) ? 1 : 0;
+    const um = ws[i] || "", dois = ws.slice(i, i + 2).join("");
+    // uma palavra: variante conhecida ou parecida; em dois pedaços, só variante
+    // EXATA ("jar del") — aproximar ali faria "o Jardel..." virar chamado
+    if (um && (NOME_VARIANTES.has(um) || similar(um, "jardel") >= 0.8))
+      return { chamou: true, resto: ws.slice(i + 1).join(" ") };
+    if (ws.length > i + 1 && NOME_VARIANTES.has(dois))
+      return { chamou: true, resto: ws.slice(i + 2).join(" ") };
+    return { chamou: false, resto: texto };
+  }
+  // Sobre as alternativas do reconhecedor: chamou se ALGUMA começa pelo nome;
+  // devolve as frases sem o nome (só das que chamaram).
+  function chamado(alts) {
+    const r = alts.map(tirarNome).filter(x => x.chamou);
+    return { chamou: r.length > 0, alts: r.map(x => x.resto).filter(Boolean) };
+  }
+  function mostrar(quem, texto) {
+    painel.hidden = false;
+    const d = document.createElement("div");
+    d.className = "l-" + quem;
+    d.textContent = texto;
+    log.appendChild(d);
+    while (log.children.length > 12) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  let vozPt = null;
+  function escolherVoz() {
+    const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    vozPt = vs.find(v => /pt-BR/i.test(v.lang) && /maria|francisca/i.test(v.name))
+         || vs.find(v => /pt-BR/i.test(v.lang)) || vs.find(v => /^pt/i.test(v.lang)) || null;
+  }
+  if (window.speechSynthesis) { speechSynthesis.onvoiceschanged = escolherVoz; escolherVoz(); }
+
+  // Fala e espera terminar (o microfone não pode ouvir a própria fala).
+  function falar(texto) {
+    mostrar("sistema", texto);
+    return new Promise(res => {
+      if (!window.speechSynthesis) return res();
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = "pt-BR"; if (vozPt) u.voice = vozPt; u.rate = 1.05;
+      let feito = false;
+      const fim = () => { if (!feito) { feito = true; res(); } };
+      u.onend = fim; u.onerror = fim;
+      setTimeout(fim, 2000 + texto.length * 90);   // rede de segurança
+      speechSynthesis.speak(u);
+    });
+  }
+
+  // Ouve UMA frase. Devolve as alternativas do reconhecedor (a 1a é a mais
+  // provável) ou [] em silêncio/erro/tempo esgotado.
+  let rec = null;
+  function ouvir(ms = 8000) {
+    return new Promise(resolve => {
+      if (!pode) return resolve([]);
+      if (rec) { try { rec.abort(); } catch (_) {} }
+      const r = new SR();
+      r.lang = "pt-BR"; r.interimResults = false; r.maxAlternatives = 4; r.continuous = false;
+      let alts = [], acabou = false;
+      const acabar = () => {
+        if (acabou) return;
+        acabou = true; clearTimeout(t); btn.classList.remove("ouvindo"); estado(""); rec = null;
+        if (alts.length) mostrar("voce", alts[0]);
+        resolve(alts);
+      };
+      r.onresult = e => { alts = Array.from(e.results[0]).map(a => a.transcript.trim()).filter(Boolean); };
+      r.onerror = e => {
+        if (e.error === "not-allowed" || e.error === "service-not-allowed")
+          mostrar("aviso", "O navegador bloqueou o microfone. Libere o microfone para este site (ícone do cadeado) e use o sistema por http://localhost.");
+        else if (e.error === "network")
+          mostrar("aviso", "Sem internet: o reconhecimento de voz do navegador precisa dela.");
+      };
+      r.onend = acabar;
+      const t = setTimeout(() => { try { r.stop(); } catch (_) {} }, ms);
+      rec = r; btn.classList.add("ouvindo"); estado("Ouvindo…"); painel.hidden = false;
+      try { r.start(); } catch (_) { acabar(); }
+    });
+  }
+  // Resposta a uma pergunta do próprio Jardél: o nome é opcional (e sai).
+  async function perguntar(texto, ms = 9000) {
+    await falar(texto);
+    return (await ouvir(ms)).map(a => { const x = tirarNome(a); return x.chamou ? x.resto : a; })
+                            .filter(Boolean);
+  }
+
+  function despachar(alts) {
+    if (typeof window.vozHandler === "function") return window.vozHandler(alts);
+    if (alts.some(a => /vencid|perda/.test(norm(a)))) {
+      mostrar("sistema", "Abrindo o controle de vencidos…");
+      location.href = "/vencidos?voz=" + encodeURIComponent(alts.join("|"));
+      return;
+    }
+    return falar("Por enquanto eu só sei mandar os vencidos para a nota do fornecedor ou para a nota de perda.");
+  }
+  async function comando() {
+    if (!pode) {
+      alert("O comando de voz funciona no PC do ERP: abra o sistema por http://localhost no Chrome ou no Edge. "
+          + "Por outro endereço o navegador bloqueia o microfone.");
+      return;
+    }
+    if (rec) { try { rec.stop(); } catch (_) {} return; }      // clicar de novo encerra a escuta
+    if (window.Voz.ocupado) { mostrar("aviso", "Espere: estou no meio de uma conversa."); return; }
+    const ouvido = await ouvir(8000);
+    if (!ouvido.length) { estado("Não ouvi nada."); return; }
+    const c = chamado(ouvido);
+    if (!c.chamou) {                 // não foi com ele: não responde, só registra
+      mostrar("aviso", `Ignorado: para dar uma ordem, comece por "${NOME}".`);
+      return;
+    }
+    let alts = c.alts;
+    if (!alts.length) {              // só o nome: "Jardél?" -> "Pois não?"
+      window.Voz.ocupado = true;
+      try { alts = await perguntar("Pois não?"); } finally { window.Voz.ocupado = false; }
+      if (!alts.length) return;
+    }
+    despachar(alts);
+  }
+  btn.addEventListener("click", comando);
+  document.addEventListener("keydown", e => {
+    if (e.key === "F2" && !e.repeat) { e.preventDefault(); comando(); }
+  });
+  window.Voz = { nome: NOME, pode, norm, falar, ouvir, perguntar, mostrar, tirarNome, chamado, ocupado: false };
+})();
+</script>
+{% endif %}
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

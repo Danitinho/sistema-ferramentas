@@ -262,7 +262,7 @@ function resumoPedido(p) {
     return `nota ${esc((r.nota || {}).numero || "?")}: ${r.gravados} gravado(s), ${r.simulados} simulado(s), `
          + `${r.pulados} pulado(s), ${r.falhados} falha(s)${r.interrompido ? " · <b>parou antes do fim</b>" : ""}`;
   }
-  if (p.tipo === "nf.abrir_ultima") {
+  if (p.tipo === "nf.abrir_ultima" || p.tipo === "nf.abrir_perda") {
     return r.encontrada
       ? `nota <b class="num">${esc(r.nota.numero)}</b> de ${esc(r.nota.entrada)} · ${r.abertas} aberta(s) de ${r.total}`
       : esc(r.msg || "nenhuma nota aberta");
@@ -273,6 +273,7 @@ function resumoPedido(p) {
 function paramsTxt(p) {
   const x = p.params || {};
   if (p.tipo === "nf.abrir_ultima") return `fornecedor ${esc(x.fornecedor)}, tipo ${esc(x.tipo)}`;
+  if (p.tipo === "nf.abrir_perda") return `nota de perda (DCPOA ${esc(x.dcpoa)})`;
   if (p.tipo === "nf.incluir_itens")
     return `${(x.itens || []).length} item(ns)${x.simular ? ", simulação" : ""}`
          + (x.fornecedor ? `, fornecedor ${esc(x.fornecedor)}` : x.nota ? `, nota ${esc(x.nota)}` : "")

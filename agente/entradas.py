@@ -35,6 +35,13 @@ FECHAR = ["OK", "&OK", "Ok", "Fechar", "&Fechar"]
 BM_GETCHECK = 0x00F0
 WS_TABSTOP = 0x00010000
 MAX_LINHAS = 500
+# Campos que o mapa do servidor ainda não tem, com a posição medida numa
+# inspeção SÓ da TfrmEntradas (08/10/2026). O mapa vence.
+#   dcpoa: TDBEdit do cabeçalho logo abaixo de "Digitado por" (x 87-151) e
+#          "Data/hora" (x 155-253): x 88-208, y 284-305 — filtra a nota de
+#          perda. (A 1a versão usou um TcxTextEdit da inspeção do pedido #39,
+#          que varria a janela inteira e era de OUTRA tela aberta ao lado.)
+CAMPOS_PADRAO = {"dcpoa": {"class_name": "TDBEdit", "x": 148, "y": 294}}
 
 
 class ErroTela(erp_base.ErroERP):
@@ -221,6 +228,25 @@ class DriverEntradas:
             pass
         self.log(f"Filtro: tipo {tipo}, fornecedor {fornecedor}" + (f" ({nome})" if nome else ""))
         return nome
+
+    def filtrar_texto(self, campo, texto):
+        """Filtro por um campo de texto do cabeçalho (o DCPOA da nota de perda,
+        com curinga: "%perda%vencidos"). Só ele: tipo e fornecedor ficam
+        vazios, como o Limpar deixou. O texto é relido antes da busca — campo
+        errado no mapa para aqui, sem buscar nem abrir nota nenhuma."""
+        spec = self.c.get(campo) or CAMPOS_PADRAO.get(campo)
+        if not spec:
+            raise erp_base.ErroERP(f"o mapa do ERP não diz onde fica '{campo}' na tela Entradas")
+        self.j.escrever(campo, spec, texto)
+        time.sleep(0.3)
+        caixas = self._fechar_dialogos(NEGATIVOS)
+        if caixas:
+            raise erp_base.ErroERP(f"o ERP reclamou do filtro: {' / '.join(caixas)}")
+        lido = self.j.ler(campo, spec)
+        if lido.strip().lower() != texto.strip().lower():
+            raise erp_base.ErroERP(f"o filtro não entrou: pedi '{texto}' em {campo}; "
+                                   f"o campo ficou com '{lido}' (confira o mapa do ERP)")
+        self.log(f"Filtro: {campo} = {texto}")
 
     def buscar(self):
         """Dispara a busca. Devolve o texto de uma caixa que o ERP abrir

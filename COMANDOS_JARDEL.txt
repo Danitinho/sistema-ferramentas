@@ -1,0 +1,106 @@
+JARDÉL — LISTA DE COMANDOS DE VOZ
+Sistema de Ferramentas · atualizado em 09/10/2026
+
+============================================================
+COMO FALAR COM O JARDÉL
+============================================================
+
+1. Use o PC do ERP e abra o sistema por  http://localhost
+   (no Chrome ou no Edge). Por outro endereço o navegador bloqueia o
+   microfone. O reconhecimento de voz precisa de internet.
+2. Clique no microfone no topo da tela (ou aperte F2).
+3. Fale UMA frase, começando sempre pelo nome:  "Jardél, ..."
+   - Sem o nome no começo, a frase é ignorada (nada acontece).
+   - Só "Jardél" -> ele responde "Pois não?" e espera a ordem.
+4. Quando o Jardél fizer uma pergunta (qual mês, qual fornecedor,
+   confirmar ou cancelar), responda direto — aí o nome não é preciso.
+
+Só aparece para quem tem acesso ao agente.
+
+============================================================
+1. INCLUIR VENCIDOS NA NOTA DO FORNECEDOR (TROCA)
+============================================================
+
+  "Jardél, incluir os vencidos da Hotbel de setembro"
+  "Jardél, mandar os vencidos da Nestlé de outubro"
+  "Jardél, incluir vencidos da Hotbel"          (sem mês: ele pergunta, se houver mais de um)
+  "Jardél, incluir os vencidos do mês passado da Hotbel"
+
+  O que ele faz:
+  - Abre o controle de vencidos (se você estiver em outra página).
+  - Repete o que entendeu: fornecedor, mês e quantidade de itens.
+  - Manda o agente abrir no ERP a última nota de vencido (tipo 3)
+    aberta desse fornecedor.
+  - Lê a nota que achou (número, lançamento, data de entrada) e pede
+    para você CONFERIR NO ERP.
+  - Só inclui depois que você disser "confirmar".
+  - Cada item gravado vira baixa "Devolução ao fornecedor".
+
+============================================================
+2. INCLUIR VENCIDOS NA NOTA DE PERDA (DA LOJA)
+============================================================
+
+  "Jardél, nota de perda de outubro"
+  "Jardél, incluir os vencidos de perda de setembro"
+
+  O que ele faz:
+  - Junta os vencidos do mês de todos os fornecedores marcados como
+    PERDA.
+  - Manda o agente abrir no ERP a última nota de perda de vencidos
+    aberta (busca pelo DCPOA "%perda%vencidos").
+  - Lê a nota, pede para conferir no ERP e só inclui com "confirmar".
+  - Cada item gravado vira baixa "Perda".
+
+============================================================
+3. SIMULAÇÃO (FAZ TUDO E CANCELA — NADA É GRAVADO)
+============================================================
+
+  "Jardél, simular"                  liga a simulação
+  "Jardél, gravar de verdade"        desliga a simulação
+  "Jardél, sem simular"              desliga a simulação
+  "Jardél, nota de perda de outubro simulando"
+                                     faz a ordem já em simulação
+
+============================================================
+4. RESPOSTAS DURANTE A CONVERSA
+============================================================
+
+  Quando ele pedir confirmação depois de abrir a nota:
+    "confirmar"        inclui os itens na nota (SÓ esta palavra grava)
+    "cancelar"         não inclui nada
+    "abrir de novo"    manda o agente abrir a nota outra vez
+
+  Quando ele perguntar o mês:        "setembro", "outubro"...
+  Quando ele perguntar o fornecedor: o nome do fornecedor
+  Quando houver dois nomes parecidos ("X ou Y?"): diga qual dos dois
+
+  Se você não responder em 3 tentativas, ele fica aguardando. Para
+  confirmar depois:
+    "Jardél, confirmar"
+  (ou use o botão "Aprovar e incluir" na tela).
+
+============================================================
+SEGURANÇA — O QUE O JARDÉL NUNCA FAZ
+============================================================
+
+- Nunca grava sem você dizer exatamente "confirmar" depois de ouvir a
+  nota. "Sim", "confirmar a nota" ou silêncio NÃO gravam.
+- Nunca escolhe um fornecedor no chute: se não achar ou houver
+  dúvida, ele pergunta ou desiste.
+- Nunca põe vencidos de dois meses diferentes na mesma nota.
+- Nunca inclui o mesmo vencido duas vezes.
+- Fornecedor sem o nº do RADGe no cadastro não abre nota (troca).
+- Para parar o agente no meio da digitação no ERP: SEGURE a tecla ESC
+  por um segundo na máquina do ERP.
+
+Depois de cada operação no ERP, o agente devolve o foco para a janela
+do navegador com o sistema.
+
+============================================================
+AINDA NÃO FAZ
+============================================================
+
+- Outras ferramentas do sistema (débitos, relatórios, catálogo...).
+  Por enquanto ele só manda os vencidos para a nota do fornecedor ou
+  para a nota de perda.
+- Ouvir sem clicar no microfone (escuta contínua).

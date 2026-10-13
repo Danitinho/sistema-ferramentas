@@ -61,6 +61,49 @@ def _rect(ctrl):
     return r.left, r.top, r.right, r.bottom
 
 
+# ── devolver o foco ao navegador ─────────────────────────────────────────────
+# Chrome/Edge (Chromium) e Firefox. A classe do Chromium é a mesma de VS Code e
+# de outros apps Electron, por isso o título ainda precisa dizer que é um
+# navegador ("... - Google Chrome", "... - Microsoft Edge").
+NAVEGADOR_CLASSES = ("Chrome_WidgetWin_1", "MozillaWindowClass")
+NAVEGADOR_SUFIXOS = ("google chrome", "microsoft edge", "mozilla firefox", "chromium")
+# Toda página do sistema leva isto no <title> (base.html).
+MARCA_TITULO = "Sistema de Ferramentas"
+
+
+def focar_navegador(marca=MARCA_TITULO):
+    """Traz para a frente a janela do navegador com o sistema aberto: a que tem
+    `marca` no título (a aba ativa) ou, sem ela, a janela de navegador mais
+    acima na pilha. Devolve o título focado, ou '' se não houver navegador.
+    Nunca levanta exceção: devolver o foco é conforto, não pode derrubar um
+    pedido que já terminou."""
+    if not DISPONIVEL:
+        return ""
+    try:
+        candidatas = []
+        for w in Desktop(backend="win32").windows():   # ordem de pilha: o de cima primeiro
+            try:
+                if w.class_name() not in NAVEGADOR_CLASSES or not w.is_visible():
+                    continue
+                titulo = (w.window_text() or "").replace("​", "")
+            except Exception:
+                continue
+            t = normalizar(titulo)
+            if not t.endswith(NAVEGADOR_SUFIXOS):
+                continue
+            candidatas.append((normalizar(marca) not in t, titulo, w))
+        if not candidatas:
+            return ""
+        candidatas.sort(key=lambda c: c[0])            # estável: com a marca primeiro
+        _, titulo, w = candidatas[0]
+        if w.is_minimized():
+            w.restore()
+        w.set_focus()
+        return titulo
+    except Exception:
+        return ""
+
+
 class Janela:
     """A janela principal do RADGe e a busca de controles dentro dela."""
 

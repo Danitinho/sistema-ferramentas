@@ -35,6 +35,7 @@ ENDPOINTS_AGENTE = {
     "reclassificacao.agente_comando", "reclassificacao.agente_parametros",
     "reclassificacao.liberar", "reclassificacao.devolver", "reclassificacao.erp_mapa",
     "vencidos.rodada_abrir", "vencidos.rodada_incluir",
+    "vencidos.rodada_perda_abrir", "vencidos.rodada_perda_incluir",
 }
 
 

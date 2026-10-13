@@ -274,9 +274,28 @@ empresa com dois vendedores rende duas linhas, "MARQUES E MELO (VANUSA)" e
 quando alguma dívida do período tem um (`tem_vendedor`).
 Débito com período em **intervalo** que cobre os dois meses conta **uma vez só**,
 no mês do relatório (senão o total dobra). Mês padrão = **mês anterior ao
-corrente** (é o fechamento em pauta). `cnpj` opcional na query: sem ele é o
-consolidado de todas as empresas, com ele a empresa só — a coluna/aba "Empresa"
-some. O relatório é **retroativo** por natureza (novo lançamento muda um mês já
+corrente** (é o fechamento em pauta). **Escopo de empresas** (`cnpj` na query,
+**repetível**): nenhum = todas; um = a empresa só (a coluna "Empresa" some);
+dois ou mais = **as empresas selecionadas** (13/10/2026). `montar_relatorio`
+aceita `cnpj` como string ou lista e expõe `todas_empresas`, `selecao` e
+`varias_empresas` (todas OU seleção) — **os renderizadores decidem a coluna 1
+por `varias_empresas`**, nunca por `todas_empresas`, senão uma seleção sairia
+sem dizer de quem é cada linha. O `escopo` fica curto de propósito (vai no
+rodapé de toda folha e no título das abas): até 3 nomes, depois "N empresas
+selecionadas"; a lista completa vai no carimbo da tela e na **capa do PDF**
+(até 12 nomes + "e mais N") — inclusive as que não têm débito no mês e por isso
+não aparecem em tabela nenhuma. Na tela, um botão abre o modal com caixas de
+marcação (busca por nome/CNPJ).
+**Histórico de seleções** (`relatorio_selecoes` no `debitos.db`,
+`registrar_selecao`/`listar_selecoes`/`remover_selecao`): abrir a página com 2+
+empresas guarda o CONJUNTO (chave = CNPJs ordenados; repetir só renova
+`usado_em`/`vezes`), e as 8 mais recentes voltam como atalhos "Seleções salvas".
+Só a página grava — PDF/Excel não. Tirar do histórico é soft-delete
+(`POST /debitos/api/relatorio/selecao/remover {chave}`); usar a mesma seleção de
+novo a traz de volta. Empresa excluída sai da seleção; com menos de duas, o
+atalho some. O relatório **não** abre sozinho na última seleção: mês novo com
+empresa nova ficaria de fora sem ninguém pedir.
+O relatório é **retroativo** por natureza (novo lançamento muda um mês já
 impresso), por isso é carimbado com `gerado_em`.
 
 **Leitura em 3 partes** (`rel["partes"]` + `rel["consolidado"]`) — e **nenhum
@@ -1685,6 +1704,25 @@ Armadilhas (vistas no log antigo, agora tratadas):
   formulário fica escondido e um controle ainda não guardado não é achado — foi
   assim que o `valor` saiu vazio em todas as linhas.
 
+### `nf.abrir_perda {dcpoa}` (agente v1.3, 08/10/2026)
+A **nota de perda de vencidos é da loja**, sem fornecedor: acha-se pelo texto
+do **DCPOA** (padrão `%perda%vencidos`, com curinga). É a MESMA função do
+`nf.abrir_ultima` (`nf_abrir_ultima` com `dcpoa`): Limpar conferido → digita o
+texto no DCPOA → **relê** (campo que não aceitou = erro antes do F5) → F5 →
+Grade → varre → última **aberta** → Form → confere. Sem tipo e sem fornecedor,
+e o fornecedor da nota não é comparado.
+- O DCPOA é um `TDBEdit` logo abaixo de "Digitado por" e "Data/hora" no
+  cabeçalho (x 88–208 / y 284–305), como os outros campos de filtro. Ainda não
+  está no `config.mapa_erp`: o agente usa `entradas.CAMPOS_PADRAO`
+  (`{class_name: TDBEdit, x: 148, y: 294}`) e **o mapa do servidor vence** se
+  ganhar um `dcpoa`. **Armadilha:** a inspeção guardada no pedido #39 varre a
+  janela principal inteira, com outras telas MDI abertas (Produtos, Entrada XML)
+  — a 1a versão pegou dali um `TcxTextEdit` de outra tela ("0 de 0 TcxTextEdit
+  visíveis" na Entradas). Inspecione só a `TfrmEntradas`.
+- É capacidade **com nome próprio**, e não um parâmetro do `nf.abrir_ultima`, de
+  propósito: um agente antigo ignoraria o parâmetro e cairia em "pedido sem
+  fornecedor"; com nome próprio ele só não pega o pedido.
+
 ### `nf.incluir_itens {itens[{codigo, qtd, esperado}], simular, nota?, fornecedor?, tipo?}`
 Inclui produtos na nota ABERTA carregada na tela (ou, com `fornecedor`, abre a
 última nota dele antes — é o caminho que o `/vencidos` vai usar). **Grava**, então
@@ -1731,8 +1769,8 @@ RADGe real em 28/09/2026.
 - As capacidades restantes do agente antigo: `nf.abrir {numero}`,
   `erp.inspecionar {limite}` e `erp.campo_focado {espera_s}` (calibração do mapa
   pelo painel). O log antigo no `agente.db` registra o comportamento esperado.
-- Caminho **perda** da rodada do `/vencidos` (nota de perda aberta pelo nº de
-  lançamento — precisa do `nf.abrir {numero}`).
+- Testar o `nf.abrir_perda` no RADGe real (o DCPOA saiu da inspeção, não de um
+  clique no campo): primeira rodada de perda em **Simular**.
 
 ### Segundo cliente: a rodada do `/vencidos` (`scripts/vencidos_notas.py`)
 Botão **"Incluir nas notas"** no `/vencidos`. Pedido do usuário (28/09/2026):
@@ -1742,25 +1780,35 @@ aberta uma vez), um fornecedor por vez:
 → "Aprovar e incluir" → `nf.incluir_itens {itens, nota: lançamento}` autorizado
 por ela → cada item **gravado** vira baixa `devolucao` com `baixa_ref = "Nota N"`
 e `baixa_por` = quem autorizou. Os pedidos saem com `modulo="vencidos"`.
-- **Uma nota, um mês** (pedido do usuário, 08/10/2026): o grupo é
+- **Rodada separada por mês** (pedido do usuário, 08/10/2026): o grupo é
   **fornecedor + mês de registro** (`criado_em`, o mesmo mês da tela e do
   relatório; `chave = "fid|AAAA-MM"`). O modal lista os meses com pendência e
   **nenhum vem marcado** — a pessoa escolhe os da rodada. `incluir` exige `mes`
-  e só reserva vencidos dele. Como o mesmo fornecedor em dois meses abriria a
-  **mesma** nota aberta, `incluir` também confere os vencidos já ligados àquela
-  nota (incluídos, com o agente ou a conferir — `_meses_da_nota`, chave =
-  lançamento) e **recusa** se forem de outro mês, pedindo uma nota nova no ERP.
+  e só reserva vencidos dele. **A separação por mês é só da tela: a nota NÃO é
+  travada por mês** (13/10/2026). Houve uma trava (`_meses_da_nota`) que
+  recusava incluir numa nota que já tinha vencidos de outro mês; foi retirada a
+  pedido do usuário porque impedia lançar um produto esquecido de um mês
+  anterior na nota aberta de agora.
 - **Troca/perda é por fornecedor** (quem decide é ele), guardada em
-  `fornecedor_destino` e usada como padrão da próxima rodada. Perda ainda não
-  anda (fica pendente, "aguardando a nota de perda"); `incluir` recusa no
-  servidor.
+  `fornecedor_destino` e usada como padrão da próxima rodada.
+- **Perda** (08/10/2026): a nota de perda de vencidos é **da loja**, então o
+  grupo é **um por mês** com todos os fornecedores marcados como perda
+  (`chave = "perda|AAAA-MM"`, `tipo: "perda"`, lista `fornecedores`), sem exigir
+  o nº do RADGe. `abrir_nota_perda` → `nf.abrir_perda` → conferência →
+  `incluir_perda(mes, pedido_abrir)` → item gravado vira baixa **`perda`**. Rotas
+  `/vencidos/api/rodada-perda/abrir|incluir` (hífen, para não disputar com
+  `/rodada/<fid>/...`), em `ENDPOINTS_AGENTE`. O destino viaja junto da nota guardada (`nota_numero.destino`) e é
+  ele que escolhe a baixa em `aplicar_resultado`. Troca e perda dividem o miolo
+  `_reservar_e_enviar`.
 - **Fornecedor sem `numero`** não abre nota: modal na própria tela grava o nº
   pela `/fornecedores/api/<id>/editar`. **Sem nota aberta** = mensagem para criar
   a nota no ERP + "Tentar de novo".
 - **Nunca incluir duas vezes** (duplicaria o item no ERP): colunas
   `nota_situacao`/`nota_pedido`/`nota_numero`/`nota_detalhe`/`nota_em` no
   vencido + `nota_pedido_itens` (posição no pedido → vencido; o resultado volta
-  por posição). A reserva é um UPDATE condicional **antes** do pedido existir;
+  por posição). O acompanhamento do pedido devolve `ids` (o vencido de cada
+  posição) e a tela casa o resultado **por id** — a ordem da lista na tela não é
+  a do pedido (a perda sai agrupada por fornecedor). A reserva é um UPDATE condicional **antes** do pedido existir;
   `em_andamento` bloqueia editar, excluir, dar baixa e outra rodada.
   `aplicar_resultado` é idempotente (só mexe em quem ainda está em andamento).
 - Situações: gravado → `incluido` + baixa · simulado → livre (sem baixa) ·
@@ -1779,3 +1827,73 @@ Igual à reclassificação: **cópia** do `agente.db` pela API de backup do SQLi
 por `make_server`, e `AgenteGeral(cfg, fabrica_driver=...)` com um
 `DriverEntradas` cujo `j` é um simulador da tela (grade com notas abertas e
 fechadas, ↓ na última linha abrindo inclusão como o cxGrid).
+
+---
+
+## 19. Comando de voz (fase 1: vencidos para a nota)
+
+Pedido do usuário (08/10/2026): dar por voz as ordens que já existem, começando
+pelo "Incluir nas notas" do `/vencidos` (nota de vencido do fornecedor ou nota de
+perda), **com as mesmas confirmações**. A voz é uma camada fina: nenhuma regra
+de negócio nova, nenhuma rota nova — o roteiro chama as mesmas funções da tela
+(`abrirNotaForn`, `incluirForn`), então valem todas as travas da seção 18
+(reserva antes do pedido, "a conferir").
+
+**Onde funciona: só no PC do ERP, por `http://localhost`.** O navegador só
+libera o microfone em página segura (HTTPS ou localhost); por
+`http://192.168.0.52` ele bloqueia. O botão aparece para quem tem acesso ao
+agente (`perm.agente`) e fica esmaecido, explicando, fora de contexto seguro.
+O reconhecimento é o do próprio Chrome/Edge (**precisa de internet**) e a fala é
+a voz pt-BR do Windows. Se a internet virar problema, o caminho é o Vosk local
+com vocabulário fechado (fase 2, com o agente escutando).
+
+- **O agente se chama "Jardél"** (pedido do usuário, 09/10/2026) e só atende
+  pelo nome: uma **ordem nova** só vale se a frase **começar** por ele ("Jardél,
+  incluir os vencidos da Hotbel de setembro"); sem o nome é ignorada **em
+  silêncio** (só uma linha no painel). Só o nome → "Pois não?". As respostas às
+  perguntas que ele mesmo faz dentro da conversa (mês, fornecedor,
+  confirmar/cancelar) **não** precisam do nome, mas aceitam. O "confirmar" solto
+  depois de ele dizer "fico aguardando" é ordem nova: "Jardél, confirmar".
+  `tirarNome` aceita as grafias do reconhecedor (`NOME_VARIANTES`: jardel,
+  jardeu, gardel, "jar del"...) ou uma palavra parecida (≥ 0,8); em dois
+  pedaços só a variante exata — aproximar ali fez "o Jardel saiu cedo" virar
+  chamado. Nome no meio da frase não chama.
+- **`base.html`**: botão de microfone no topo (ou **F2**), `window.Voz`
+  (`falar`, `ouvir`, `perguntar`, `norm`, `mostrar`) e o painel da conversa.
+  Ouve **uma frase por vez** (nunca microfone aberto). Se a página tem
+  `window.vozHandler`, entrega a ela; senão, ordem com "vencido"/"perda" navega
+  para `/vencidos?voz=alt1|alt2` e a página retoma.
+- **`vencidos/index.html`** (`vozHandler`): fornecedor falado é casado **só com
+  quem tem grupo de troca pendente** (no mês, se dito), por semelhança contra o
+  núcleo do nome e o nome inteiro; empate → pergunta "X ou Y?"; não achou →
+  pergunta "de qual fornecedor?" e desiste se não achar. "perda" → grupo da nota
+  de perda. Mês por nome ("setembro", "mês passado"); com dois meses pendentes e
+  nenhum dito, pergunta.
+- **Confirmações:** antes de abrir, o sistema repete o que entendeu (abrir não
+  grava). Depois de o agente abrir a nota, lê número/lançamento/entrada e pede
+  para conferir no ERP. **Gravar exige a frase ser exatamente "confirmar"**
+  (ou confirma/confirmo); "confirmar a nota", "sim" ou silêncio não gravam. Três
+  tentativas e fica aguardando: um "confirmar" solto depois, pelo microfone,
+  ainda vale (`_voz.aguardando`). "cancelar" = pular, nada incluído. Com voz, o
+  `confirm()` da janela não se repete (`incluirForn(c, {voz: true})`).
+- **"simular"/"gravar de verdade"** liga/desliga o Simular da rodada; "...
+  simulando" no meio da ordem também liga.
+
+### O foco volta ao navegador
+Depois de **todo** pedido do agente geral (feito ou com erro), antes de entregar
+o resultado, `AgenteGeral._voltar_foco` chama `erp.focar_navegador`: a janela
+Chrome/Edge/Firefox cujo título tem **"Sistema de Ferramentas"** (por isso o
+`<title>` do `base.html` acrescenta a marca em toda página), ou, sem ela, a de
+navegador mais acima na pilha. Classe `Chrome_WidgetWin_1` sozinha não basta —
+é a mesma do VS Code — então o título também precisa terminar em "Google
+Chrome"/"Microsoft Edge"/... Nunca levanta exceção. `config.json` da máquina:
+`voltar_foco_navegador: false` desliga, `navegador_titulo` troca a marca.
+Agente v1.4.
+
+### Testado (08/10/2026)
+Roteiro do `/vencidos` em Node com voz roteirizada e tela falsa (12 casos:
+caminho feliz, cancelar, "confirmar a nota"/"sim" não gravando e o "confirmar"
+solto depois, pergunta de mês, desempate de nomes parecidos, perda simulando,
+fornecedor sem nº, mês sem pendência, sem nota aberta, agente sem
+`nf.abrir_perda`, fornecedor desconhecido); `_voltar_foco` antes do `concluir`
+no sucesso e na falha. **Não testado com microfone e ERP reais.**
