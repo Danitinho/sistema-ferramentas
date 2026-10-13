@@ -1,6 +1,8 @@
 """
 scripts/debitos_relatorio.py
-Relatório mensal de débitos e pagamentos (leitura pura — não grava nada).
+Relatório mensal de débitos e pagamentos. O relatório em si é leitura pura;
+a única coisa gravada aqui é o HISTÓRICO DE SELEÇÕES de empresas
+(`relatorio_selecoes`), para a mesma seleção reaparecer no próximo fechamento.
 
 Regra de competência (a que dá sentido ao fechamento do mês):
   • O DÉBITO pertence ao mês do seu PERÍODO DE REFERÊNCIA (`periodo_inicio`/
@@ -27,6 +29,7 @@ terceira: (1) débitos do mês, (2) débitos do mês anterior — onde estão os
 pagamentos mandados ao longo do mês —, (3) consolidado.
 """
 import calendar
+import json
 import re
 from datetime import datetime
 
@@ -101,7 +104,29 @@ def _grupo(razao, vendedor):
     return f"{razao} ({v})" if v else razao
 
 
-def _debitos_do_mes(conn, mes, cnpj=None):
+def _filtro_cnpj(coluna, cnpjs):
+    """Trecho de WHERE para a lista de empresas. None = todas."""
+    if not cnpjs:
+        return "", []
+    return f" AND {coluna} IN ({','.join('?' * len(cnpjs))})", list(cnpjs)
+
+
+def _normalizar_cnpjs(cnpj):
+    """Aceita None, uma string ou uma lista; devolve lista sem vazios e sem
+    repetição (na ordem dada) ou None = todas as empresas."""
+    if cnpj is None:
+        return None
+    if isinstance(cnpj, str):
+        cnpj = [cnpj]
+    vistos = []
+    for c in cnpj:
+        c = (c or "").strip()
+        if c and c not in vistos:
+            vistos.append(c)
+    return vistos or None
+
+
+def _debitos_do_mes(conn, mes, cnpjs=None):
     """Débitos cujo período cobre `mes` (mesma regra de sobreposição da tela)."""
     primeiro, ultimo = _limites_mes(mes)
     sql = ("SELECT d.*, e.razao_social FROM debitos d "
@@ -109,9 +134,9 @@ def _debitos_do_mes(conn, mes, cnpj=None):
            "WHERE d.excluido_em IS NULL AND d.periodo_inicio IS NOT NULL "
            "AND d.periodo_inicio <= ? AND d.periodo_fim >= ?")
     params = [ultimo, primeiro]
-    if cnpj:
-        sql += " AND d.cnpj = ?"
-        params.append(cnpj)
+    f_sql, f_args = _filtro_cnpj("d.cnpj", cnpjs)
+    sql += f_sql
+    params += f_args
     sql += " ORDER BY e.razao_social, d.data"
 
     saida = []
@@ -169,7 +194,7 @@ def _campos_vendedor(vendedor, razao):
             "grupo": _grupo(razao, v)}
 
 
-def _avulsos_do_mes(conn, mes, cnpj=None):
+def _avulsos_do_mes(conn, mes, cnpjs=None):
     """Dinheiro sem mês de referência próprio, pelo mês de LANÇAMENTO:
     crédito ainda livre + o que abateu débito antigo sem período."""
     like = f"{mes}%"
@@ -180,9 +205,9 @@ def _avulsos_do_mes(conn, mes, cnpj=None):
            "LEFT JOIN empresas e ON e.cnpj = p.cnpj "
            "WHERE p.excluido_em IS NULL AND p.data LIKE ?")
     params = [like]
-    if cnpj:
-        sql += " AND p.cnpj = ?"
-        params.append(cnpj)
+    f_sql, f_args = _filtro_cnpj("p.cnpj", cnpjs)
+    sql += f_sql
+    params += f_args
     sql += " ORDER BY e.razao_social, p.data"
     for r in conn.execute(sql, params).fetchall():
         disp = round(r["valor_total"] - (r["valor_alocado"] or 0), 2)
@@ -214,9 +239,9 @@ def _avulsos_do_mes(conn, mes, cnpj=None):
            "WHERE a.excluido_em IS NULL AND p.excluido_em IS NULL "
            "AND d.excluido_em IS NULL AND d.periodo_inicio IS NULL AND p.data LIKE ?")
     params = [like]
-    if cnpj:
-        sql += " AND p.cnpj = ?"
-        params.append(cnpj)
+    f_sql, f_args = _filtro_cnpj("p.cnpj", cnpjs)
+    sql += f_sql
+    params += f_args
     sql += " ORDER BY e.razao_social, p.data"
     for r in conn.execute(sql, params).fetchall():
         saida.append({
@@ -332,26 +357,45 @@ def _abatimento_por_tipo(partes):
     return sorted(saida, key=lambda s: -s["valor"])
 
 
+def _escopo(cnpjs, empresas):
+    """Rótulo curto do escopo — vai no subtítulo, no rodapé de cada folha do
+    PDF e no título das abas do Excel, então não pode crescer com a seleção."""
+    if cnpjs is None:
+        return "Todas as empresas"
+    if not empresas:
+        return "Empresa não encontrada"
+    if len(cnpjs) == 1:
+        e = empresas[0]
+        return f"{e['razao_social']} — {e['cnpj']}"
+    nomes = [e["razao_social"] for e in empresas]
+    if len(nomes) == 1:
+        return nomes[0]
+    if len(nomes) <= 3:
+        return ", ".join(nomes[:-1]) + " e " + nomes[-1]
+    return f"{len(nomes)} empresas selecionadas"
+
+
 def montar_relatorio(mes=None, cnpj=None):
     """Relatório do fechamento, lido em três partes: os débitos do mês, os do mês
     anterior (que são pagos ao longo dele) e só então o consolidado. Nenhum
     número somado dos dois meses aparece antes da terceira parte — cada mês se
-    fecha sozinho. `cnpj` None = todas as empresas."""
+    fecha sozinho. `cnpj` None = todas as empresas; uma string = só ela; uma
+    lista = só as empresas SELECIONADAS (lista de um item vale como uma
+    empresa só)."""
     mes = mes if mes_valido(mes) else mes_padrao()
     ant = mes_anterior(mes)
-    cnpj = (cnpj or "").strip() or None
+    cnpjs = _normalizar_cnpjs(cnpj)
 
     conn = db._conn()
     try:
-        debs_mes = _debitos_do_mes(conn, mes, cnpj)
-        debs_ant = _debitos_do_mes(conn, ant, cnpj)
+        debs_mes = _debitos_do_mes(conn, mes, cnpjs)
+        debs_ant = _debitos_do_mes(conn, ant, cnpjs)
         # Débito com período em intervalo pode cobrir os dois meses; conta uma
         # vez só, no mês do relatório — senão o total soma o mesmo débito duas vezes.
         ids_mes = {d["id"] for d in debs_mes}
         debs_ant = [d for d in debs_ant if d["id"] not in ids_mes]
         _anexar_alocacoes(conn, debs_mes + debs_ant)
-        avulsos = _avulsos_do_mes(conn, mes, cnpj)
-        empresa = db.buscar_empresa(cnpj) if cnpj else None
+        avulsos = _avulsos_do_mes(conn, mes, cnpjs)
     finally:
         conn.close()
 
@@ -395,8 +439,17 @@ def montar_relatorio(mes=None, cnpj=None):
         "por_empresa": por_empresa,
     }
 
-    escopo = (f"{empresa['razao_social']} — {empresa['cnpj']}" if empresa
-              else ("Empresa não encontrada" if cnpj else "Todas as empresas"))
+    # empresas da seleção que existem, em ordem alfabética (CNPJ desconhecido
+    # ou excluído some do rótulo; o filtro continua sendo só a seleção)
+    empresas = []
+    if cnpjs:
+        empresas = sorted((e for e in map(db.buscar_empresa, cnpjs) if e),
+                          key=lambda e: e["razao_social"])
+    empresa = empresas[0] if cnpjs and len(cnpjs) == 1 and empresas else None
+    # mais de uma empresa no relatório (todas ou uma seleção): toda linha
+    # precisa dizer de quem é — a mesma apresentação do "todas as empresas"
+    varias = cnpjs is None or len(cnpjs) > 1
+    escopo = _escopo(cnpjs, empresas)
     tem_vendedor = any(x["vendedor"] for x in (debs_mes + debs_ant + avulsos))
 
     return {
@@ -404,12 +457,19 @@ def montar_relatorio(mes=None, cnpj=None):
         "mes_label":      lbl_mes,
         "mes_ant":        ant,
         "mes_ant_label":  lbl_ant,
-        "cnpj":           cnpj or "",
+        # uma empresa só: o CNPJ dela; seleção ou todas: vazio
+        "cnpj":           cnpjs[0] if cnpjs and len(cnpjs) == 1 else "",
+        "cnpjs":          cnpjs or [],
         "empresa":        empresa,
-        "todas_empresas": cnpj is None,
+        "todas_empresas": cnpjs is None,
+        # seleção de 2+ empresas (nem todas, nem uma só)
+        "selecao":        bool(cnpjs) and len(cnpjs) > 1,
+        "empresas_sel":   empresas if cnpjs and len(cnpjs) > 1 else [],
+        # mais de uma empresa no relatório: a coluna 1 diz de quem é a linha
+        "varias_empresas": varias,
         "tem_vendedor":   tem_vendedor,
         # a quebra por dívida só informa quando há mais de uma no relatório
-        "mostrar_quebra": cnpj is None or tem_vendedor,
+        "mostrar_quebra": varias or tem_vendedor,
         "escopo":         escopo,
         "gerado_em":      datetime.now().strftime("%d/%m/%Y %H:%M"),
         "partes":         partes,
@@ -418,6 +478,104 @@ def montar_relatorio(mes=None, cnpj=None):
         # de que forma a dívida está sendo quitada (alimenta a capa do PDF)
         "por_tipo":       _abatimento_por_tipo(partes),
     }
+
+
+# ── Histórico de seleções de empresas ─────────────────────────────────────────
+# Quem fecha o mês costuma tirar o relatório do MESMO grupo de empresas todo
+# mês. Cada seleção de 2+ empresas aberta na tela fica guardada aqui e volta
+# como atalho. A chave é o conjunto (a ordem não importa), então repetir uma
+# seleção só renova a data — não duplica. Remover do histórico é soft-delete;
+# usar a mesma seleção de novo a traz de volta.
+HISTORICO_MAX = 8
+
+
+def _tabela_selecoes(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS relatorio_selecoes (
+            chave        TEXT PRIMARY KEY,   -- CNPJs ordenados, um por linha
+            cnpjs        TEXT NOT NULL,      -- JSON
+            criado_em    TEXT NOT NULL,
+            usado_em     TEXT NOT NULL,
+            usado_por    TEXT,
+            vezes        INTEGER NOT NULL DEFAULT 1,
+            excluido_em  TEXT,
+            excluido_por TEXT
+        )""")
+
+
+def _chave_selecao(cnpjs):
+    return "\n".join(sorted(cnpjs))
+
+
+def registrar_selecao(cnpjs, usuario=None):
+    """Guarda (ou renova) uma seleção de empresas no histórico. Só seleção de
+    2+ empresas: "todas" e "uma só" já são uma escolha no próprio seletor."""
+    cnpjs = _normalizar_cnpjs(cnpjs)
+    if not cnpjs or len(cnpjs) < 2:
+        return False
+    chave, agora = _chave_selecao(cnpjs), db._agora()
+    conn = db._conn()
+    try:
+        _tabela_selecoes(conn)
+        cur = conn.execute(
+            "UPDATE relatorio_selecoes SET usado_em=?, usado_por=?, vezes=vezes+1, "
+            "excluido_em=NULL, excluido_por=NULL WHERE chave=?", (agora, usuario, chave))
+        if not cur.rowcount:
+            conn.execute(
+                "INSERT INTO relatorio_selecoes (chave, cnpjs, criado_em, usado_em, usado_por) "
+                "VALUES (?,?,?,?,?)",
+                (chave, json.dumps(sorted(cnpjs), ensure_ascii=False), agora, agora, usuario))
+        conn.commit()
+    finally:
+        conn.close()
+    return True
+
+
+def listar_selecoes(limite=HISTORICO_MAX):
+    """Seleções recentes (a usada por último primeiro), com o nome ATUAL de
+    cada empresa. Empresa excluída depois sai da seleção; se sobrar menos de
+    duas, a seleção deixa de aparecer."""
+    conn = db._conn()
+    try:
+        _tabela_selecoes(conn)
+        rows = conn.execute(
+            "SELECT chave, cnpjs, usado_em, usado_por, vezes FROM relatorio_selecoes "
+            "WHERE excluido_em IS NULL ORDER BY usado_em DESC").fetchall()
+        nomes = {r["cnpj"]: r["razao_social"] for r in conn.execute(
+            "SELECT cnpj, razao_social FROM empresas WHERE excluido_em IS NULL")}
+    finally:
+        conn.close()
+    saida = []
+    for r in rows:
+        try:
+            cnpjs = [c for c in json.loads(r["cnpjs"]) if c in nomes]
+        except (ValueError, TypeError):
+            continue
+        if len(cnpjs) < 2:
+            continue
+        empresas = sorted(({"cnpj": c, "razao_social": nomes[c]} for c in cnpjs),
+                          key=lambda e: e["razao_social"])
+        saida.append({"chave": r["chave"], "cnpjs": [e["cnpj"] for e in empresas],
+                      "empresas": empresas, "rotulo": _escopo(cnpjs, empresas),
+                      "usado_em": db._fmt_data(r["usado_em"]),
+                      "usado_por": r["usado_por"] or "", "vezes": r["vezes"]})
+        if len(saida) >= limite:
+            break
+    return saida
+
+
+def remover_selecao(chave, usuario=None):
+    """Tira uma seleção do histórico (soft-delete)."""
+    conn = db._conn()
+    try:
+        _tabela_selecoes(conn)
+        cur = conn.execute(
+            "UPDATE relatorio_selecoes SET excluido_em=?, excluido_por=? "
+            "WHERE chave=? AND excluido_em IS NULL", (db._agora(), usuario, chave))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def alocacoes_planas(rel):

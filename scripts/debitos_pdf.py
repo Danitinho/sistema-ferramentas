@@ -54,9 +54,9 @@ TOPO_RANKING = 5   # linhas dos blocos da capa
 # A unidade do relatório é a DÍVIDA = (empresa, vendedor). Quando o relatório é
 # de uma empresa só e ela não tem vendedores, repetir o nome em toda linha não
 # informa nada — aí a coluna passa a mostrar o tipo do débito. Mesma regra
-# adaptativa do Excel.
+# adaptativa do Excel. "Várias empresas" = todas OU uma seleção de 2+.
 def _rotulo_linha(rel, d):
-    if rel["todas_empresas"]:
+    if rel["varias_empresas"]:
         return d["grupo"]
     if rel["tem_vendedor"]:
         return d["vendedor"] or "—"
@@ -64,7 +64,7 @@ def _rotulo_linha(rel, d):
 
 
 def _titulo_col1(rel):
-    if rel["todas_empresas"]:
+    if rel["varias_empresas"]:
         return "Empresa / vendedor"
     return "Vendedor" if rel["tem_vendedor"] else "Tipo"
 
@@ -138,12 +138,33 @@ def _blocos(rel, est):
     return saida
 
 
+MAX_NOMES_CAPA = 12   # nomes da seleção listados na capa; o resto vira "e mais N"
+
+
+def _empresas_selecionadas(rel, est):
+    """Numa seleção, o subtítulo só diz quantas são; a capa diz QUAIS — inclusive
+    as que não têm débito no fechamento e por isso não aparecem em tabela
+    nenhuma. Sem isso, o leitor não sabe se uma empresa ausente ficou de fora
+    da seleção ou só não deve nada."""
+    emps = rel.get("empresas_sel") or []
+    if not emps:
+        return []
+    nomes = [e["razao_social"] for e in emps[:MAX_NOMES_CAPA]]
+    texto = " · ".join(nomes)
+    if len(emps) > MAX_NOMES_CAPA:
+        texto += f" · e mais {len(emps) - MAX_NOMES_CAPA}"
+    return [Spacer(1, 2 * mm),
+            Paragraph(f"<b>Empresas selecionadas ({len(emps)}):</b> {esc(texto)}",
+                      est["nota"])]
+
+
 def _capa(rel, est, f):
     t = rel["consolidado"]["totais"]
     story = base.cabecalho_documento(
         "DÉBITOS E BONIFICAÇÕES",
         f"Fechamento de {rel['mes_label']} · {rel['escopo']}",
         f"Relatório gerado em {rel['gerado_em']} · Sistema de Ferramentas", est)
+    story += _empresas_selecionadas(rel, est)
     story += [
         Spacer(1, 8 * mm),
         _cartoes(rel, est),
@@ -367,7 +388,7 @@ def _parte_avulsos(rel, est, f):
         ref = f"{a['tipo_label']} {a['referencia']}".strip()
         if a.get("destino"):
             ref += f" → {a['destino']}"
-        if rel["todas_empresas"]:
+        if rel["varias_empresas"]:
             ref = f"{a['grupo']} · {ref}"
         dados.append([Paragraph(esc(a["natureza_label"]), est["td"]),
                       Paragraph(esc(ref), est["td_sec"]),

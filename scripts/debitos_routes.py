@@ -47,25 +47,53 @@ def empresa(cnpj):
     )
 
 
+def _cnpjs_da_query():
+    """`?cnpj=` pode vir repetido: nenhum = todas as empresas, um = só ela,
+    vários = as empresas selecionadas. Um `cnpj` só continua funcionando como
+    antes (os links da quebra do consolidado usam isso)."""
+    return [c for c in request.args.getlist("cnpj") if c.strip()] or None
+
+
+def _montar():
+    return rel.montar_relatorio(request.args.get("mes"), _cnpjs_da_query())
+
+
 @debitos_bp.route("/relatorio")
 def relatorio():
     """Fechamento do mês: débitos do mês + do mês anterior (que são pagos ao
     longo dele) + os pagamentos que abateram uns e outros."""
-    r = rel.montar_relatorio(request.args.get("mes"), request.args.get("cnpj"))
+    r = _montar()
+    if r["selecao"]:
+        # abrir o relatório com 2+ empresas guarda a seleção no histórico; o
+        # PDF e o Excel saem desta mesma tela, então não precisam gravar de novo
+        rel.registrar_selecao(r["cnpjs"], _usuario())
     return render_template(
         "debitos/debitos_relatorio.html",
         rel=r,
         empresas=db.listar_empresas(),
         meses=rel.meses_disponiveis(),
+        selecoes=rel.listar_selecoes(),
     )
+
+
+@debitos_bp.route("/api/relatorio/selecao/remover", methods=["POST"])
+def api_remover_selecao():
+    chave = (request.get_json(silent=True) or {}).get("chave") or ""
+    if not rel.remover_selecao(chave, _usuario()):
+        return jsonify({"erro": "Seleção não encontrada no histórico."}), 404
+    return jsonify({"ok": True})
 
 
 # Duas vistas do mesmo `montar_relatorio`: o PDF é o documento de apresentação
 # (capa executiva + as 3 partes) e o Excel é a planilha de análise (4 abas
 # planas com autofiltro).
 def _nome_arquivo(r, ext):
-    sufixo = ("" if r["todas_empresas"]
-              else "_" + "".join(c for c in r["escopo"][:20] if c.isalnum()))
+    if r["todas_empresas"]:
+        sufixo = ""
+    elif r["selecao"]:
+        sufixo = f"_selecao_{len(r['cnpjs'])}_empresas"
+    else:
+        sufixo = "_" + "".join(c for c in r["escopo"][:20] if c.isalnum())
     return f"debitos_{r['mes']}{sufixo}.{ext}"
 
 
@@ -86,7 +114,7 @@ def relatorio_pdf():
                 "<code>python -m pip install -r requirements.txt</code> "
                 "e reinicie o serviço.</p>"
                 f"<p><small>{dpdf.ERRO_IMPORT}</small></p>", 503)
-    r = rel.montar_relatorio(request.args.get("mes"), request.args.get("cnpj"))
+    r = _montar()
     buf = io.BytesIO()
     dpdf.gerar_pdf_relatorio(r, buf)
     return _entregar(buf, _nome_arquivo(r, "pdf"), "application/pdf")
@@ -95,7 +123,7 @@ def relatorio_pdf():
 @debitos_bp.route("/relatorio/excel")
 def relatorio_excel():
     """Planilha de análise: débitos, pagamentos aplicados, resumo e crédito."""
-    r = rel.montar_relatorio(request.args.get("mes"), request.args.get("cnpj"))
+    r = _montar()
     buf = io.BytesIO()
     rel.gerar_excel_relatorio(r, buf)
     return _entregar(

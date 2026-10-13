@@ -12,9 +12,46 @@
 
 {% block extra_head %}
 <style>
-  .mes-sel, .emp-sel { width: auto; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
-  .mes-sel { min-width: 170px; }
-  .emp-sel { min-width: 230px; max-width: 340px; }
+  .mes-sel { width: auto; font-weight: 650; font-size: 13.5px; padding: 9px 13px; min-width: 170px; }
+
+  /* botão que abre a seleção de empresas (no lugar do <select> de uma só) */
+  .emp-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 230px;
+    max-width: 360px; justify-content: space-between; font-weight: 650; font-size: 13.5px;
+    padding: 9px 13px; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line-2); border-radius: var(--radius); cursor: pointer; }
+  .emp-btn:hover { border-color: var(--accent); }
+  .emp-btn .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .emp-btn svg { color: var(--muted); flex-shrink: 0; }
+
+  /* seleções guardadas no histórico */
+  .hist { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: -2px 0 14px; }
+  .hist-l { font-size: 11.5px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .06em; font-weight: 650; margin-right: 2px; }
+  .hist-chip { display: inline-flex; align-items: stretch; border: 1px solid var(--line-2);
+    border-radius: 999px; background: var(--surface); overflow: hidden; max-width: 100%; }
+  .hist-chip.atual { border-color: var(--accent); background: var(--accent-soft); }
+  .hist-chip a { padding: 5px 4px 5px 12px; font-size: 12.5px; color: var(--ink);
+    text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 380px; }
+  .hist-chip a:hover { color: var(--accent); }
+  .hist-chip button { border: none; background: none; color: var(--muted); cursor: pointer;
+    padding: 0 10px 0 6px; font-size: 15px; line-height: 1; }
+  .hist-chip button:hover { color: var(--danger); }
+
+  /* modal de seleção */
+  .sel-acoes { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; align-items: center; }
+  .sel-acoes .cont { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+  .sel-lista { max-height: 46vh; overflow-y: auto; border: 1px solid var(--line);
+    border-radius: var(--radius); background: var(--surface); }
+  .sel-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-bottom: 1px solid var(--line); cursor: pointer; margin: 0; font-weight: 400; }
+  .sel-item:last-child { border-bottom: none; }
+  .sel-item:hover { background: var(--surface-2); }
+  .sel-item input { width: auto; margin: 0; flex-shrink: 0; }
+  .sel-item .n { font-size: 13.5px; color: var(--ink); }
+  .sel-item .c { font-size: 11.5px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+  .sel-dica { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .sel-vazio { padding: 14px; font-size: 13px; color: var(--muted); text-align: center; }
 
   .carimbo { font-size: 12px; color: var(--muted); margin: -4px 0 18px; line-height: 1.6; }
   .carimbo b { color: var(--ink); font-weight: 650; }
@@ -75,18 +112,31 @@
     <option value="{{ m.mes }}" {% if rel.mes == m.mes %}selected{% endif %}>{{ m.rotulo }}</option>
     {% endfor %}
   </select>
-  <select class="emp-sel" id="sel-emp" onchange="ir()" title="Empresa">
-    <option value="">Todas as empresas</option>
-    {% for e in empresas %}
-    <option value="{{ e.cnpj }}" {% if rel.cnpj == e.cnpj %}selected{% endif %}>{{ e.razao_social }}</option>
-    {% endfor %}
-  </select>
+  <button type="button" class="emp-btn" onclick="abrirSelecao()" title="Escolher as empresas do relatório">
+    <span class="t">{% if rel.todas_empresas %}Todas as empresas{% elif rel.selecao %}{{ rel.cnpjs | length }} empresas selecionadas{% elif rel.empresa %}{{ rel.empresa.razao_social }}{% else %}Empresa não encontrada{% endif %}</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
   <button class="btn btn-primary btn-sm" onclick="baixarPDF()">Relatório PDF</button>
   <button class="btn btn-secondary btn-sm" onclick="baixarExcel()">Excel</button>
 </div>
 
+{% if selecoes %}
+<div class="hist full" id="hist">
+  <span class="hist-l">Seleções salvas</span>
+  {% for h in selecoes %}
+  <span class="hist-chip {% if rel.selecao and (rel.cnpjs | sort) == (h.cnpjs | sort) %}atual{% endif %}"
+        data-chave="{{ h.chave }}">
+    <a href="#" onclick="usarSelecao({{ loop.index0 }}); return false;"
+       title="{% for e in h.empresas %}{{ e.razao_social }}{% if not loop.last %} · {% endif %}{% endfor %}&#10;Usada por último em {{ h.usado_em }}{% if h.usado_por %} por {{ h.usado_por }}{% endif %}">{{ h.rotulo }}</a>
+    <button type="button" onclick="removerSelecao({{ loop.index0 }})" title="Tirar do histórico">&times;</button>
+  </span>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="carimbo full">
-  <b>{{ rel.escopo }}</b> · fechamento de <b>{{ rel.mes_label }}</b>, incluindo os débitos de
+  <b>{{ rel.escopo }}</b>
+  {%- if rel.selecao %} ({% for e in rel.empresas_sel %}{{ e.razao_social }}{% if not loop.last %} · {% endif %}{% endfor %}){% endif %} · fechamento de <b>{{ rel.mes_label }}</b>, incluindo os débitos de
   <b>{{ rel.mes_ant_label }}</b> (que são pagos ao longo de {{ rel.mes_label }}).
   Cada pagamento conta no mês do débito que ele abate, não na data em que foi digitado.
   Gerado em <b class="num">{{ rel.gerado_em }}</b>.
@@ -171,7 +221,7 @@
               {% if d.vendedor %}<span class="tag tag-vend">{{ d.vendedor }}</span>{% endif %}
             </div>
             <div class="d2">
-              {% if rel.todas_empresas %}{{ d.razao_social }} · {% endif %}
+              {% if rel.varias_empresas %}{{ d.razao_social }} · {% endif %}
               {{ d.periodo_label }} · lançado em <span class="num">{{ d.data_fmt }}</span>
               {%- if d.obs %} · {{ d.obs }}{% endif %}
             </div>
@@ -325,7 +375,7 @@
       <div class="lg-row">
         <div class="lg-doc">
           <div class="d1">{{ a.natureza_label }}</div>
-          {% if rel.todas_empresas %}<div class="d2">{{ a.grupo }}</div>
+          {% if rel.varias_empresas %}<div class="d2">{{ a.grupo }}</div>
           {% elif a.vendedor %}<div class="d2">{{ a.vendedor }}</div>{% endif %}
         </div>
         <div class="lg-doc">
@@ -350,19 +400,125 @@
   {% endif %}
 </div>
 
+<!-- Modal: empresas do relatório -->
+<div class="modal-overlay" id="modal-selecao" onclick="fecharSeFundo(event,'modal-selecao')">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title">Empresas do relatório</div>
+      <button class="modal-close" onclick="fecharModal('modal-selecao')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" id="sel-busca" placeholder="Buscar por nome ou CNPJ" oninput="filtrarSelecao()" autocomplete="off">
+      </div>
+      <div class="sel-acoes">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="marcarVisiveis(true)">Marcar visíveis</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="marcarVisiveis(false)">Desmarcar todas</button>
+        <span class="cont" id="sel-cont"></span>
+      </div>
+      <div class="sel-lista" id="sel-lista">
+        {% for e in empresas %}
+        <label class="sel-item" data-busca="{{ (e.razao_social ~ ' ' ~ e.cnpj) | lower }}">
+          <input type="checkbox" value="{{ e.cnpj }}" onchange="contarSelecao()">
+          <span class="n">{{ e.razao_social }}</span>
+          <span class="c num">{{ e.cnpj }}</span>
+        </label>
+        {% endfor %}
+        <div class="sel-vazio" id="sel-vazio" style="display:none">Nenhuma empresa com esse nome ou CNPJ.</div>
+      </div>
+      <div class="sel-dica">
+        Nenhuma marcada = todas as empresas. Uma = o relatório daquela empresa. Duas ou mais
+        ficam guardadas em <b>Seleções salvas</b> para os próximos fechamentos.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-selecao')">Cancelar</button>
+      <button class="btn btn-primary" id="sel-aplicar" onclick="aplicarSelecao()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
 const $ = id => document.getElementById(id);
 
-function _url(base) {
-  const mes  = $("sel-mes").value;
-  const cnpj = $("sel-emp").value;
+// Empresas do relatório exibido: [] = todas; uma = só ela; várias = seleção.
+// `cnpj` vai repetido na URL (?cnpj=A&cnpj=B) — um só continua valendo como antes.
+let _cnpjs = {{ rel.cnpjs | tojson }};
+const _selecoes = {{ selecoes | tojson }};
+
+function _url(base, cnpjs) {
+  const mes = $("sel-mes").value;
   let u = base + "?mes=" + encodeURIComponent(mes);
-  if (cnpj) u += "&cnpj=" + encodeURIComponent(cnpj);   // CNPJ contém '/': precisa escapar
+  for (const c of (cnpjs || _cnpjs))
+    u += "&cnpj=" + encodeURIComponent(c);   // CNPJ contém '/': precisa escapar
   return u;
 }
+
+// ── seleção de empresas ──
+function _caixas() { return [...document.querySelectorAll("#sel-lista input[type=checkbox]")]; }
+
+function abrirSelecao() {
+  const marcados = new Set(_cnpjs);
+  _caixas().forEach(cb => { cb.checked = marcados.has(cb.value); });
+  $("sel-busca").value = "";
+  filtrarSelecao();
+  abrirModal("modal-selecao");
+  setTimeout(() => $("sel-busca").focus(), 50);
+}
+
+function filtrarSelecao() {
+  const q = $("sel-busca").value.trim().toLowerCase();
+  let vis = 0;
+  document.querySelectorAll("#sel-lista .sel-item").forEach(el => {
+    const ok = !q || el.dataset.busca.includes(q);
+    el.style.display = ok ? "" : "none";
+    if (ok) vis++;
+  });
+  $("sel-vazio").style.display = vis ? "none" : "";
+  contarSelecao();
+}
+
+function marcarVisiveis(marcar) {
+  _caixas().forEach(cb => {
+    if (!marcar) cb.checked = false;
+    else if (cb.closest(".sel-item").style.display !== "none") cb.checked = true;
+  });
+  contarSelecao();
+}
+
+function contarSelecao() {
+  const n = _caixas().filter(cb => cb.checked).length;
+  $("sel-cont").textContent = n === 0 ? "nenhuma marcada = todas as empresas"
+                            : n === 1 ? "1 empresa" : `${n} empresas`;
+}
+
+function aplicarSelecao() {
+  const cnpjs = _caixas().filter(cb => cb.checked).map(cb => cb.value);
+  location.href = _url("/debitos/relatorio", cnpjs);
+}
+
+function usarSelecao(i) { location.href = _url("/debitos/relatorio", _selecoes[i].cnpjs); }
+
+async function removerSelecao(i) {
+  const h = _selecoes[i];
+  if (!confirm(`Tirar do histórico a seleção "${h.rotulo}"?\n\nO relatório não muda; só some o atalho.`)) return;
+  const r = await postJSON("/debitos/api/relatorio/selecao/remover", {chave: h.chave});
+  if (!r.ok) { alert(r.erro || "Não foi possível remover."); return; }
+  const el = document.querySelector(`.hist-chip[data-chave="${CSS.escape(h.chave)}"]`);
+  if (el) el.remove();
+  if (!document.querySelector(".hist-chip")) { const box = $("hist"); if (box) box.remove(); }
+}
+
+// Enter no campo de busca aplica (atalho para quem marcou e quer ver)
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && document.activeElement === $("sel-busca")) {
+    e.preventDefault(); aplicarSelecao();
+  }
+});
 
 function ir()          { location.href = _url("/debitos/relatorio"); }
 function baixarPDF()   { location.href = _url("/debitos/relatorio/pdf"); }
