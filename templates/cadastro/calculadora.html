@@ -7,9 +7,12 @@
 <style>
   .origem-toggle { margin-bottom: 4px; }
   .origem-toggle button { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-  .taxa-chip { font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
-    background: var(--warning-bg); color: var(--warning); font-family: var(--mono); }
-  .origem-toggle button.ativo .taxa-chip { background: rgba(0,0,0,.18); color: var(--amber-ink); }
+  .taxa-chip { font-size: 12px; font-weight: 500; padding: 0 7px; border-radius: var(--radius-sm);
+    background: var(--surface-3); color: var(--ink-2); font-family: var(--mono); }
+  .origem-toggle button.ativo .taxa-chip { background: var(--accent-soft); color: var(--accent); }
+
+  .linha-margem { display: grid; grid-template-columns: 1fr 120px; gap: 12px; align-items: end; }
+  .linha-margem > div { min-width: 0; }
 
   .preco-destaque { font-size: 38px; font-weight: 750; color: var(--success);
     letter-spacing: -.5px; line-height: 1.1; margin: 6px 0 16px;
@@ -39,15 +42,29 @@
       Fora do estado
       <span class="taxa-chip">+19%</span>
     </button>
+    <button id="btn-sem" onclick="selecionarOrigem('sem')">
+      Sem acréscimo
+      <span class="taxa-chip">+0%</span>
+    </button>
   </div>
 
   <label>Preço de custo <em>*</em></label>
   <div class="ingrp"><span class="pre">R$</span>
     <input type="number" id="custo" placeholder="0,00" step="0.01" min="0" inputmode="decimal"></div>
 
-  <label>Margem <em>*</em></label>
-  <div class="ingrp"><span class="pre">%</span>
-    <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" inputmode="decimal"></div>
+  <div class="linha-margem">
+    <div>
+      <label>Margem <em>*</em></label>
+      <div class="ingrp"><span class="pre">%</span>
+        <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" inputmode="decimal"></div>
+    </div>
+    <div class="col-desconto">
+      <label>Desc. custo</label>
+      <div class="ingrp"><span class="pre">%</span>
+        <input type="number" id="desconto" placeholder="0" step="0.1" min="0" max="99.9" inputmode="decimal"
+               title="Desconto opcional sobre o preço de custo, aplicado antes do imposto e da margem"></div>
+    </div>
+  </div>
 
   <button class="btn btn-primary" onclick="calcular()">Calcular</button>
 
@@ -67,11 +84,14 @@
 <script>
 const $ = id => document.getElementById(id);
 let _origem = "dentro";
+// Acréscimo por origem — o mesmo mapa da rota em app.py. "sem" = só a margem.
+const TAXAS = { dentro: 0.05, fora: 0.19, sem: 0 };
 
 function selecionarOrigem(origem) {
   _origem = origem;
   $("btn-dentro").classList.toggle("ativo", origem === "dentro");
   $("btn-fora").classList.toggle("ativo",   origem === "fora");
+  $("btn-sem").classList.toggle("ativo",    origem === "sem");
   if ($("resultado").classList.contains("show")) calcular();
 }
 
@@ -92,13 +112,23 @@ function calcular() {
     $("erro").classList.add("show");
     return;
   }
+  // Desconto em branco = sem desconto.
+  const desconto = $("desconto").value.trim() === "" ? 0 : parseFloat($("desconto").value);
+  if (isNaN(desconto) || desconto < 0 || desconto >= 100) {
+    $("msg-erro").textContent = "Informe um desconto entre 0 e 99,9%.";
+    $("erro").classList.add("show");
+    return;
+  }
 
-  const taxa            = _origem === "fora" ? 0.19 : 0.05;
-  const custoComImposto = custo * (1 + taxa);
+  // O desconto reduz o custo ANTES do imposto e da margem.
+  const valorDesconto   = custo * desconto / 100;
+  const custoLiquido    = custo - valorDesconto;
+  const taxa            = TAXAS[_origem] ?? 0.05;
+  const custoComImposto = custoLiquido * (1 + taxa);
   const preco           = custoComImposto * (1 + margem / 100);
-  const valorImposto    = custoComImposto - custo;
+  const valorImposto    = custoComImposto - custoLiquido;
   const valorMargem     = preco - custoComImposto;
-  const taxaPct         = _origem === "fora" ? "19" : "5";
+  const taxaPct         = (taxa * 100).toLocaleString("pt-BR");
 
   $("preco-final").textContent = brl(preco);
   $("detalhes").innerHTML = `
@@ -106,6 +136,16 @@ function calcular() {
       <span class="rot">Preço de custo</span>
       <span class="val">${brl(custo)}</span>
     </div>
+    ${desconto > 0 ? `
+    <div class="detalhe">
+      <span class="rot">Desconto (${desconto.toLocaleString("pt-BR")}%)</span>
+      <span class="val">− ${brl(valorDesconto)}</span>
+    </div>
+    <div class="detalhe">
+      <span class="rot">Custo com desconto</span>
+      <span class="val">${brl(custoLiquido)}</span>
+    </div>` : ""}
+    ${taxa > 0 ? `
     <div class="detalhe">
       <span class="rot">Imposto (${taxaPct}%)</span>
       <span class="val">+ ${brl(valorImposto)}</span>
@@ -113,7 +153,11 @@ function calcular() {
     <div class="detalhe">
       <span class="rot">Custo com imposto</span>
       <span class="val">${brl(custoComImposto)}</span>
-    </div>
+    </div>` : `
+    <div class="detalhe">
+      <span class="rot">Sem acréscimo de origem</span>
+      <span class="val">+ ${brl(0)}</span>
+    </div>`}
     <div class="detalhe">
       <span class="rot">Margem (${margem.toLocaleString("pt-BR")}%)</span>
       <span class="val">+ ${brl(valorMargem)}</span>

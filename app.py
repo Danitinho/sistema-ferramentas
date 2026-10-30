@@ -120,15 +120,24 @@ def calcular_preco():
     try:
         custo  = float(data["custo"])
         margem = float(data["margem"]) / 100
-        taxa   = 0.19 if data.get("origem") == "fora" else 0.05
+        # Acréscimo por origem: dentro do estado 5%, fora 19%, "sem" = só a
+        # margem. Origem desconhecida cai em "dentro", como sempre foi.
+        taxa   = {"dentro": 0.05, "fora": 0.19, "sem": 0.0}.get(data.get("origem"), 0.05)
+        # Desconto no custo (%), opcional; aplicado antes do imposto e da margem.
+        desconto = float(data.get("desconto") or 0)
+        if not 0 <= desconto < 100:
+            raise ValueError("desconto deve estar entre 0 e 99,9%")
 
-        custo_com_imposto = custo * (1 + taxa)
+        custo_liquido     = custo * (1 - desconto / 100)
+        custo_com_imposto = custo_liquido * (1 + taxa)
         preco             = custo_com_imposto * (1 + margem)
 
         return jsonify({
             "preco":              round(preco, 2),
+            "valor_desconto":     round(custo - custo_liquido, 2),
+            "custo_liquido":      round(custo_liquido, 2),
             "custo_com_imposto":  round(custo_com_imposto, 2),
-            "valor_imposto":      round(custo_com_imposto - custo, 2),
+            "valor_imposto":      round(custo_com_imposto - custo_liquido, 2),
             "valor_margem":       round(preco - custo_com_imposto, 2),
         })
     except (KeyError, ValueError) as e:
