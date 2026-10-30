@@ -159,7 +159,6 @@ MODULOS = [
     ("scripts.vencidos_routes",   "vencidos_bp"),     # /vencidos
     ("scripts.fornecedores_routes", "fornecedores_bp"), # /fornecedores (APIs)
     ("scripts.catalogo_routes",   "catalogo_bp"),     # /catalogo (APIs)
-    ("scripts.fiscal_routes",     "fiscal_bp"),       # /fiscal (custo real por NF-e)
     ("scripts.backup_routes",     "backup_bp"),       # /sistema/backup
     ("scripts.reclassificacao_routes", "reclassificacao_bp"),  # /reclassificacao
     ("scripts.agente_erp_routes", "agente_bp"),       # /agente (seção 18)
@@ -343,7 +342,6 @@ Não há um banco único. Cada módulo persiste de um jeito:
 | Débitos/pagamentos/alocações | `dados/debitos.db` | SQLite |
 | Fornecedores (cadastro central) | `dados/fornecedores.db` | SQLite |
 | Catálogo de produtos (espelho do ERP) | `dados/catalogo.db` | SQLite |
-| Fiscal (NF-e compra, custo, preço, produtos) | `dados/fiscal.db` | SQLite |
 | Produtos vencidos | `dados/vencidos.db`           | SQLite |
 | Usuários + SECRET_KEY | `dados/sistema.db` + `dados/secret.key` | SQLite + arquivo |
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
@@ -1467,64 +1465,21 @@ juntar duplicados) e as APIs que alimentam o **seletor buscar-ou-cadastrar**
 
 ---
 
-## 15. Módulo Fiscal — custo real por NF-e (`/fiscal`)
+## 15. (Removido) Módulo Fiscal — custo real por NF-e
 
-Importa XMLs de NF-e de **compra**, calcula o **custo líquido real** de cada item
-(créditos de ICMS e PIS/COFINS) e sugere preço de venda, alimentando um cadastro
-de produtos interno. Supermercado em Lucro Real. Persiste em `dados/fiscal.db`.
+**Removido em 30/10/2026**, a pedido do usuário. Importava XMLs de NF-e de
+compra, calculava o custo líquido real (créditos de ICMS e PIS/COFINS) e
+sugeria preço de venda. Não chegou a ser usado de verdade: o banco tinha 1 nota
+de teste (40 itens) e nenhum produto, NCM, parâmetro ou preço publicado.
 
-### Arquitetura — 3 camadas independentes (NÃO misturar)
-```
-Ingestão -> Parser -> De-para -> Motor de custo -> Motor de preço -> Fila
-```
-- `scripts/fiscal.py` — **modelos + schema** (sem Flask). 8 tabelas do spec +
-  `produtos` (cadastro interno, criado aqui — o sistema não tinha catálogo).
-  `_init_schema`/`_migrar` idempotentes. **Dinheiro e quantidades em `Decimal`,
-  armazenados como TEXT** (`D`/`dec_txt`) — nunca float. IDs inteiros
-  autoincrementais (desenho relacional).
-- `scripts/fiscal_ingestao.py` — interface **`FornecedorDeXml`** (método único
-  `obter_novos()` → `XmlBruto`) com `UploadManual` (arquivo/`.zip`) e
-  `ApiTerceiro` (REST configurável, só stdlib `urllib`). Ponto de extensão
-  documentado `SefazDistribuicaoDFe` (NÃO implementado). Trocar origem não muda
-  nenhuma outra camada.
-- `scripts/fiscal_parser.py` — **parser NF-e 4.00** (ns portalfiscal). Regras:
-  crédito de ICMS **lido do destacado** (vICMS; vCredICMSSN p/ Simples; CST
-  40/41/50/51/60 → zero); **rateio** de frete/seguro/outros do total proporcional
-  ao `vProd` com centavos exatos (`ratear`); **fator de conversão** derivado
-  (qTrib/qCom) + alerta `fator_conversao_suspeito` (uCom==uTrib e embalagem);
-  alerta `frete_fob_ausente` (modFrete=1 e frete total 0). Puro, em Decimal.
-- `scripts/fiscal_motor.py` — **motores puros** de custo e preço + guarda-corpos.
-  Custo: `custo_bruto`, `base_pis` excluindo o ICMS destacado (Lei 14.592/2023),
-  crédito PIS/COFINS 0,0925 (**zero se NCM monofásico**), `custo_liquido`,
-  `custo_unitario`. Flag `INCLUIR_ICMS_ST_NA_BASE_PIS` (padrão **desligado**).
-  Preço: `preco = custo_unit / (1 - (impostos_saida + despesas + margem))`; ICMS
-  saída 0 se CST 60/ST retida; PIS/COFINS saída 0 se monofásico; **arredonda
-  sempre p/ cima até ,49/,99** (`arredondar_para_cima`).
-- `scripts/fiscal_importacao.py` — **orquestrador** (única camada que conhece as
-  outras). De-para (`resolver_produto`: vínculo → EAN cria vínculo → fila com
-  `produto_nao_vinculado`); precedência do fator confirmado; pipeline completo;
-  **conferência** (`vincular_item`, `confirmar_fator`, `preencher_ncm` — recalcula
-  na hora, em lote por NCM); **`aprovar_preco`** é a ÚNICA porta que publica preço
-  no produto (grava `log_preco`, respeita guarda-corpos).
-- `scripts/fiscal_routes.py` + `templates/fiscal/index.html` — Blueprint `/fiscal`
-  com 4 sub-abas (Importação, Conferência agrupada por alerta, Detalhe da nota com
-  composição de custo + CSV, Tabelas: NCM com import CSV + parâmetros). Aba também
-  acessível pelo seletor no topo da calculadora existente.
-
-### Regras que moram em DADOS (nunca hardcoded)
-`ncm_fiscal` (alíquota interna, monofásico, ST — lookup do mais específico ao
-genérico: 8→6→4→2 dígitos) e `parametro_precificacao` (global/seção/subgrupo;
-resolvedor completo mas **só global** usado por ora). **Degradação graciosa**:
-NCM ausente assume 19%, não monofásico, sem ST, e sinaliza `ncm_ausente` — o
-módulo funciona com as tabelas vazias no 1º dia.
-
-### Guarda-corpos (antes de publicar preço)
-Preço < custo líquido → **bloqueia** (salvo `aprovar_abaixo_do_custo`); variação
-> +15% ou < -10% vs preço atual → **exige aprovação**; item sem vínculo ou fator
-não confirmado → **não precifica**; margem fora da faixa do subgrupo → só
-alertaria (sem faixa por subgrupo cadastrada). Idempotência por `chave_acesso`
-(reimportar atualiza, nunca duplica).
-
+- O código (`scripts/fiscal*.py`, `templates/fiscal/`) saiu do repositório; está
+  no histórico do git, no commit anterior à remoção, se um dia voltar.
+- **`dados/fiscal.db` foi mantido** (160 KB, sem uso). Nada o lê nem o grava, e
+  o backup automático continua copiando-o, como faz com todo `.db` de `dados/`.
+  Pode ser apagado à mão quando quiser — há cópias em `C:\BackupsSistema`.
+- O NCM que a reclassificação usa vem do **catálogo** (seção 17), não daqui.
+- `/fiscal` agora responde 404. Quem tiver a página salva nos favoritos cai no
+  erro; a calculadora e o menu já não apontam para lá.
 
 ---
 
@@ -1746,7 +1701,7 @@ preguiçosa (em `pegar` e nas leituras do painel), sem timer.
 - Capacidade que **grava** no ERP (`CAPACIDADES[...]["grava"]`) exige
   `autorizado_por`. `nf.abrir_ultima` só lê e posiciona a tela.
 - `criar_pedido(tipo, params, por, modulo=...)` é a porta para outros módulos
-  (fiscal, vencidos) pedirem ao agente; `modulo` registra quem pediu.
+  (hoje, o vencidos) pedirem ao agente; `modulo` registra quem pediu.
 
 ### Máquinas e autenticação — pareamento (29/09/2026)
 Token **por máquina** (não por pessoa), e **ninguém o gera nem o cola**:

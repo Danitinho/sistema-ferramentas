@@ -6,8 +6,8 @@ Agente geral do ERP — o lado do servidor. Sem Flask.
 O agente geral é um programa sem tela na máquina de quem usa o RADGe. Ele não
 tem lote nem fila própria: executa PEDIDOS avulsos que o sistema faz ("abra a
 última nota do fornecedor 819"), um de cada vez, e devolve o resultado. Quem
-pede pode ser o painel (/agente) ou, mais adiante, outro módulo (fiscal,
-vencidos) — por isso o pedido guarda o `modulo` de origem.
+pede pode ser o painel (/agente) ou outro módulo (hoje, o vencidos) — por
+isso o pedido guarda o `modulo` de origem.
 
 Persistência em `dados/agente.db`. O ESQUEMA é o mesmo do banco que sobreviveu
 à queima do HD (24/09/2026): o código se perdeu, os dados não, e este módulo foi
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     criado_em     TEXT,
     criado_por    TEXT,
-    modulo        TEXT,       -- quem pediu: 'vencidos', 'fiscal', 'painel'...
+    modulo        TEXT,       -- quem pediu: 'vencidos', 'painel'...
     tipo          TEXT,       -- uma chave de CAPACIDADES
     params        TEXT,       -- JSON
     autorizado_por TEXT,      -- obrigatório quando a capacidade grava
