@@ -58,6 +58,10 @@
                     color: var(--muted); font-weight: 500; display: block;
                     margin-top: 3px; }
   .mov-para.vazio { color: var(--warning); }
+  .mov-para .revista { display: inline-block; margin-top: 6px; font-size: 11px;
+                       font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+                       color: var(--accent); background: var(--accent-soft);
+                       border-radius: var(--radius-sm); padding: 2px 7px; }
 
   .conf { display: inline-block; font-size: 10.5px; font-weight: 700;
           letter-spacing: .06em; padding: 2px 7px; border-radius: 3px; }
@@ -486,7 +490,10 @@ function desenhar() {
             <div class="mov-para ${temDestino(it) ? "" : "vazio"}">
               ${temDestino(it)
                 ? esc(it.destino_nome) +
-                  `<span class="trio">CodGrp ${esc(chave(it))}</span>`
+                  `<span class="trio">CodGrp ${esc(chave(it))}</span>` +
+                  (it.revisado
+                    ? `<span class="revista" title="${esc(it.base || "")}">sugestão revista pelo histórico</span>`
+                    : "")
                 : "sem sugestão — escolha o destino"}
             </div>
           </div>
@@ -540,7 +547,7 @@ function aprovar() {
   if (_destinoSeguido === chave(it)) _seguidos++;
   else { _destinoSeguido = chave(it); _seguidos = 1; }
   _ultimo = { cod: it.cod };
-  enfileirar(it.cod);
+  enfileirar(it.cod, chave(it));
   avancar(it.cod, "aprovar");
 }
 
@@ -682,14 +689,23 @@ async function confirmarLote() {
   if (!cods.length) return;
   // Vai pelos códigos escolhidos, não por "tudo deste destino": é o que faz o
   // desmarcar valer alguma coisa.
-  const d = await postJSON("/reclassificacao/curadoria/api/aceitar", { cods });
+  const trio = chave(_loteDestino);
+  const esperado = Object.fromEntries(cods.map(c => [c, trio]));
+  const d = await postJSON("/reclassificacao/curadoria/api/aceitar",
+                           { cods, esperado });
   if (d.erro) { alert(d.erro); return; }
   fecharModal("modal-lote");
+  if ((d.mudaram || []).length) {
+    alert(`${d.mudaram.length} produto(s) tiveram a sugestão revista desde que `
+          + `a lista abriu e NÃO foram aprovados. Eles voltam à fila com o `
+          + `destino novo.`);
+  }
 
   _feitos += d.aplicados; _falta -= d.aplicados;
-  const aprovados = new Set(cods);
+  const mudou = new Set((d.mudaram || []).map(m => m.cod));
+  const aprovados = new Set(cods.filter(c => !mudou.has(c)));
   _fila = _fila.filter((x, k) => k < _i || !aprovados.has(x.cod));
-  cods.forEach(c => _decididos.add(c));
+  aprovados.forEach(c => _decididos.add(c));
   quebrarSequencia();
   _ultimo = null;
 
@@ -728,7 +744,13 @@ async function confirmarLote() {
 // O Enter não espera a rede: a decisão entra numa fila e sobe em lotes. Se o
 // navegador fechar antes de subir, o produto simplesmente continua pendente — o
 // erro cai para o lado seguro, que é não aprovar nada sem querer.
-function enfileirar(cod) {
+// Cada aprovação leva o destino que a pessoa VIU. Se a revisão das sugestões
+// trocou o destino depois de a fila carregar, o servidor não aprova (volta em
+// `mudaram`) — senão o Enter aprovaria um destino que ninguém olhou.
+const _visto = {};
+
+function enfileirar(cod, trio) {
+  _visto[cod] = trio;
   _pendentes.push(cod);
   if (_pendentes.length >= LOTE_ENVIO) enviarAgora();
   else if (!_timerEnvio) _timerEnvio = setTimeout(enviarAgora, MS_ENVIO);
@@ -740,9 +762,12 @@ async function enviarAgora() {
   const envio = _pendentes; _pendentes = [];
   mostrarEnvio(`enviando ${envio.length}…`);
   try {
+    const esperado = Object.fromEntries(envio.map(c => [c, _visto[c]]));
     const d = await postJSON("/reclassificacao/curadoria/api/aceitar",
-                             { cods: envio });
+                             { cods: envio, esperado });
     if (d.erro) throw new Error(d.erro);
+    envio.forEach(c => delete _visto[c]);
+    if (sugestaoMudou(d.mudaram)) return;
     if ((d.recusados || []).length) {
       mostrarEnvio(`${d.recusados.length} recusados: ${d.recusados[0].motivo}`, true);
       return;
@@ -765,6 +790,21 @@ async function enviarAgora() {
     mostrarEnvio("não consegui salvar — tentando de novo", true);
     setTimeout(enviarAgora, 4000);
   }
+}
+
+// A sugestão desses produtos foi revista enquanto a pessoa trabalhava: eles NÃO
+// foram aprovados. Voltam para a fila (saem de `_decididos`) e o contador
+// desconta, para dizer a verdade sobre o que foi decidido.
+function sugestaoMudou(mudaram) {
+  if (!(mudaram || []).length) return false;
+  mudaram.forEach(m => _decididos.delete(m.cod));
+  _feitos = Math.max(0, _feitos - mudaram.length);
+  _falta += mudaram.length;
+  mostrarEnvio(`${mudaram.length} produto(s) tiveram a sugestão revista depois `
+               + `de você ver — NÃO foram aprovados e voltam à fila com o `
+               + `destino novo`, true);
+  carregar(false);
+  return true;
 }
 
 function mostrarEnvio(txt, erro) {

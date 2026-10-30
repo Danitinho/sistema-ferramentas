@@ -691,6 +691,13 @@ clara em vez de ler a coluna errada calado.
 `CodGrp1/2/3` (destino) · `Confiança` (ALTA|MÉDIA|BAIXA|REVISAR) ·
 `Base da sugestão`.
 
+**"Ativo" não vem da coluna `Ativo`** (30/10/2026): é derivado de `Últ. mov.`
+— ativo = movimentado de `ANO_ATIVO_DESDE` (**2026**) em diante
+(`ativo_pelo_ano`). A planilha trazia o corte em 2022 (27.412 ativos); com 2026
+são 2.248. Mudar a constante reaplica a regra ao banco inteiro no próximo boot
+(`_aplicar_ativo`, marca em `config.ativo_desde`), mexendo só na coluna `ativo`.
+A coluna `Ativo` continua exigida no cabeçalho, mas é ignorada.
+
 A planilha é **semente, não estado**: depois da importação o que vale é o banco.
 Reimportar é seguro — só acrescenta código que ainda não está lá e não encosta em
 nada já trabalhado.
@@ -826,6 +833,34 @@ livre p=0   ─┘
   - **A conferência mostra o trabalho perdido.** O contador desconta os
     `ja_curados` e avisa: sem isso a segunda pessoa aperta Enter, vê o número
     subir e descobre horas depois que não aprovou nada.
+
+### Revisão das sugestões pelo histórico (30/10/2026)
+
+`scripts/reclassificacao_revisao.py` (motor, sem Flask) + `FilaBanco.revisar`
++ botão "Revisar sugestões pelo histórico" no painel (prévia em modal, depois
+"Aplicar"; rotas `/revisao/api/previa` e `/aplicar`, em `ENDPOINTS_AGENTE`).
+Troca a **sugestão** dos pendentes ativos; **não aprova nada**. Na conferência,
+o "vai" mostra a nova com a marca "sugestão revista pelo histórico".
+
+- **Motor:** vizinhos por descrição (palavras pesadas pela raridade) com a
+  semelhança **multiplicada** quando o NCM bate (8 > 6 > 4 dígitos). Votam
+  confirmados (peso 8) e palpites da planilha (peso 1). Troca só com ≥60% dos
+  votos e apoio ≥2. O NCM vem do **catálogo** (coluna opcional `ncm`, seção 17).
+- **Por que assim (medido):** a planilha acertava 88,8% dos 4.186 confirmados;
+  a revisão, 94,8% (conserta 291 dos 467 corrigidos à mão, troca para pior 42
+  dos 3.719 certos). Duas versões anteriores falharam e explicam as regras:
+  NCM **somado** como voto piorava (NCM largo puxa item de nome diferente);
+  só confirmados como base dava trocas absurdas (vela → Puericultura) porque
+  eles cobrem 71 das 114 subseções — por isso a planilha inteira vota, fraco.
+- **`sug_*` guarda o palpite ORIGINAL da planilha**, e é ele que vota — nunca
+  `dep_novo` já revisado (a revisão viraria prova de si mesma). Rodar de novo
+  recalcula tudo e devolve à planilha o que perdeu apoio. A sugestão original
+  dos 467 corrigidos antes desta data se perdeu (`dep_novo` era sobrescrito).
+- **Aprovação leva o destino VISTO** (`esperado` em `/curadoria/api/aceitar`):
+  a conferência guarda até 200 itens no navegador; se a revisão trocou a
+  sugestão no meio, o item volta em `mudaram` e **não** é aprovado. Pedido sem
+  `esperado` (tela antiga aberta) ainda aprova o que está no banco — recarregue
+  as curadorias abertas antes de aplicar uma revisão.
 
 ### A fila
 
@@ -1509,7 +1544,9 @@ valor de três meses atrás não pode ser apresentado como se fosse de hoje.
 
 ### O arquivo do ERP (armadilhas medidas no relatório de 08/09/2026)
 95.750 linhas, 15,7 MB. Colunas: `Código` · `Barra1` · `Descrição` · `PrecoKit`
-(venda) · `PrecoCustoAquisição` (custo), localizadas **pelo nome no cabeçalho**
+(venda) · `PrecoCustoAquisição` (custo) e, opcional desde 30/10/2026, `NCM`
+(só dígitos em `produtos.ncm`; alimenta a revisão da reclassificação via
+`ncm_por_codigos`, arquivo sem a coluna continua importando), localizadas **pelo nome no cabeçalho**
 (`COLUNAS`) — layout diferente falha com mensagem clara em vez de ler a coluna
 errada calado.
 - **UTF-16 LE com BOM**, não UTF-8 (`_detectar_encoding` cobre as outras formas).

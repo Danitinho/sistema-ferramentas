@@ -409,11 +409,24 @@ function atualizarBarra() {
 // ── ações ───────────────────────────────────────────────────────────────────
 function cods() { return [..._sel]; }
 
+// O destino que está NA TELA para cada código. Vai junto da aprovação: se a
+// revisão das sugestões trocou o destino depois de a lista carregar, o
+// servidor não aprova (ver `aceitar_sugestao`).
+function esperadoDe(lista) {
+  const quer = new Set(lista);
+  return Object.fromEntries(_itens.filter(x => quer.has(x.cod))
+    .map(x => [x.cod, [x.dep_novo, x.sec_novo, x.sub_novo].join("/")]));
+}
+
 async function aplicar(url, corpo, verbo) {
   const d = await postJSON(url, corpo);
   if (d.erro) { alert(d.erro); return null; }
   let msg = `${d.aplicados ?? d.descartados ?? 0} produtos ${verbo}.`;
   if (d.ja_curados) msg += ` ${d.ja_curados} já tinham sido decididos por outra pessoa.`;
+  if ((d.mudaram || []).length) {
+    msg += ` ${d.mudaram.length} tiveram a sugestão revista depois que a lista`
+         + ` carregou e NÃO foram aprovados — confira o destino novo.`;
+  }
   if (d.recusados && d.recusados.length) {
     msg += `\n\n${d.recusados.length} recusados:\n` +
       d.recusados.slice(0, 5).map(x => `· ${x.cod}: ${x.motivo}`).join("\n");
@@ -425,7 +438,8 @@ async function aplicar(url, corpo, verbo) {
 
 async function aceitar() {
   if (!_sel.size) return;
-  await aplicar("/reclassificacao/curadoria/api/aceitar", { cods: cods() },
+  await aplicar("/reclassificacao/curadoria/api/aceitar",
+                { cods: cods(), esperado: esperadoDe(cods()) },
                 "liberados com o destino sugerido");
 }
 
@@ -457,7 +471,8 @@ para  ${it.destino_nome}
 async function aceitarGrupo(i) {
   const n = _itens[i].iguais_a_seguir || 1;
   const lista = _itens.slice(i, i + n).map(x => x.cod);
-  await aplicar("/reclassificacao/curadoria/api/aceitar", { cods: lista },
+  await aplicar("/reclassificacao/curadoria/api/aceitar",
+                { cods: lista, esperado: esperadoDe(lista) },
                 "liberados com o destino sugerido");
 }
 

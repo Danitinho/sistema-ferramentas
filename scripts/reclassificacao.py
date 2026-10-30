@@ -100,6 +100,20 @@ ORDEM_CONF["MÉDIA"] = 1          # a planilha usa a forma acentuada
 
 LEASE_PADRAO_S = 20 * 60         # a reserva é prazo, não trava
 
+# Produto ATIVO = movimentado deste ano em diante ("Últ. mov." da planilha).
+# A coluna "Ativo" da planilha vinha com o corte em 2022; o usuário pediu
+# (30/10/2026) para contar só o que movimentou em 2026. Mudar este número
+# reaplica a regra a todo o banco no próximo boot (ver `_aplicar_ativo`).
+ANO_ATIVO_DESDE = 2026
+
+
+def ativo_pelo_ano(ano: str) -> bool:
+    """Ano vazio ou ilegível = inativo (não há movimento para provar o contrário)."""
+    try:
+        return int(str(ano).strip()[:4]) >= ANO_ATIVO_DESDE
+    except ValueError:
+        return False
+
 COLUNAS = {
     "cod": "Cód. Barras",
     "produto": "Produto",
@@ -270,7 +284,7 @@ def ler_planilha(origem, aba: str = "Lista de Trabalho") -> list[Item]:
             continue
         itens.append(Item(
             linha=n, cod=cod, produto=g("produto"),
-            ativo=g("ativo").upper() == "SIM", ano=g("ano"),
+            ativo=ativo_pelo_ano(g("ano")), ano=g("ano"),
             dep_atual=g("dep_atual"), sec_atual=g("sec_atual"),
             sub_atual=g("sub_atual"),
             dep_novo=g("dep_novo"), sec_novo=g("sec_novo"), sub_novo=g("sub_novo"),
@@ -326,9 +340,24 @@ class FilaBanco:
         novas_curadoria = "pronto" not in tem_i
         for coluna, tipo in (("pronto", "INTEGER NOT NULL DEFAULT 0"),
                              ("curado_em", "REAL"), ("curado_por", "TEXT"),
-                             ("curado_nota", "TEXT")):
+                             ("curado_nota", "TEXT"),
+                             ("sug_dep", "TEXT"), ("sug_sec", "TEXT"),
+                             ("sug_sub", "TEXT"), ("sug_conf", "TEXT"),
+                             ("sug_base", "TEXT"),
+                             ("rev_em", "REAL"), ("rev_por", "TEXT")):
             if coluna not in tem_i:
                 self.con.execute(f"ALTER TABLE itens ADD COLUMN {coluna} {tipo}")
+
+        if "sug_dep" not in tem_i:
+            # A sugestão ORIGINAL da planilha passa a ser guardada à parte:
+            # `dep_novo` é sobrescrito quando alguém escolhe outro destino ou
+            # quando a revisão troca o palpite, e assim se perdeu qual era a
+            # sugestão dos 467 itens corrigidos à mão até aqui. Só dá para
+            # recuperar a dos que ninguém decidiu ainda.
+            self.con.execute(
+                "UPDATE itens SET sug_dep=dep_novo, sug_sec=sec_novo,"
+                " sug_sub=sub_novo, sug_conf=confianca, sug_base=base"
+                " WHERE curado_em IS NULL")
 
         if novas_curadoria:
             # Item já trabalhado não volta para a fila de curadoria.
@@ -360,6 +389,34 @@ class FilaBanco:
                 self._evento("migrou", "", "",
                              f"{cur.rowcount} itens voltaram para a curadoria "
                              "(nada mais e liberado automaticamente)")
+
+        self._aplicar_ativo()
+
+    def _aplicar_ativo(self):
+        """Recalcula `ativo` pelo ano da última movimentação.
+
+        Roda quando `ANO_ATIVO_DESDE` difere do que está gravado em
+        `config.ativo_desde` — uma vez por mudança de regra. Só mexe na coluna
+        `ativo`: estado, curadoria e reservas ficam como estão.
+        """
+        marca = self.con.execute(
+            "SELECT valor FROM config WHERE chave='ativo_desde'").fetchone()
+        if marca and json.loads(marca[0]) == ANO_ATIVO_DESDE:
+            return
+        cur = self.con.execute(
+            "UPDATE itens SET ativo = CASE WHEN"
+            " CAST(substr(trim(COALESCE(ano,'')),1,4) AS INTEGER) >= ?"
+            " THEN 1 ELSE 0 END", (ANO_ATIVO_DESDE,))
+        self.con.execute(
+            "INSERT OR REPLACE INTO config (chave, valor, em, por)"
+            " VALUES (?,?,?,?)",
+            ("ativo_desde", json.dumps(ANO_ATIVO_DESDE),
+             time.strftime("%Y-%m-%d %H:%M:%S"), "migracao"))
+        ativos = self.con.execute(
+            "SELECT COUNT(*) FROM itens WHERE ativo=1").fetchone()[0]
+        self._evento("migrou", "", "",
+                     f"ativo = movimentado desde {ANO_ATIVO_DESDE}:"
+                     f" {ativos} ativos de {cur.rowcount}")
 
     # ── apoio ────────────────────────────────────────────────────────────────
     def _evento(self, acao, cod="", operador="", detalhe="",
@@ -410,6 +467,7 @@ class FilaBanco:
             # conhece, então o contrato de `reservar` continua valendo.
             "estado": r["estado"], "pronto": bool(r["pronto"]),
             "curado_por": r["curado_por"] or "",
+            "revisado": bool(r["rev_em"]) if "rev_em" in r.keys() else False,
         }
 
     # ── operadores e tokens ──────────────────────────────────────────────────
@@ -532,13 +590,16 @@ class FilaBanco:
                 self.con.execute(
                     "INSERT INTO itens (cod, linha, produto, ativo, ano,"
                     " dep_atual, sec_atual, sub_atual, dep_novo, sec_novo,"
-                    " sub_novo, confianca, ordem_conf, base, estado, pronto)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " sub_novo, confianca, ordem_conf, base, estado, pronto,"
+                    " sug_dep, sug_sec, sug_sub, sug_conf, sug_base)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (it.cod, it.linha, it.produto, int(it.ativo), it.ano,
                      it.dep_atual, it.sec_atual, it.sub_atual,
                      it.dep_novo, it.sec_novo, it.sub_novo,
                      it.confianca, ORDEM_CONF.get(it.confianca, 9), it.base,
-                     LIVRE if tem_destino else SEM_DESTINO, 0),
+                     LIVRE if tem_destino else SEM_DESTINO, 0,
+                     it.dep_novo, it.sec_novo, it.sub_novo,
+                     it.confianca, it.base),
                 )
                 existentes.add(it.cod)
                 novos += 1
@@ -969,12 +1030,19 @@ class FilaBanco:
             return {"ok": False, "erro": motivo}
         return self._aplicar_curadoria(cods, dep, sec, sub, por, nota, "curou")
 
-    def aceitar_sugestao(self, cods: list, por: str = "") -> dict:
+    def aceitar_sugestao(self, cods: list, por: str = "",
+                         esperado: dict | None = None) -> dict:
         """Confirma o destino que a planilha já sugeriu, em lote.
 
         Ainda passa pela validação: uma planilha futura pode trazer trio que não
         existe na estrutura, e aceitar em lote é justamente onde isso passaria
         despercebido. O que não valida volta em `recusados`, com o motivo.
+
+        `esperado` ({cod: "dep/sec/sub"}) é o destino que a pessoa VIU. A
+        conferência guarda centenas de itens no navegador e sobe as aprovações
+        depois; se a revisão trocar a sugestão nesse meio-tempo, aprovar o que
+        está no banco seria aprovar um destino que ninguém olhou. Divergiu,
+        não aprova: volta em `mudaram`, e o item continua pendente.
         """
         from scripts.reclassificacao_estrutura import estrutura
 
@@ -984,6 +1052,8 @@ class FilaBanco:
         est = estrutura()
         grupos: dict[tuple, list] = {}
         recusados = []
+        mudaram = []
+        esperado = esperado or {}
         with self.lock:
             for cod in cods:
                 r = self.con.execute(
@@ -995,6 +1065,10 @@ class FilaBanco:
                         r["sub_novo"] or "")
                 if not all(trio):
                     recusados.append({"cod": cod, "motivo": "sem destino sugerido"})
+                    continue
+                visto = esperado.get(cod)
+                if visto is not None and str(visto) != "/".join(trio):
+                    mudaram.append({"cod": cod, "agora": "/".join(trio)})
                     continue
                 grupos.setdefault(trio, []).append(cod)
 
@@ -1008,7 +1082,122 @@ class FilaBanco:
             aplicados += res["aplicados"]
             ja += res["ja_curados"]
         return {"ok": True, "aplicados": aplicados, "ja_curados": ja,
-                "recusados": recusados}
+                "recusados": recusados, "mudaram": mudaram}
+
+    # ── revisão das sugestões ────────────────────────────────────────────────
+    def revisar(self, so_ativos: bool = True, aplicar: bool = False,
+                por: str = "") -> dict:
+        """Revê o destino sugerido dos pendentes à luz do que já foi confirmado.
+
+        O motor mora em `reclassificacao_revisao` (lá estão a regra e a
+        medição). Aqui só se lê, decide o que gravar e grava. Sem `aplicar`, é
+        a prévia: diz quantos mudariam e mostra quais.
+
+        Só mexe em item PENDENTE (`pronto=0`, livre ou sem destino), e só na
+        sugestão. Nada sai daqui aprovado — quem aprova continua sendo a pessoa
+        na curadoria. Rodar de novo recalcula tudo: o que a revisão trocou e
+        perdeu o apoio volta para a sugestão da planilha.
+        """
+        from scripts import catalogo
+        from scripts import reclassificacao_revisao as rv
+        from scripts.reclassificacao_estrutura import estrutura
+
+        est = estrutura()
+        with self.lock:
+            linhas = self.con.execute(
+                "SELECT cod, produto, ativo, estado, pronto, curado_em,"
+                " dep_novo, sec_novo, sub_novo, confianca, base,"
+                " sug_dep, sug_sec, sug_sub, sug_conf, sug_base, rev_em"
+                " FROM itens WHERE estado<>?", (DESCARTADO,)).fetchall()
+        try:
+            ncm = catalogo.ncm_por_codigos()
+        except Exception:
+            ncm = {}                   # sem catálogo, revisa só pela descrição
+
+        base, alvo = [], []
+        for r in linhas:
+            confirmado = r["curado_em"] is not None
+            # O voto de quem ninguém decidiu é o palpite ORIGINAL da planilha,
+            # nunca o já revisado: senão a revisão viraria prova de si mesma.
+            destino = ((r["dep_novo"], r["sec_novo"], r["sub_novo"]) if confirmado
+                       else (r["sug_dep"], r["sug_sec"], r["sug_sub"]))
+            if all(destino):
+                base.append({"cod": r["cod"], "produto": r["produto"] or "",
+                             "destino": tuple(str(x) for x in destino),
+                             "confirmado": confirmado})
+            if (not r["pronto"] and r["estado"] in (LIVRE, SEM_DESTINO)
+                    and (r["ativo"] or not so_ativos)):
+                alvo.append({
+                    "cod": r["cod"], "produto": r["produto"] or "",
+                    "planilha": (r["sug_dep"] or "", r["sug_sec"] or "",
+                                 r["sug_sub"] or ""),
+                    "atual": (r["dep_novo"] or "", r["sec_novo"] or "",
+                              r["sub_novo"] or ""),
+                    "planilha_conf": r["sug_conf"] or "",
+                    "planilha_base": r["sug_base"] or "",
+                    "rev_em": r["rev_em"]})
+
+        motor = rv.Motor(base, ncm)
+        propostas = rv.propor(motor, alvo, rotulo=est.rotulo_curto,
+                              validar=est.validar)
+        atual = {a["cod"]: a for a in alvo}
+        mudar = [p for p in propostas
+                 if tuple(p["destino"]) != atual[p["cod"]]["atual"]
+                 or bool(p["revisado"]) != bool(atual[p["cod"]]["rev_em"])]
+        revisados = sum(1 for p in propostas if p["revisado"])
+        voltam = sum(1 for p in mudar if not p["revisado"])
+        com_ncm = sum(1 for a in alvo if a["cod"] in ncm)
+
+        def amostra(p):
+            a = atual[p["cod"]]
+            return {"cod": p["cod"], "produto": p["produto"],
+                    "de": est.rotulo_curto(*a["atual"]) if all(a["atual"])
+                    else "sem sugestão",
+                    "para": est.rotulo_curto(*p["destino"]) if all(p["destino"])
+                    else "sem sugestão",
+                    "confianca": p["confianca"], "base": p["base"],
+                    "revisado": p["revisado"]}
+
+        resumo = {"ok": True, "alvo": len(alvo), "com_ncm": com_ncm,
+                  "catalogo_com_ncm": bool(ncm), "revisados": revisados,
+                  "mudam": len(mudar), "voltam_planilha": voltam,
+                  "so_ativos": so_ativos,
+                  "amostra": [amostra(p) for p in mudar[:400]]}
+        if not aplicar:
+            return resumo
+
+        agora = time.time()
+        gravados = 0
+        with self.lock:
+            self.con.execute("BEGIN IMMEDIATE")
+            try:
+                for p in mudar:
+                    dep, sec, sub = p["destino"]
+                    tem = bool(dep and sec and sub)
+                    conf = p["confianca"] or ""
+                    cur = self.con.execute(
+                        "UPDATE itens SET dep_novo=?, sec_novo=?, sub_novo=?,"
+                        " estado=?, confianca=?, ordem_conf=?, base=?,"
+                        " rev_em=?, rev_por=?"
+                        " WHERE cod=? AND pronto=0 AND estado IN (?,?)",
+                        (dep or None, sec or None, sub or None,
+                         LIVRE if tem else SEM_DESTINO, conf,
+                         ORDEM_CONF.get(conf, 9), p["base"],
+                         agora if p["revisado"] else None,
+                         por if p["revisado"] else None,
+                         p["cod"], LIVRE, SEM_DESTINO))
+                    gravados += cur.rowcount
+                self._evento("revisou", "", por,
+                             f"{gravados} sugestões alteradas"
+                             f" ({revisados} revisadas pelo histórico,"
+                             f" {voltam} de volta à planilha;"
+                             f" {'só ativos' if so_ativos else 'todos'})")
+                self.con.commit()
+            except Exception:
+                self.con.rollback()
+                raise
+        resumo["gravados"] = gravados
+        return resumo
 
     def historico_curadoria(self, limite: int = 50, por: str = "",
                             so_meus: bool = False) -> list:

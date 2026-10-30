@@ -58,6 +58,7 @@ COLUNAS = {
     "venda":          ("precokit",),
     "custo":          ("precocustoaquisicao",),
     "codigo_interno": ("codigo",),          # opcional
+    "ncm":            ("ncm",),             # opcional (usado na reclassificação)
 }
 OBRIGATORIAS = ("codigo_barras", "descricao", "venda", "custo")
 ROTULO_COLUNA = {"codigo_barras": "Barra1", "descricao": "Descrição",
@@ -108,6 +109,11 @@ def _init_schema(conn):
             sem_custo  INTEGER
         );
     """)
+    # NCM chegou depois (30/10/2026), para a revisão das sugestões da
+    # reclassificação. Arquivo sem a coluna continua importando, com NCM nulo.
+    tem = {r[1] for r in conn.execute("PRAGMA table_info(produtos)")}
+    if "ncm" not in tem:
+        conn.execute("ALTER TABLE produtos ADD COLUMN ncm TEXT")
     conn.commit()
 
 
@@ -219,8 +225,8 @@ def _parse_dinheiro(txt):
 
 # ── Importação ────────────────────────────────────────────────────────────────
 _SQL_INSERT = ("INSERT OR REPLACE INTO produtos "
-               "(codigo_barras, codigo_interno, descricao, venda, custo, cb_chave) "
-               "VALUES (?,?,?,?,?,?)")
+               "(codigo_barras, codigo_interno, descricao, venda, custo, cb_chave, ncm) "
+               "VALUES (?,?,?,?,?,?,?)")
 
 
 def importar(caminho, arquivo=None, usuario=None):
@@ -246,6 +252,7 @@ def importar(caminho, arquivo=None, usuario=None):
         i_cb, i_desc = pos["codigo_barras"], pos["descricao"]
         i_venda, i_custo = pos["venda"], pos["custo"]
         i_cod = pos.get("codigo_interno")
+        i_ncm = pos.get("ncm")
 
         conn = _conn()
         conn.isolation_level = None            # a transação é conduzida na mão
@@ -286,7 +293,10 @@ def importar(caminho, arquivo=None, usuario=None):
                     gravados += 1
                 vistos[cb] = (desc, venda)
                 cod_int = campos[i_cod] if (i_cod is not None and i_cod < len(campos)) else None
-                lote.append((cb, cod_int, desc, venda, custo, cb.lstrip("0") or "0"))
+                ncm = (_SO_DIGITOS.sub("", campos[i_ncm])
+                       if (i_ncm is not None and i_ncm < len(campos)) else "")
+                lote.append((cb, cod_int, desc, venda, custo, cb.lstrip("0") or "0",
+                             ncm or None))
                 if len(lote) >= LOTE:
                     conn.executemany(_SQL_INSERT, lote)
                     lote.clear()
@@ -516,3 +526,28 @@ def status():
         ultima = dict(r)
         ultima["quando_fmt"] = _fmt_dt(r["quando"])
     return {"total": total, "vazio": total == 0, "ultima": ultima}
+
+
+def ncm_por_codigos(codigos=None):
+    """{codigo_barras: ncm} — casamento EXATO, como o resto do catálogo.
+
+    Sem `codigos`, devolve o catálogo inteiro (a revisão da reclassificação
+    lê de uma vez só). Produto sem NCM não entra no dicionário.
+    """
+    conn = _conn()
+    try:
+        if codigos is None:
+            linhas = conn.execute(
+                "SELECT codigo_barras, ncm FROM produtos WHERE ncm IS NOT NULL")
+            return {r[0]: r[1] for r in linhas}
+        saida = {}
+        lista = list(codigos)
+        for i in range(0, len(lista), 900):
+            parte = lista[i:i + 900]
+            for r in conn.execute(
+                    "SELECT codigo_barras, ncm FROM produtos WHERE ncm IS NOT NULL"
+                    f" AND codigo_barras IN ({','.join('?' * len(parte))})", parte):
+                saida[r[0]] = r[1]
+        return saida
+    finally:
+        conn.close()

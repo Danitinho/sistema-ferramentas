@@ -332,7 +332,31 @@ def cur_fila():
 @reclassificacao_bp.post("/curadoria/api/aceitar")
 def cur_aceitar():
     d = _corpo()
-    return jsonify(r.banco().aceitar_sugestao(d.get("cods") or [], _usuario()))
+    # `esperado` = o destino que a pessoa viu ({cod: "dep/sec/sub"}). Se a
+    # revisão trocou a sugestão depois de a tela carregar, o item não é
+    # aprovado e volta em `mudaram`.
+    esperado = d.get("esperado")
+    return jsonify(r.banco().aceitar_sugestao(
+        d.get("cods") or [], _usuario(),
+        esperado=esperado if isinstance(esperado, dict) else None))
+
+
+# ── revisão das sugestões (ver scripts/reclassificacao_revisao.py) ───────────
+# Mexe na sugestão de centenas de produtos de uma vez, então pede acesso ao
+# agente, como as outras ações do lote. Nada sai aprovado daqui.
+
+@reclassificacao_bp.post("/revisao/api/previa")
+def rev_previa():
+    d = _corpo()
+    return jsonify(r.banco().revisar(so_ativos=d.get("so_ativos", True) is not False))
+
+
+@reclassificacao_bp.post("/revisao/api/aplicar")
+def rev_aplicar():
+    d = _corpo()
+    return jsonify(r.banco().revisar(
+        so_ativos=d.get("so_ativos", True) is not False, aplicar=True,
+        por=_usuario()))
 
 
 @reclassificacao_bp.post("/curadoria/api/curar")

@@ -70,6 +70,18 @@
 
   .mapa-erp textarea { width: 100%; min-height: 130px; font-family: var(--mono);
                        font-size: 12px; }
+  .rev-num { display: flex; gap: 22px; flex-wrap: wrap; margin: 4px 0 14px; }
+  .rev-num div { font-size: 13px; color: var(--muted); }
+  .rev-num b { display: block; font-family: var(--mono); font-size: 20px; color: var(--ink); }
+  .rev-lista { max-height: 52vh; overflow: auto; border: 1px solid var(--line);
+               border-radius: var(--radius-sm); }
+  .rev-item { padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .rev-item:last-child { border-bottom: 0; }
+  .rev-item .p { font-weight: 600; color: var(--ink); }
+  .rev-item .c { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .rev-item .de { color: var(--muted); text-decoration: line-through; }
+  .rev-item .para { color: var(--success); font-weight: 600; }
+  .rev-item .por { font-size: 12px; color: var(--muted); margin-top: 2px; }
 </style>
 {% endblock %}
 
@@ -299,7 +311,43 @@
     Produto <b>concluído</b> não volta: é o que impede que um cadastro já editado
     seja reaberto por outra pessoa.
   </div>
+
+  {% if perm.agente %}
+  <div class="linha-form" style="margin-top:18px">
+    <div style="flex:0 0 auto">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="revisarPrevia()">
+        Revisar sugestões pelo histórico
+      </button>
+    </div>
+  </div>
+  <div class="ev" style="margin-top:8px">
+    Revê o destino sugerido dos produtos <b>ativos</b> ainda pendentes, olhando os
+    produtos parecidos (descrição + <b>NCM</b> do catálogo) e o que as pessoas já
+    confirmaram. Mostra antes o que mudaria. <b>Só troca a sugestão</b> — nenhum
+    produto sai aprovado; o "vai" da curadoria passa a mostrar a nova.
+  </div>
+  {% endif %}
 </div>
+
+{% if perm.agente %}
+<div class="modal-overlay" id="modal-revisao" onmousedown="window._pressAlvo=event.target"
+     onclick="fecharSeFundo(event,'modal-revisao')">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-head">
+      <div class="modal-title">Revisar sugestões pelo histórico</div>
+      <button class="modal-close" type="button" onclick="fecharModal('modal-revisao')"
+              aria-label="Fechar">&times;</button>
+    </div>
+    <div class="modal-body" id="rev-corpo"></div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" type="button"
+              onclick="fecharModal('modal-revisao')">Fechar</button>
+      <button class="btn btn-primary btn-sm" type="button" id="rev-aplicar"
+              onclick="revisarAplicar()" disabled>Aplicar</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Mapa do ERP -->
 {% if perm.agente %}
@@ -347,6 +395,62 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{% if perm.agente %}
+<script>
+function _revEsc(t) {
+  return String(t ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function _revNum(n) { return Number(n || 0).toLocaleString("pt-BR"); }
+
+async function revisarPrevia() {
+  const corpo = document.getElementById("rev-corpo");
+  const bt = document.getElementById("rev-aplicar");
+  bt.disabled = true; bt.textContent = "Aplicar";
+  corpo.innerHTML = '<div class="empty-state"><span class="spinner"></span> Comparando com o histórico…</div>';
+  abrirModal("modal-revisao");
+  let d;
+  try { d = await postJSON("/reclassificacao/revisao/api/previa", { so_ativos: true }); }
+  catch (e) { corpo.innerHTML = `<div class="alertx">Falhou: ${_revEsc(e.message)}</div>`; return; }
+  if (d.erro) { corpo.innerHTML = `<div class="alertx">${_revEsc(d.erro)}</div>`; return; }
+  const semNcm = d.catalogo_com_ncm ? "" :
+    `<div class="alertx" style="margin-bottom:12px">O catálogo ainda não tem NCM — a
+     revisão vai usar só a descrição. Importe o catálogo com a coluna NCM (no
+     /vencidos) para separar, por exemplo, a pá de brinquedo da pá ferramenta.</div>`;
+  const itens = (d.amostra || []).map(a => `
+    <div class="rev-item">
+      <div class="p">${_revEsc(a.produto)} <span class="c">${_revEsc(a.cod)}</span></div>
+      <div><span class="de">${_revEsc(a.de)}</span> → <span class="para">${_revEsc(a.para)}</span>
+           <span class="c">· ${_revEsc(a.confianca)}</span></div>
+      <div class="por">${_revEsc(a.base)}</div>
+    </div>`).join("");
+  corpo.innerHTML = semNcm + `
+    <div class="rev-num">
+      <div><b>${_revNum(d.alvo)}</b>ativos pendentes</div>
+      <div><b>${_revNum(d.com_ncm)}</b>com NCM no catálogo</div>
+      <div><b>${_revNum(d.mudam)}</b>mudariam de sugestão</div>
+      ${d.voltam_planilha ? `<div><b>${_revNum(d.voltam_planilha)}</b>voltam à da planilha</div>` : ""}
+    </div>
+    ${d.mudam ? `<div class="rev-lista">${itens}</div>
+      ${d.mudam > (d.amostra || []).length
+        ? `<div class="ev" style="margin-top:8px">Mostrando ${_revNum(d.amostra.length)} de ${_revNum(d.mudam)}.</div>` : ""}`
+      : '<div class="empty-state">Nada a mudar: as sugestões já batem com o histórico.</div>'}
+    <div class="ev" style="margin-top:10px">Nenhum produto é aprovado por isto. Na
+      curadoria, o "vai" mostra a sugestão nova com a marca <b>sugestão revista</b>,
+      e a pessoa aprova ou muda o destino como sempre.</div>`;
+  if (d.mudam) { bt.disabled = false; bt.textContent = `Aplicar ${_revNum(d.mudam)} mudanças`; }
+}
+
+async function revisarAplicar() {
+  const bt = document.getElementById("rev-aplicar");
+  bt.disabled = true; bt.textContent = "Aplicando…";
+  const d = await postJSON("/reclassificacao/revisao/api/aplicar", { so_ativos: true });
+  if (d.erro) { alert(d.erro); bt.disabled = false; bt.textContent = "Aplicar"; return; }
+  location.href = "/reclassificacao/?aviso=" + encodeURIComponent(
+    `${_revNum(d.gravados)} sugestões alteradas pela revisão. Nada foi aprovado — `
+    + `confira na curadoria.`);
+}
+</script>
+{% endif %}
 <script>
 // Atualização ao vivo. O agente não tem tela: sem isto o coordenador teria de
 // recarregar a página para saber se a máquina do operador ainda está de pé.
