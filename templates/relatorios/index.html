@@ -14,88 +14,101 @@
   .mini-list { list-style:none; margin-top:10px; }
   .mini-list li {
     display:flex; justify-content:space-between; align-items:center;
-    font-size:13px; padding:8px 11px; border-radius:8px;
-    background:var(--surface-2); border:1px solid var(--line);
+    font-size:14px; padding:8px 12px; border-radius:var(--radius-sm);
+    background:var(--surface); border:1px solid var(--line);
     margin-bottom:6px; color:var(--ink);
   }
-  .mini-list li .q { color:var(--muted); font-size:12px; }
-  .mpill { font-size:11px; padding:2px 9px; border-radius:12px; font-weight:650;
-           background:var(--warning-bg); color:var(--warning);
-           font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .mini-list li .q { color:var(--muted); font-size:13px; }
+  .mpill { font-size:12.5px; padding:1px 8px; border-radius:var(--radius-sm); font-weight:500;
+           background:var(--surface-3); color:var(--ink-2); }
   .row-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .row-btns .btn { margin-top:0; }
 
-  /* ── Lista de produtos ── */
-  .produto-item { border:1px solid var(--line); border-radius:var(--radius);
-    margin-bottom:8px; overflow:hidden; background:var(--surface); }
-  .produto-header { display:flex; align-items:center; gap:12px; padding:12px 14px;
-    cursor:pointer; user-select:none; transition:background 0.12s; }
-  .produto-header:hover { background:var(--surface-2); }
-  .produto-info { flex:1; min-width:0; }
-  .produto-desc { display:block; font-weight:600; font-size:14px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink); }
-  .produto-sub { display:block; font-size:12px; color:var(--muted); margin-top:2px;
+  /* ── Tabela pivotada: produto × mês ─────────────────────────────────────
+     A coluna do produto fica presa à esquerda ao rolar os meses para o lado;
+     números em mono, alinhados à direita, para os meses se lerem em coluna. */
+  .pivo-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--surface); margin-top:8px; }
+  .pivo { border-collapse:separate; border-spacing:0; width:100%; font-size:14px; }
+  .pivo th, .pivo td { padding:9px 12px; border-bottom:1px solid var(--line);
+    text-align:right; white-space:nowrap; }
+  .pivo thead th { font-size:13px; font-weight:500; color:var(--muted);
+    border-bottom:2px solid var(--ink); background:var(--surface); }
+  .pivo tbody tr:last-child > td { border-bottom:0; }
+  .pivo .prod { text-align:left; position:sticky; left:0; z-index:1;
+    background:var(--surface); min-width:220px; max-width:320px; white-space:normal;
+    border-right:1px solid var(--line); }
+  .pivo thead .prod { z-index:2; }
+  .pivo td.vazio { color:var(--muted); }
+  /* o Total fica preso à direita: com muitos meses a tabela rola, e o número
+     que mais importa não pode sair da tela */
+  .pivo .tot { font-weight:600; color:var(--ink); border-left:1px solid var(--line);
+    position:sticky; right:0; z-index:1; background:var(--surface); }
+  .pivo thead .tot { z-index:2; }
+  .pivo tbody tr.linha:hover > td { background:var(--surface-2); }
+  @media (max-width: 599px) {
+    .pivo th, .pivo td { padding:8px 9px; font-size:13.5px; }
+    .pivo .prod { min-width:150px; max-width:170px; }
+  }
+  .prod-btn { display:flex; align-items:flex-start; gap:8px; width:100%; text-align:left;
+    background:none; border:0; padding:0; cursor:pointer; color:var(--ink); font:inherit; }
+  .prod-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .produto-desc { display:block; font-weight:500; font-size:14px; line-height:1.35; }
+  .prod-btn:hover .produto-desc { color:var(--accent); }
+  .produto-sub { display:block; font-size:12.5px; color:var(--muted); margin-top:1px;
     font-family:var(--mono); font-variant-numeric:tabular-nums; }
-  .produto-total { text-align:right; flex-shrink:0; }
-  .total-num { display:block; font-size:20px; font-weight:700; color:var(--amber);
-    line-height:1.1; font-family:var(--mono); font-variant-numeric:tabular-nums; }
-  .total-label { display:block; font-size:11px; color:var(--muted); }
-  .seta { flex-shrink:0; color:var(--muted); transition:transform 0.2s ease; }
-  .seta.aberta { transform:rotate(180deg); }
+  .seta { flex-shrink:0; color:var(--muted); margin-top:2px; transition:transform .2s ease; }
+  .seta.aberta { transform:rotate(180deg); color:var(--accent); }
+  .pivo tr.nao-enc td { color:var(--danger); }
+  .pivo tr.nao-enc .produto-desc { color:var(--danger); font-weight:400; }
 
-  /* grafico inline */
-  .produto-grafico { display:none; padding:4px 14px 16px;
-    border-top:1px solid var(--line); background:var(--surface-2); }
-  .produto-grafico.aberto { display:block; }
+  /* gráfico do produto: linha logo abaixo dele, presa à largura visível */
+  .pivo tr.graf { display:none; }
+  .pivo tr.graf.aberto { display:table-row; }
+  .pivo tr.graf > td { padding:0; text-align:left; background:var(--surface-2); }
+  .graf-box { position:sticky; left:0; padding:10px 14px 14px; }
   .canvas-wrap { position:relative; max-height:240px; }
 
-  /* produto não encontrado */
-  .produto-item.nao-enc .produto-header { cursor:default; background:var(--danger-bg); }
-  .produto-item.nao-enc .produto-header:hover { background:var(--danger-bg); }
-  .produto-item.nao-enc .produto-desc { color:var(--danger); font-weight:400; }
-  .produto-item.nao-enc .produto-sub  { color:var(--danger); opacity:.7; }
-
   /* ── Gatilho discreto da função administrativa ── */
-  .admin-trigger { display:inline-flex; align-items:center; gap:6px;
-    background:none; border:none; cursor:pointer; font-size:13px; color:var(--muted);
-    padding:6px 2px; margin-top:4px; -webkit-tap-highlight-color:transparent; }
-  .admin-trigger:hover { color:var(--amber); }
-  .admin-trigger .gear { font-size:15px; }
+  .admin-trigger { display:inline-flex; align-items:center; gap:7px;
+    background:none; border:none; cursor:pointer; font:500 13.5px var(--sans); color:var(--muted);
+    padding:6px 2px; margin-top:6px; -webkit-tap-highlight-color:transparent; }
+  .admin-trigger:hover { color:var(--accent); }
+  .modal-head .gear { color:var(--muted); }
 
-  .modal-warn { background:var(--warning-bg); color:var(--warning);
+  .modal-warn { background:var(--warning-bg); color:var(--ink);
     border:1px solid color-mix(in srgb, var(--warning) 35%, transparent);
-    border-radius:var(--radius-sm); font-size:12.5px; line-height:1.5;
+    border-radius:var(--radius-sm); font-size:13.5px; line-height:1.5;
     padding:10px 12px; margin-bottom:14px; }
 
   /* ── Seletor de meses da consulta ── */
   .meses-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     margin:16px 0 8px; }
   .meses-head label { margin:0; }
-  .meses-cont { font-size:12px; color:var(--muted); font-family:var(--mono);
-    font-variant-numeric:tabular-nums; }
+  .meses-cont { font-size:13px; color:var(--muted); }
   .atalhos { display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; }
   .atalhos button { border:1px solid var(--line-2); background:var(--surface);
-    color:var(--muted); font-size:12px; font-weight:600; padding:4px 10px;
+    color:var(--ink-2); font:500 13px var(--sans); padding:4px 10px;
     border-radius:var(--radius-sm); cursor:pointer; }
-  .atalhos button:hover { color:var(--accent); border-color:var(--accent); }
+  .atalhos button:hover { border-color:var(--ink-2); color:var(--ink); }
   .meses-grid { display:flex; flex-wrap:wrap; gap:6px; }
+  /* chip de mês: liga/desliga. Marcado = cobalto suave com borda; desmarcado
+     = só o contorno. Não é fundo cheio: escolher meses não é a ação da tela. */
   .mes-chip { border:1px solid var(--line-2); background:var(--surface);
-    color:var(--muted); font-size:12.5px; font-weight:600; padding:6px 12px;
-    border-radius:var(--radius-sm); cursor:pointer; user-select:none;
-    font-family:var(--mono); font-variant-numeric:tabular-nums;
+    color:var(--muted); font:500 13.5px var(--sans); font-variant-numeric:tabular-nums;
+    padding:5px 11px; border-radius:var(--radius-sm); cursor:pointer; user-select:none;
     transition:background .12s, color .12s, border-color .12s; }
-  .mes-chip:hover { border-color:var(--accent); color:var(--accent); }
-  .mes-chip.on { background:var(--brand); border-color:var(--brand);
-    color:var(--on-brand); }
-  .meses-vazio { font-size:12.5px; color:var(--muted); }
+  .mes-chip:hover { border-color:var(--ink-2); color:var(--ink); }
+  .mes-chip.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  .mes-chip:focus-visible { outline:none; box-shadow:0 0 0 3px var(--glow); }
+  .meses-vazio { font-size:13.5px; color:var(--muted); }
 </style>
 {% endblock %}
 
 {% block content %}
 
 <!-- ── CARD: CONSULTAR CÓDIGOS DE BARRAS ─────────────────────────────────── -->
-<div class="card">
-  <span class="badge badge-cadastro">Cadastro</span>
+<div class="card full">
   <div class="card-title">Consultar venda por código de barras</div>
 
   <label>Códigos de barras (um por linha, ou separados por vírgula)</label>
@@ -126,8 +139,8 @@
   </div>
 
   <div id="cons-resultado" style="display:none">
-    <div class="meses-cont" id="cons-escopo" style="margin-top:14px"></div>
-    <div id="produtos-lista" style="margin-top:8px"></div>
+    <div class="meses-cont" id="cons-escopo" style="margin-top:16px"></div>
+    <div id="produtos-lista"></div>
     <button class="btn btn-secondary" onclick="baixarExcel()" style="margin-top:6px">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="vertical-align:-2px;margin-right:4px">
         <path d="M7.5 1v9m0 0L4.5 7m3 3 3-3M2 13h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -155,7 +168,7 @@
   </ul>
 
   <button class="admin-trigger" onclick="abrirModal()">
-    <span class="gear">⚙️</span> Atualizar banco de dados (uso mensal)
+    <svg class="gear" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg> Atualizar banco de dados (uso mensal)
   </button>
 </div>
 
@@ -163,7 +176,7 @@
 <div class="modal-overlay" id="modal-proc" onclick="fecharModalSeFundo(event)">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-head">
-      <span class="gear">⚙️</span>
+      <svg class="gear" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       <div class="modal-title" id="modal-title">Atualizar banco de dados</div>
       <button class="modal-close" onclick="fecharModal()" aria-label="Fechar">&times;</button>
     </div>
@@ -367,49 +380,51 @@ async function consultar() {
   }
 }
 
-// ── Renderiza lista de produtos ───────────────────────────────────────────────
+// ── Tabela pivotada: um produto por linha, um mês por coluna ────────────────
+// Usa só o que a consulta já devolve (linhas[].qtds por mês, meses, rótulos):
+// é a mesma informação do Excel, na mesma janela de meses.
+const fmtQtd = v => Number(v).toLocaleString("pt-BR", {maximumFractionDigits: 3});
+
 function renderProdutos(res) {
   const lista = $("produtos-lista");
-  lista.innerHTML = "";
+  const meses = res.meses || [], rotulos = res.rotulos || [];
+  const ncol = meses.length + 2;
+  const cab = `<tr><th class="prod" scope="col">Produto</th>`
+    + rotulos.map(r => `<th scope="col">${esc(r)}</th>`).join("")
+    + `<th class="tot" scope="col">Total</th></tr>`;
 
-  res.linhas.forEach((ln, idx) => {
-    const item = document.createElement("div");
-
+  const corpo = res.linhas.map((ln, idx) => {
     if (!ln.encontrado) {
-      item.className = "produto-item nao-enc";
-      item.innerHTML = `
-        <div class="produto-header">
-          <div class="produto-info">
-            <span class="produto-desc">Código não encontrado</span>
-            <span class="produto-sub">${esc(ln.codigo_barras)}</span>
-          </div>
-        </div>`;
-      lista.appendChild(item);
-      return;
+      return `<tr class="nao-enc"><td class="prod">
+          <span class="produto-desc">Código não encontrado</span>
+          <span class="produto-sub">${esc(ln.codigo_barras)}</span></td>`
+        + meses.map(() => `<td class="num vazio">—</td>`).join("")
+        + `<td class="num tot vazio">—</td></tr>`;
     }
+    // "—" = sem venda registrada no mês (o produto existe, só não vendeu ali)
+    const celulas = meses.map(m => {
+      const q = ln.qtds[m];
+      return q ? `<td class="num">${fmtQtd(q)}</td>` : `<td class="num vazio">—</td>`;
+    }).join("");
+    return `<tr class="linha"><td class="prod">
+        <button type="button" class="prod-btn" onclick="toggleGrafico(${idx})"
+                aria-expanded="false" id="btn-${idx}" title="Ver o gráfico mês a mês">
+          <span style="flex:1;min-width:0">
+            <span class="produto-desc">${esc(ln.descricao)}</span>
+            <span class="produto-sub">${esc(ln.codigo_barras)}${ln.codigo ? " · " + esc(ln.codigo) : ""}</span>
+          </span>
+          <svg id="seta-${idx}" class="seta" width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M4.5 7l4.5 4.5L13.5 7" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button></td>${celulas}<td class="num tot">${fmtQtd(ln.total)}</td></tr>
+      <tr class="graf" id="grafico-${idx}"><td colspan="${ncol}">
+        <div class="graf-box"><div class="canvas-wrap"><canvas id="canvas-${idx}"></canvas></div></div>
+      </td></tr>`;
+  }).join("");
 
-    item.className = "produto-item";
-    item.dataset.idx = idx;
-    item.innerHTML = `
-      <div class="produto-header" onclick="toggleGrafico(${idx})">
-        <div class="produto-info">
-          <span class="produto-desc">${esc(ln.descricao)}</span>
-          <span class="produto-sub">${esc(ln.codigo_barras)}${ln.codigo ? " · " + esc(ln.codigo) : ""}</span>
-        </div>
-        <div class="produto-total">
-          <span class="total-num">${ln.total.toLocaleString("pt-BR", {maximumFractionDigits: 3})}</span>
-          <span class="total-label">un. total</span>
-        </div>
-        <svg id="seta-${idx}" class="seta" width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <path d="M4.5 7l4.5 4.5L13.5 7" stroke="currentColor" stroke-width="1.6"
-                stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="produto-grafico" id="grafico-${idx}">
-        <div class="canvas-wrap"><canvas id="canvas-${idx}"></canvas></div>
-      </div>`;
-    lista.appendChild(item);
-  });
+  lista.innerHTML = `<div class="pivo-wrap" id="pivo-wrap"><table class="pivo">
+      <thead>${cab}</thead><tbody>${corpo}</tbody></table></div>`;
 }
 
 // ── Expandir / recolher gráfico ───────────────────────────────────────────────
@@ -421,6 +436,7 @@ function toggleGrafico(idx) {
   if (aberto) {
     graficoEl.classList.remove("aberto");
     setaEl.classList.remove("aberta");
+    $(`btn-${idx}`).setAttribute("aria-expanded", "false");
     if (_graficos[idx]) {
       _graficos[idx].destroy();
       delete _graficos[idx];
@@ -428,6 +444,10 @@ function toggleGrafico(idx) {
   } else {
     graficoEl.classList.add("aberto");
     setaEl.classList.add("aberta");
+    $(`btn-${idx}`).setAttribute("aria-expanded", "true");
+    // a linha do gráfico ocupa a tabela inteira, que pode ser mais larga que a
+    // tela; o gráfico fica do tamanho da parte visível
+    graficoEl.querySelector(".graf-box").style.width = $("pivo-wrap").clientWidth + "px";
     criarGrafico(idx);
   }
 }
@@ -444,10 +464,11 @@ function criarGrafico(idx) {
   const rotulos = _consulta.rotulos;
   const meses   = _consulta.meses;
   const qtds    = meses.map(m => ln.qtds[m] ?? 0);
-  const cInk    = corTema("--ink")      || "#1B2430";
-  const cMuted  = corTema("--muted")    || "#545E6C";
-  const cLine   = corTema("--line")     || "#DDE1E7";
-  const cAmber  = corTema("--amber-btn")|| "#1F3A5F";
+  // reservas = tokens do tema claro, caso a leitura da variável falhe
+  const cInk    = corTema("--ink")      || "#141B17";
+  const cMuted  = corTema("--muted")    || "#5B655F";
+  const cLine   = corTema("--line")     || "#DCE0DB";
+  const cAmber  = corTema("--accent")   || "#2443C4";
 
   _graficos[idx] = new Chart($(`canvas-${idx}`), {
     type: "bar",
@@ -457,7 +478,7 @@ function criarGrafico(idx) {
         label: "Qtd vendida",
         data: qtds,
         backgroundColor: cAmber,
-        borderRadius: 4,
+        borderRadius: 2,
         borderSkipped: false,
       }]
     },
@@ -478,7 +499,7 @@ function criarGrafico(idx) {
           anchor: "end",
           align: "end",
           color: cInk,
-          font: { size: 11, weight: "600" },
+          font: { size: 11, weight: "500", family: corTema("--mono") || "monospace" },
           formatter: v => v > 0 ? v.toLocaleString("pt-BR", {maximumFractionDigits: 3}) : "",
         }
       },

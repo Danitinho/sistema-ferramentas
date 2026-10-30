@@ -13,6 +13,11 @@ auth_bp = Blueprint("auth", __name__)
 # Endpoints acessíveis sem login.
 PUBLICOS = {"auth.login", "auth.logout", "auth.setup", "static"}
 
+# Arquivos de /assets liberados sem login: só as FONTES, para a tela de login e
+# o setup carregarem a fonte do sistema (ali ninguém tem sessão ainda). Nunca o
+# endpoint `assets` inteiro — a pasta guarda também planilha de vendas da loja.
+ASSETS_PUBLICOS = ("fonts/",)
+
 # Endpoints que NAO usam sessao de navegador porque tem autenticacao propria.
 # Caso concreto: o programa de mesa da reclassificacao roda na maquina do
 # operador e se identifica por token no cabecalho X-Token; a guarda de sessao
@@ -73,6 +78,11 @@ def instalar_guarda(app):
         ep = request.endpoint or ""
         if ep in PUBLICOS:
             return None
+        if ep == "assets":
+            arquivo = (request.view_args or {}).get("filename", "")
+            if (arquivo.startswith(ASSETS_PUBLICOS)
+                    and ".." not in arquivo.replace("\\", "/").split("/")):
+                return None
         if ep.startswith(PREFIXOS_PUBLICOS):
             return None
         if session.get("usuario"):

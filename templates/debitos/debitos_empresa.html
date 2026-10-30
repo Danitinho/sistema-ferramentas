@@ -14,145 +14,168 @@
 
 {% block extra_head %}
 <style>
-  /* saldo hero */
-  .saldo-hero { display: grid; grid-template-columns: 1fr; border: 1px solid var(--line);
-    border-radius: var(--radius); overflow: hidden; background: var(--surface); margin-bottom: 16px; }
-  @media (min-width: 760px) { .saldo-hero { grid-template-columns: 1.15fr 1fr; } }
-  .saldo-main { padding: 20px 22px;
-    background: radial-gradient(520px 220px at 85% -20%, var(--danger-bg), transparent 60%); }
-  .saldo-main.ok { background: radial-gradient(520px 220px at 85% -20%, var(--success-bg), transparent 60%); }
-  .saldo-main .cnpj { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
-  .saldo-big { font-size: clamp(2.2rem, 6.5vw, 3rem); font-weight: 750; line-height: 1; margin: 12px 0 4px; }
-  .saldo-cap { font-size: 12.5px; color: var(--muted); }
-  .saldo-side { border-top: 1px solid var(--line); display: grid;
-    grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
-  @media (min-width: 760px) { .saldo-side { border-top: none; border-left: 1px solid var(--line); } }
-  .saldo-side > div { background: var(--surface); padding: 15px 18px; }
-  .saldo-side .v { font-size: 1.18rem; font-weight: 750; }
-  .saldo-side .l { font-size: 10px; color: var(--muted); letter-spacing: .06em;
-    text-transform: uppercase; margin-top: 3px; }
+  .emp-cnpj { font-size: 13px; color: var(--muted); margin: -4px 0 12px; }
 
-  /* pool de crédito */
-  .credit-card { border-color: color-mix(in srgb, var(--success) 35%, var(--line)); }
-  .cred-row { display: flex; align-items: center; gap: 12px; padding: 13px 18px;
+  /* aviso de crédito livre: dinheiro parado que pode quitar débito agora */
+  .aviso-cred { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 13px 16px; margin-bottom: 16px; border-radius: var(--radius);
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+  .aviso-cred .txt { flex: 1; min-width: 220px; font-size: 14px; color: var(--ink); }
+  .aviso-cred .txt .num { font-weight: 500; }
+  .aviso-cred .det { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+  .aviso-cred.parado { background: var(--surface); border-color: var(--line); }
+
+  /* créditos livres (detalhe) */
+  .cred-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px;
     border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .cred-row:last-child { border-bottom: none; }
-  .cred-ic { width: 32px; height: 32px; border-radius: 9px; background: var(--success-bg);
-    color: var(--success); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .cred-info { flex: 1; min-width: 140px; }
-  .cred-t { font-size: 13.5px; font-weight: 650; }
-  .cred-s { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
-  .cred-livre { font-size: 14px; font-weight: 750; color: var(--success); white-space: nowrap; }
-  .cred-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .cred-info { flex: 1; min-width: 160px; }
+  .cred-t { font-size: 14px; font-weight: 500; }
+  .cred-s { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .cred-livre { font-size: 15px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+  .cred-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+  .mes-sel { width: auto; min-width: 180px; font-weight: 500; font-size: 14px; padding: 8px 12px; }
 
   /* blocos de débito */
-  .debs { display: grid; grid-template-columns: 1fr; gap: 13px; }
-  @media (min-width: 720px) { .debs { grid-template-columns: 1fr 1fr; } }
+  .debs { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 760px) { .debs { grid-template-columns: 1fr 1fr; } }
   .deb-block { border: 1px solid var(--line); border-radius: var(--radius);
-    background: var(--surface); overflow: hidden; display: flex; flex-direction: column;
-    border-left: 3px solid var(--line-2); }
-  .deb-block[data-status="aberto"]  { border-left-color: var(--danger); }
-  .deb-block[data-status="parcial"] { border-left-color: var(--warning); }
-  .deb-block[data-status="quitado"] { border-left-color: var(--success); }
-  .deb-top { display: flex; align-items: flex-start; gap: 10px; padding: 15px 16px 10px; }
+    background: var(--surface); display: flex; flex-direction: column; min-width: 0; }
+  .deb-top { display: flex; align-items: flex-start; gap: 10px; padding: 14px 12px 8px 16px; }
   .deb-ident { flex: 1; min-width: 0; }
-  .deb-ident .l1 { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 14px; font-weight: 700; }
-  .deb-desc { font-size: 13.5px; font-weight: 550; color: var(--ink); line-height: 1.35;
-    margin-top: 7px; padding-left: 9px; border-left: 2px solid var(--amber-btn); }
-  .deb-per { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px;
-    color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line);
-    border-radius: 100px; padding: 3px 11px; margin-top: 8px; }
-  .deb-per svg { color: var(--amber); }
-  .deb-per b { font-weight: 700; color: var(--ink); }
-  .deb-ident .l2 { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
-  .mes-sel { width: auto; min-width: 180px; font-weight: 650; font-size: 13.5px; padding: 9px 13px; }
+  .deb-ident .l1 { display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    font-size: 15px; font-weight: 600; }
+  .deb-block .tag-v, .deb-block .tag-r { background: var(--surface-3); color: var(--ink-2); }
+  .tag-vend { background: var(--accent-soft); color: var(--accent); }
+  .deb-desc { font-size: 14px; color: var(--ink-2); line-height: 1.4; margin-top: 5px; }
+  .deb-meta { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
+  .deb-meta b { font-weight: 500; color: var(--ink-2); }
+  .deb-acts { display: flex; gap: 2px; flex-shrink: 0; }
+  .deb-edit:hover { color: var(--accent); background: var(--accent-soft); }
+
+  /* barra de quitação: o quanto do débito já foi abatido */
+  .quit { padding: 4px 16px 10px; }
+  .quit-leg { display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    font-size: 13px; color: var(--muted); margin-bottom: 5px; flex-wrap: wrap; }
+  .quit-leg .tot { font-size: 16px; font-weight: 500; color: var(--ink); }
+  .quit-leg .falta { color: var(--danger); font-weight: 500; }
+  .quit-leg .ok { color: var(--success); font-weight: 500; }
+  .quit-bar { height: 6px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+  .quit-bar i { display: block; height: 100%; background: var(--success); }
+
+  /* pagamentos DENTRO do bloco */
+  .deb-pags { border-top: 1px solid var(--line); padding: 4px 12px 4px 16px; }
+  .pag-linha { display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .pag-linha:last-child { border-bottom: none; }
+  .pag-txt { flex: 1; min-width: 0; color: var(--ink-2); }
+  .pag-txt .rref { color: var(--muted); }
+  .pag-v { font-weight: 500; color: var(--success); white-space: nowrap; }
+  .pag-x { color: var(--muted); cursor: pointer; padding: 0 6px; border-radius: var(--radius-sm);
+    background: none; border: 0; font-size: 16px; line-height: 1; }
+  .pag-x:hover { color: var(--danger); background: var(--danger-bg); }
+  .pag-vazio { font-size: 13px; color: var(--muted); padding: 8px 0; }
+  .deb-add { margin: auto 12px 12px 16px; align-self: flex-start; background: none; border: 0;
+    color: var(--accent); font: 500 13.5px var(--sans); cursor: pointer; padding: 6px 0; }
+  .deb-add:hover { text-decoration: underline; }
+
   /* período no modal */
   .per-campos { margin-top: 4px; }
-  .per-campos .two-col label { font-size: 11px; margin-bottom: 5px; }
-  .deb-val { text-align: right; flex-shrink: 0; }
-  .deb-val .t { font-size: 16px; font-weight: 750; }
-  .deb-val .s { font-size: 11px; color: var(--danger); margin-top: 2px; }
-  .deb-prog { height: 5px; background: var(--surface-3); margin: 0 16px; border-radius: 100px; overflow: hidden; }
-  .deb-prog i { display: block; height: 100%; background: var(--success); }
-  .deb-pags { padding: 8px 16px 4px; display: flex; flex-direction: column; gap: 2px; }
-  .pag-linha { display: flex; align-items: center; gap: 9px; padding: 7px 0;
-    border-bottom: 1px dashed var(--line); }
-  .pag-linha:last-child { border-bottom: none; }
-  .pag-ic { width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center; }
-  .pag-ic.bonificacao     { background: var(--warning-bg); color: var(--warning); }
-  .pag-ic.troca           { background: var(--success-bg); color: var(--success); }
-  .pag-ic.desconto_boleto { background: var(--surface-3);  color: var(--ink-2); }
-  .pag-txt { flex: 1; min-width: 0; font-size: 12.5px; }
-  .pag-txt b { font-weight: 650; }
-  .pag-txt .rref { color: var(--muted); }
-  .pag-v { font-size: 12.5px; font-weight: 650; color: var(--success); white-space: nowrap; }
-  .pag-x { color: var(--muted); cursor: pointer; font-weight: 700; padding: 0 4px; }
-  .pag-x:hover { color: var(--danger); }
-  .pag-vazio { font-size: 12px; color: var(--muted); padding: 6px 0 2px; }
-  .deb-add { margin: 8px 12px 12px; border: 1px dashed var(--line-2); background: transparent;
-    color: var(--amber); border-radius: 9px; padding: 9px; font-size: 12.5px; font-weight: 650;
-    cursor: pointer; font-family: var(--sans); transition: background .12s, border-color .12s; }
-  .deb-add:hover { background: var(--accent-soft); border-color: var(--accent); }
-  .deb-acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-  .deb-edit:hover { color: var(--accent); background: var(--accent-soft); }
-  /* vendedor: empresa com mais de um tem dívidas separadas, uma por vendedor */
-  .tag-vend { background: var(--accent-soft); color: var(--accent); }
+  .per-campos .two-col label { font-size: 12.5px; margin-bottom: 5px; }
+  .opc { font-weight: 400; color: var(--muted); }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- Saldo -->
-{% set cobertura = ((saldo.total_pago * 100 / saldo.total_debito) | int) if saldo.total_debito > 0 else 0 %}
-<div class="saldo-hero full">
-  <div class="saldo-main {% if saldo.saldo_devedor <= 0 %}ok{% endif %}">
-    <div class="cnpj num">CNPJ {{ emp.cnpj }}</div>
-    <div class="saldo-big num" style="color:{% if saldo.saldo_devedor > 0 %}var(--danger){% else %}var(--success){% endif %}">
-      {{ saldo.saldo_devedor | brl }}
-    </div>
-    <div class="saldo-cap">
-      {% if saldo.saldo_devedor > 0 %}em aberto · {{ saldo.debitos_abertos }} débito(s) ativo(s)
-      {% else %}sem pendências{% endif %}
-    </div>
-    {% if saldo.total_debito > 0 %}
-    <div class="cover">
-      <div class="bar"><i style="width:{{ cobertura }}%"></i></div>
-      <div class="leg">
-        <span><b>{{ cobertura }}% coberto</b> por pagamentos</span>
-        <span class="num">{{ saldo.total_pago | brl }} de {{ saldo.total_debito | brl }}</span>
-      </div>
-    </div>
-    {% endif %}
+<div class="emp-cnpj num full">CNPJ {{ emp.cnpj }}{% if vendedor_atual %} · vendedor {{ 'sem vendedor' if vendedor_atual == 'sem' else vendedor_atual }}{% endif %}</div>
+
+{# Os três números. "Abatido" segue a regra de competência do relatório do
+   fechamento: o pagamento pertence ao mês do DÉBITO que abate, então é o que
+   foi pago nos débitos listados (os do mês filtrado). #}
+{% set abatido = debitos | sum(attribute='valor_pago') %}
+{% set ns = namespace(rotulo='') %}
+{% for m in meses.meses %}{% if m.mes == mes_atual %}{% set ns.rotulo = m.rotulo %}{% endif %}{% endfor %}
+<div class="resumo full">
+  <div class="resumo-item">
+    <div class="resumo-rot">Em aberto</div>
+    <div class="resumo-v {{ 'v-danger' if saldo.saldo_devedor > 0.005 else 'v-zero' }}">{{ saldo.saldo_devedor | brl }}</div>
+    <div class="resumo-sub">{% if saldo.debitos_abertos %}{{ saldo.debitos_abertos }} débito(s) ainda não quitado(s){% else %}nenhum débito pendente{% endif %}</div>
   </div>
-  <div class="saldo-side">
-    <div><div class="v num" style="color:var(--danger)">{{ saldo.total_debito | brl }}</div><div class="l">Total em débitos</div></div>
-    <div><div class="v num" style="color:var(--success)">{{ saldo.credito_disponivel | brl }}</div><div class="l">Crédito livre</div></div>
-    <div><div class="v num">{{ saldo.total_pagamentos | brl }}</div><div class="l">Em pagamentos</div></div>
-    <div><div class="v num">{{ saldo.debitos_total }}</div><div class="l">Débitos</div></div>
+  <div class="resumo-item">
+    <div class="resumo-rot">{% if mes_atual and mes_atual != 'sem' %}Abatido no mês{% else %}Abatido{% endif %}</div>
+    <div class="resumo-v {{ 'v-success' if abatido > 0.005 else 'v-zero' }}">{{ abatido | brl }}</div>
+    <div class="resumo-sub">{% if mes_atual == 'sem' %}nos débitos sem período{% elif mes_atual %}nos débitos de {{ ns.rotulo or mes_atual }}{% else %}em todos os meses{% endif %}</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-rot">Crédito livre</div>
+    <div class="resumo-v {{ '' if saldo.credito_disponivel > 0.005 else 'v-zero' }}">{{ saldo.credito_disponivel | brl }}</div>
+    <div class="resumo-sub">{% if creditos %}{{ creditos | length }} pagamento(s) com sobra, sem abater nada{% else %}nenhum crédito parado{% endif %}</div>
   </div>
 </div>
 
-<!-- Pool de crédito -->
+{# Aviso de crédito livre. Crédito só quita débito do MESMO vendedor (sem
+   vendedor só quita sem vendedor) — a regra mora em `alocar`/`alocar_automatico`.
+   O aviso cruza os vendedores antes de prometer: dizer "pode quitar" quando o
+   crédito é de outro vendedor seria um botão que não faz nada. #}
+{% if saldo.credito_disponivel > 0.005 %}
+{% set abertos = debitos | selectattr('saldo', 'gt', 0.005) | list %}
+{% set chaves_deb = abertos | map(attribute='vendedor_chave') | list %}
+{% set chaves_cred = creditos | map(attribute='vendedor_chave') | list %}
+{% set nc = namespace(valor=0, n=0, ids=[]) %}
+{% for c in creditos %}{% if c.vendedor_chave in chaves_deb %}{% set nc.valor = nc.valor + c.disponivel %}{% set nc.ids = nc.ids + [c.id] %}{% endif %}{% endfor %}
+{% for d in abertos %}{% if d.vendedor_chave in chaves_cred %}{% set nc.n = nc.n + 1 %}{% endif %}{% endfor %}
+{% if nc.valor > 0.005 %}
+<div class="aviso-cred full">
+  <div class="txt">
+    <span class="num">{{ nc.valor | brl }}</span> de crédito livre podem quitar
+    {{ nc.n }} débito(s) em aberto{% if mes_atual %} deste filtro{% endif %}.
+    <span class="det">Aplicar quita os débitos mais antigos primeiro, sempre dentro do mesmo vendedor.</span>
+  </div>
+  <button class="btn btn-primary btn-sm" id="btn-aplicar-cred"
+          data-ids='{{ nc.ids | tojson }}' onclick="aplicarCreditos(this)">Aplicar crédito nos débitos</button>
+</div>
+{% elif saldo.debitos_abertos and mes_atual %}
+<div class="aviso-cred parado full">
+  <div class="txt">
+    <span class="num">{{ saldo.credito_disponivel | brl }}</span> de crédito livre{% if abertos %}, mas nenhum débito em aberto deste filtro é do mesmo vendedor{% else %}, e há débito em aberto em outros meses{% endif %}.
+    <span class="det"><a href="#" onclick="irParaMes('');return false" style="color:var(--accent)">Ver todos os meses</a> para saber se o crédito pode quitá-lo.</span>
+  </div>
+</div>
+{% elif saldo.debitos_abertos %}
+<div class="aviso-cred parado full">
+  <div class="txt">
+    <span class="num">{{ saldo.credito_disponivel | brl }}</span> de crédito livre, mas nenhum débito em aberto é do mesmo vendedor.
+    <span class="det">Crédito de um vendedor (ou sem vendedor) não quita débito de outro. Ele fica guardado até chegar um débito do mesmo vendedor.</span>
+  </div>
+</div>
+{% else %}
+<div class="aviso-cred parado full">
+  <div class="txt">
+    <span class="num">{{ saldo.credito_disponivel | brl }}</span> de crédito livre, sem débito em aberto para quitar.
+    <span class="det">Ele fica guardado e pode abater o próximo débito desta empresa.</span>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
 {% if creditos %}
-<div class="card card-flush full credit-card">
+<div class="card card-flush full">
   <div class="card-head">
-    <span class="ttl">Crédito disponível</span>
-    <span class="hint">{{ saldo.credito_disponivel | brl }} livre · pode quitar qualquer débito</span>
+    <span class="ttl">Créditos livres</span>
+    <span class="hint">um por pagamento; use num débito específico ou deixe o "Aplicar" distribuir</span>
   </div>
   {% for c in creditos %}
   <div class="cred-row">
-    <div class="cred-ic">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
-    </div>
     <div class="cred-info">
       <div class="cred-t">{{ c.tipo_label }} <span class="num" style="color:var(--muted)">{{ c.referencia }}</span>
         {% if c.vendedor %}<span class="tag tag-vend">{{ c.vendedor }}</span>{% endif %}</div>
-      <div class="cred-s num">{{ c.data_fmt }} · total {{ c.valor_total | brl }}</div>
+      <div class="cred-s"><span class="num">{{ c.data_fmt }}</span> · total <span class="num">{{ c.valor_total | brl }}</span></div>
     </div>
     <div class="cred-livre num">{{ c.disponivel | brl }}</div>
     <div class="cred-acts">
-      <button class="btn btn-primary btn-sm" onclick="abrirAlocar('{{ c.id }}')">Usar em um débito</button>
+      <button class="btn btn-secondary btn-sm" onclick="abrirAlocar('{{ c.id }}')">Usar em um débito</button>
       <button class="btn btn-secondary btn-sm" onclick="alocarAuto('{{ c.id }}')">Quitar automático</button>
       <button class="btn-lixo" onclick="excluir('pagamento','{{ c.id }}')" title="Excluir pagamento">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -166,7 +189,7 @@
 <!-- Filtros -->
 <div class="toolrow full">
   <select class="mes-sel" id="sel-mes" onchange="irParaMes(this.value)" title="Filtrar por mês de referência">
-    <option value="">📅 Todos os meses</option>
+    <option value="">Todos os meses</option>
     {% for m in meses.meses %}
     <option value="{{ m.mes }}" {% if mes_atual == m.mes %}selected{% endif %}>{{ m.rotulo }}</option>
     {% endfor %}
@@ -201,61 +224,55 @@
 {% if debitos %}
 <div class="debs full">
   {% for d in debitos %}
+  {% set pct = ((d.valor_pago * 100 / d.valor_total) | round(0, 'floor') | int) if d.valor_total > 0 else 0 %}
   <div class="deb-block" data-status="{{ d.status }}"
        data-busca="{{ ((d.nf_numero or '') ~ ' ' ~ (d.produto or '') ~ ' ' ~ (d.obs or '')) | lower }}">
     <div class="deb-top">
       <div class="deb-ident">
         <div class="l1">
-          {% if d.tipo == 'vencimento' %}<span class="tag tag-v">Vencimento</span> NF {{ d.nf_numero }}
-          {% else %}<span class="tag tag-r">Rebaixa</span> {{ d.produto }}{% endif %}
-          <span class="pill p-{{ d.status }}">{{ d.status }}</span>
+          {% if d.tipo == 'vencimento' %}<span class="tag tag-v">Vencimento</span> <span>NF <span class="num">{{ d.nf_numero }}</span></span>
+          {% else %}<span class="tag tag-r">Rebaixa</span> <span>{{ d.produto }}</span>{% endif %}
+          <span class="pill p-{{ d.status }}">{{ d.status | capitalize }}</span>
           {% if d.vendedor %}<span class="tag tag-vend">{{ d.vendedor }}</span>{% endif %}
         </div>
         {% if d.obs %}<div class="deb-desc">{{ d.obs }}</div>{% endif %}
-        {% if d.periodo_label %}
-        <div class="deb-per">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-          Referente a <b>{{ d.periodo_label }}</b>
+        <div class="deb-meta">
+          {% if d.periodo_label %}Referente a <b>{{ d.periodo_label }}</b> · {% endif %}lançado em <span class="num">{{ d.data_fmt[:10] }}</span>
+          {% if d.tipo == 'rebaxa' %} · <span class="num">{{ d.quantidade | int if d.quantidade == d.quantidade | int else d.quantidade }} un × {{ d.valor_unit | brl }}</span>{% endif %}
         </div>
-        {% endif %}
-        <div class="l2 num">
-          {{ d.data_fmt[:10] }}
-          {% if d.tipo == 'rebaxa' %} · {{ d.quantidade | int if d.quantidade == d.quantidade | int else d.quantidade }} un × {{ d.valor_unit | brl }}{% endif %}
-        </div>
-      </div>
-      <div class="deb-val">
-        <div class="t num" style="color:var(--danger)">{{ d.valor_total | brl }}</div>
-        {% if d.saldo > 0 and d.valor_pago > 0 %}<div class="s num">falta {{ d.saldo | brl }}</div>{% endif %}
       </div>
       <div class="deb-acts">
-        <button class="btn-lixo" onclick="excluir('debito','{{ d.id }}')" title="Excluir débito">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <button class="btn-lixo deb-edit" onclick="abrirEditarDebito('{{ d.id }}')" title="Editar débito">
+        <button class="btn-lixo deb-edit" onclick="abrirEditarDebito('{{ d.id }}')" title="Editar débito" aria-label="Editar débito">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+        </button>
+        <button class="btn-lixo" onclick="excluir('debito','{{ d.id }}')" title="Excluir débito" aria-label="Excluir débito">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5.5 3.5V2.5h3v1M4 3.5l.7 8h4.6l.7-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
     </div>
-    {% if d.status == 'parcial' %}
-    <div class="deb-prog"><i style="width:{{ ((d.valor_pago * 100 / d.valor_total) | int) if d.valor_total > 0 else 0 }}%"></i></div>
-    {% endif %}
+    <div class="quit">
+      <div class="quit-leg">
+        <span>pago <span class="num">{{ d.valor_pago | brl }}</span> de <span class="tot num">{{ d.valor_total | brl }}</span></span>
+        {% if d.saldo > 0.005 %}<span class="falta">falta <span class="num">{{ d.saldo | brl }}</span></span>
+        {% else %}<span class="ok">quitado</span>{% endif %}
+      </div>
+      <div class="quit-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}"
+           aria-label="Quitação do débito"><i style="width:{{ pct }}%"></i></div>
+    </div>
     <div class="deb-pags">
       {% if d.alocacoes %}
       {% for a in d.alocacoes %}
       <div class="pag-linha">
-        <span class="pag-ic {{ a.tipo }}">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-        </span>
-        <span class="pag-txt"><b>{{ a.tipo_label }}</b> <span class="rref num">{{ a.referencia }}</span></span>
+        <span class="pag-txt">{{ a.tipo_label }} <span class="rref num">{{ a.referencia }}</span></span>
         <span class="pag-v num">{{ a.valor | brl }}</span>
-        <span class="pag-x" title="Desfazer" onclick="desalocar('{{ a.id }}')">&times;</span>
+        <button class="pag-x" title="Desfazer: o valor volta a ser crédito" aria-label="Desfazer pagamento" onclick="desalocar('{{ a.id }}')">&times;</button>
       </div>
       {% endfor %}
       {% else %}
-      <div class="pag-vazio">Nenhum pagamento neste débito.</div>
+      <div class="pag-vazio">Nenhum pagamento neste débito ainda.</div>
       {% endif %}
     </div>
-    {% if d.saldo > 0 %}
+    {% if d.saldo > 0.005 %}
     <button class="deb-add" onclick="abrirPagar('{{ d.id }}')">+ Registrar pagamento neste débito</button>
     {% endif %}
   </div>
@@ -283,7 +300,7 @@
         <label>Valor total <em>*</em></label>
         <div class="ingrp"><span class="pre">R$</span>
           <input type="number" id="v-valor" placeholder="0,00" min="0" step="0.01" inputmode="decimal"></div>
-        <label>Descrição <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(ajuda a identificar)</span></label>
+        <label>Descrição <span class="opc">(ajuda a identificar)</span></label>
         <input type="text" id="v-obs" placeholder="Ex.: vencidos do mês de junho/2026">
       </div>
       <div id="campos-rebaxa" style="display:none">
@@ -301,14 +318,14 @@
           </div>
         </div>
         <div class="alertx" style="margin-top:12px" id="preview-total">Total: R$ 0,00</div>
-        <label>Descrição <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(ajuda a identificar)</span></label>
+        <label>Descrição <span class="opc">(ajuda a identificar)</span></label>
         <input type="text" id="r-obs" placeholder="Ex.: rebaixa dos vencidos de junho/2026">
       </div>
 
       <!-- Vendedor (comum aos dois tipos) — empresa com mais de um vendedor tem
            dívidas separadas: cada um responde pelos seus débitos. -->
       <label style="margin-top:16px">Vendedor responsável
-        <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(opcional — só se a empresa tiver mais de um)</span></label>
+        <span class="opc">(opcional — só se a empresa tiver mais de um)</span></label>
       <input type="text" id="d-vendedor" list="lista-vendedores" autocomplete="off"
              placeholder="Ex.: Vanusa">
       <datalist id="lista-vendedores">
@@ -363,7 +380,7 @@
       <!-- Só no crédito avulso: dentro de um débito o vendedor é o do débito. -->
       <div id="pag-vend-wrap" style="display:none">
         <label>Vendedor responsável
-          <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(opcional)</span></label>
+          <span class="opc">(opcional)</span></label>
         <input type="text" id="pag-vendedor" list="lista-vendedores" autocomplete="off"
                placeholder="Ex.: Vanusa">
         <div style="font-size:12px;color:var(--muted);margin-top:6px">
@@ -662,6 +679,33 @@ async function alocarAuto(credId) {
   const r = await postJSON("/debitos/api/alocar/auto", { pagamento_id: credId });
   if (r.ok) location.reload(); else alert(r.msg);
 }
+// Aplica TODOS os créditos livres, um por um, pela mesma porta do "Quitar
+// automático" de cada crédito: FIFO dos débitos mais antigos e sempre dentro do
+// mesmo vendedor (a regra mora no servidor). O que não couber continua livre.
+async function aplicarCreditos(bt) {
+  // só os créditos que o servidor marcou como do mesmo vendedor de algum débito
+  // em aberto; os outros falhariam de propósito
+  const ids = JSON.parse(bt.dataset.ids || "[]");
+  const alvo = CREDITOS.filter(c => ids.includes(c.id));
+  if (!alvo.length) return;
+  if (!confirm("Aplicar o crédito livre nos débitos em aberto, dos mais antigos "
+               + "para os mais novos?\n\nCrédito de um vendedor só quita débito do "
+               + "mesmo vendedor; o que sobrar continua livre.")) return;
+  bt.disabled = true; bt.textContent = "Aplicando…";
+  let aplicados = 0;
+  const falhas = [];
+  for (const c of alvo) {
+    const r = await postJSON("/debitos/api/alocar/auto", { pagamento_id: c.id });
+    if (r.ok) aplicados++;
+    else falhas.push(`${c.tipo_label} ${c.referencia}: ${r.msg}`);
+  }
+  if (falhas.length) {
+    alert((aplicados ? `${aplicados} crédito(s) aplicado(s).\n\n` : "")
+          + `Não aplicados:\n` + falhas.join("\n"));
+  }
+  location.reload();
+}
+
 async function desalocar(id) {
   if (!confirm("Desfazer este pagamento no débito? O valor volta a ser crédito.")) return;
   const r = await postJSON("/debitos/api/desalocar", { alocacao_id: id });

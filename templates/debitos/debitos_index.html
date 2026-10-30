@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Débitos e Bonificações{% endblock %}
-{% block header_title %}Débitos &amp; Bonificações{% endblock %}
+{% block header_title %}Débitos e bonificações{% endblock %}
 {% block breadcrumb %}<a href="/">Menu principal</a> · Financeiro{% endblock %}
 
 {% block header_actions %}
@@ -10,64 +10,60 @@
 
 {% block extra_head %}
 <style>
-  .grid-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 16px; }
+  .empresas-card .card-head { padding: 14px 18px 10px; }
 
-  .empresas-card .card-head { padding: 16px 22px; }
-  .empresas-card .card-head .ttl { font-size: 15px; }
-
-  .empresa-row { display: flex; align-items: center; gap: 16px; padding: 18px 22px;
+  .empresa-row { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 18px;
     border-bottom: 1px solid var(--line); transition: background .12s; }
   .empresa-row:last-child { border-bottom: none; }
   .empresa-row:hover { background: var(--surface-2); }
   .empresa-link { flex: 1; display: flex; align-items: center; gap: 16px;
     text-decoration: none; color: inherit; min-width: 0; }
-  .empresa-av { width: 50px; height: 50px; border-radius: 14px; background: var(--surface-3);
-    color: var(--amber); display: flex; align-items: center; justify-content: center;
-    font-size: 20px; font-weight: 800; flex-shrink: 0; border: 1px solid var(--line-2);
-    transition: border-color .12s, background .12s; }
-  .empresa-row:hover .empresa-av { border-color: var(--accent); background: var(--accent-soft); }
   .empresa-info { flex: 1; min-width: 0; }
-  .empresa-nome { display: block; font-weight: 700; font-size: 18px; letter-spacing: -.02em;
+  .empresa-nome { display: block; font-weight: 600; font-size: 15.5px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .12s; }
-  .empresa-link:hover .empresa-nome { color: var(--amber); }
-  .empresa-cnpj { display: block; font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .empresa-link:hover .empresa-nome { color: var(--accent); }
+  .empresa-cnpj { display: block; font-size: 13px; color: var(--muted); margin-top: 1px; }
 
-  .saldo-tag { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-  .saldo-tag .v { font-size: 22px; font-weight: 800; white-space: nowrap; letter-spacing: -.02em; }
-  .saldo-tag .l { font-size: 10.5px; font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: .06em; }
-  .saldo-quit { font-size: 12px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase;
-    padding: 5px 13px; border-radius: 100px; background: var(--success-bg); color: var(--success); }
-  .empresa-chev { color: var(--line-2); flex-shrink: 0; transition: color .12s, transform .12s; }
-  .empresa-row:hover .empresa-chev { color: var(--amber); transform: translateX(2px); }
-
-  .icon-btn.ed-emp:hover { background: var(--surface-3); color: var(--amber); }
+  .saldo-tag { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .saldo-tag .v { font-size: 17px; font-weight: 500; white-space: nowrap; color: var(--danger); }
+  .saldo-tag .l { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .empresa-chev { color: var(--line-2); flex-shrink: 0; transition: color .12s; }
+  .empresa-row:hover .empresa-chev { color: var(--accent); }
+  .icon-btn.ed-emp:hover { background: var(--surface-3); color: var(--accent); }
 
   @media (max-width: 560px) {
-    .empresa-nome { font-size: 16px; }
-    .saldo-tag .v { font-size: 18px; }
-    .empresa-av { width: 44px; height: 44px; font-size: 18px; }
+    .empresa-row { padding-left: 14px; }
+    .empresa-cnpj { font-size: 12px; }
+    .saldo-tag .v { font-size: 15px; }
   }
 </style>
 {% endblock %}
 
 {% block content %}
 
-{% set total_deb = empresas | sum(attribute='total_debito') %}
-{% set total_pag = empresas | sum(attribute='total_pagamentos') %}
+{# Resumo de todas as empresas. Aqui o "abatido" é de TODOS os meses: esta
+   página não tem filtro de mês — o abatido do mês está na página de cada
+   empresa e no relatório do fechamento. #}
 {% set total_sal = empresas | sum(attribute='saldo_devedor') %}
-<div class="grid-stats">
-  <div class="stat-card s-danger">
-    <div class="stat-v num" style="color:var(--danger)">{{ total_deb | brl }}</div>
-    <div class="stat-l">Total em débitos</div>
+{% set total_pago = empresas | sum(attribute='total_pago') %}
+{% set total_livre = empresas | sum(attribute='credito_disponivel') %}
+{% set com_aberto = empresas | selectattr('saldo_devedor', 'gt', 0.005) | list | length %}
+{% set com_livre = empresas | selectattr('credito_disponivel', 'gt', 0.005) | list | length %}
+<div class="resumo full">
+  <div class="resumo-item">
+    <div class="resumo-rot">Em aberto</div>
+    <div class="resumo-v {{ 'v-danger' if total_sal > 0.005 else 'v-zero' }}">{{ total_sal | brl }}</div>
+    <div class="resumo-sub">{% if com_aberto %}em {{ com_aberto }} empresa(s){% else %}nenhuma empresa devendo{% endif %}</div>
   </div>
-  <div class="stat-card s-success">
-    <div class="stat-v num" style="color:var(--success)">{{ total_pag | brl }}</div>
-    <div class="stat-l">Total em pagamentos</div>
+  <div class="resumo-item">
+    <div class="resumo-rot">Abatido</div>
+    <div class="resumo-v {{ 'v-success' if total_pago > 0.005 else 'v-zero' }}">{{ total_pago | brl }}</div>
+    <div class="resumo-sub">em todos os meses</div>
   </div>
-  <div class="stat-card {% if total_sal > 0 %}s-amber{% else %}s-success{% endif %}">
-    <div class="stat-v num" style="color:{% if total_sal > 0 %}var(--warning){% else %}var(--success){% endif %}">{{ total_sal | brl }}</div>
-    <div class="stat-l">Saldo devedor</div>
+  <div class="resumo-item">
+    <div class="resumo-rot">Crédito livre</div>
+    <div class="resumo-v {{ '' if total_livre > 0.005 else 'v-zero' }}">{{ total_livre | brl }}</div>
+    <div class="resumo-sub">{% if com_livre %}em {{ com_livre }} empresa(s), ainda sem abater nada{% else %}nenhum crédito parado{% endif %}</div>
   </div>
 </div>
 
@@ -80,19 +76,18 @@
   {% for e in empresas %}
   <div class="empresa-row">
     <a href="/debitos/empresa/{{ e.cnpj }}" class="empresa-link">
-      <span class="empresa-av">{{ e.razao_social[0] | upper }}</span>
       <div class="empresa-info">
         <span class="empresa-nome">{{ e.razao_social }}</span>
         <span class="empresa-cnpj num">{{ e.cnpj }}</span>
       </div>
       <span class="saldo-tag">
-        {% if e.saldo_devedor > 0 %}
-        <span class="v num" style="color:var(--danger)">{{ e.saldo_devedor | brl }}</span>
+        {% if e.saldo_devedor > 0.005 %}
+        <span class="v num">{{ e.saldo_devedor | brl }}</span>
         <span class="l">em aberto</span>
         {% else %}
-        <span class="saldo-quit">Quitado</span>
-        {% if e.credito_disponivel > 0 %}<span class="l num">{{ e.credito_disponivel | brl }} livre</span>{% endif %}
+        <span class="pill p-quitado">Quitado</span>
         {% endif %}
+        {% if e.credito_disponivel > 0.005 %}<span class="l"><span class="num">{{ e.credito_disponivel | brl }}</span> de crédito livre</span>{% endif %}
       </span>
       <span class="empresa-chev">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>

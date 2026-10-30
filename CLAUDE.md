@@ -113,6 +113,8 @@ sistema_ferramentas_refatorado/
 │
 ├── assets/                # estáticos servidos em /assets/<arquivo>
 │   ├── *.ttf                  # fontes das placas (Anton, ChelseaMarket, impact)
+│   ├── fonts/                 # IBM Plex woff2 da interface (seção 8) — único
+│   │                          #   pedaço de /assets acessível sem login
 │   ├── *.png/.jpeg            # modelos de placa
 │   └── layouts/*.json         # DEFINIÇÕES DE LAYOUT das placas (dados persistidos)
 │
@@ -450,41 +452,138 @@ já vem só com os meses escolhidos.
 
 ## 8. Design system / frontend
 
-Todo o visual mora em `templates/base.html`. **Mudar a paleta lá reskinna o
+Todo o visual mora em `templates/base.html`. **Mudar os tokens lá reskinna o
 sistema inteiro**, pois todos os templates estendem `base.html`.
 
-### Paleta atual — "Corporativo Navy" (tema claro padrão + escuro)
-Definida em CSS variables no `:root` de `base.html`. O tema **claro é o
-padrão**; o escuro é ativado por `html[data-theme="escuro"]` (switch no header,
-persistido em `localStorage.tema`, aplicado antes do paint por um script
-inline no `<head>`). Referência visual: mockup aprovado em
-https://claude.ai/code/artifact/cef0d907-2727-4fbb-9720-f17610705803
+### Direção atual — "Painel de precisão" (30/10/2026)
+Substituiu o "Corporativo Navy". Mockups aprovados:
+https://claude.ai/artifact/HfNZB6pLA9zPw8AS6GZqPX
+- **Base neutra levemente esverdeada e UM acento só, azul-cobalto `#2443C4`,
+  reservado para ação e link** (botão primário, link, foco, item ativo do menu,
+  o destino proposto na curadoria). O navy saiu. Estado/seleção NÃO usa o
+  cobalto cheio: `.seg`/`.fseg` marcados "levantam" para a superfície com
+  borda; chip de mês marcado é `--accent-soft` + borda.
+- **Barra superior = a própria superfície** (branca no claro, grafite no
+  escuro) com borda inferior de 1px. Nada de fundo de cor fixa.
+- **Forma:** `--radius` 6px (cartão) / `--radius-sm` 4px (botão, campo, pill);
+  bordas de 1px; **quase nenhuma sombra** — só o que flutua (modal, menus,
+  painel de voz) usa `--shadow-pop`.
+- **Títulos de seção:** texto pequeno em `--muted` **sobre uma linha de 2px em
+  `--ink`** (`.card-title`, `.card-head`, cabeçalho do `.modal`, do `.ledger` e
+  das tabelas). **Sem caixa alta espaçada em lugar nenhum** — rótulo, pill, tag,
+  badge, cabeçalho de tabela: tudo em caixa normal. Valor que vem do banco em
+  maiúsculas (confiança "ALTA") é reescrito na tela ("Alta").
+- **Pesos:** 400/500/600 — são os arquivos de fonte que existem. 650/700 caem
+  em 600 de qualquer jeito; não use.
+
+### Tokens (mesmos nomes de antes)
+Definidos no `:root` de `base.html`; o escuro em `html[data-theme="escuro"]`
+(switch no header, persistido em `localStorage.tema`, aplicado antes do paint
+por um script inline no `<head>`). **O tema claro é o padrão.**
 - Superfícies: `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--line`, `--line-2`.
 - Texto: `--ink`, `--ink-2`, `--muted`.
-- Marca: `--brand` (navy #1F3A5F, fundo de botão primário) + `--brand-2` (hover),
-  `--accent` (azul de texto/ícone/link) + `--accent-2`/`--accent-soft`,
-  `--on-brand` (texto sobre navy), `--glow` (anel de foco).
-- Barra superior: `--appbar`/`--appbar-ink`/`--appbar-muted` — navy nos DOIS
-  temas (âncora da identidade); o markup usa `.appbar-top-wrap` (largura total).
-- Semânticas: `--success`, `--warning`, `--danger` (+ versões `-bg`) —
-  dessaturadas de propósito; o âmbar agora é SÓ warning, não é mais a marca.
-- Tipos: `--sans` = Segoe UI (nativa do Windows da loja) e `--mono` = Consolas
-  (números, NF, códigos — use a classe `.num`). Corpo 16px (legibilidade).
-- Forma: `--radius` 6px / `--radius-sm` 4px; bordas de 1px no lugar de
-  sombras/brilhos; rótulos de card/tabela em caixa alta espaçada.
-- Aliases mantidos por compatibilidade: `--amber`→`--accent`,
-  `--amber-btn`→`--brand`, `--amber-ink`→`--on-brand`, `--amber-2`→`--accent-2`
-  (+ os legados `--graphite`, `--gray`, `--border`...). Template antigo que usa
-  âmbar vira azul sozinho — em código novo, use os nomes novos.
+- Marca: `--brand`/`--accent` (cobalto) + `--brand-2`/`--accent-2` (hover),
+  `--accent-soft` (fundo suave), `--on-brand`, `--glow` (anel de foco).
+- Barra: `--appbar: var(--surface)`, `--appbar-ink: var(--ink)`,
+  `--appbar-muted: var(--muted)`. São resolvidos no próprio `<html>`, então
+  acompanham o tema escuro sem ser redefinidos no bloco escuro.
+- Semânticas: `--success`, `--warning`, `--danger` (+ `-bg`).
+- Aliases mantidos: `--amber`→`--accent`, `--amber-btn`→`--brand`,
+  `--amber-ink`→`--on-brand`, `--amber-2`→`--accent-2` (+ `--graphite`,
+  `--gray`, `--border`...). Template antigo que usa âmbar vira cobalto sozinho
+  — em código novo, use os nomes novos.
 **Use sempre as variáveis, nunca hex cravado** — um hex claro cravado quebra o
 tema escuro (e vice-versa). Ambos os temas precisam funcionar em toda tela nova.
+Hex que sobraram de propósito: o overlay escuro de seleção de área e as cores
+de pré-visualização do editor de placas (`layouts/cadastrar.html`), e
+sombras/fundos pretos translúcidos — escuros nos dois temas por desenho.
+
+### Tipografia
+- **IBM Plex Sans** (texto, `--sans`) e **IBM Plex Mono** (`--mono`), com
+  fallback Segoe UI / Consolas. Corpo 16px.
+- **Auto-hospedadas** em `assets/fonts/` (woff2, subconjunto latin, que cobre
+  os acentos do português; licença em `assets/fonts/OFL.txt`): Sans 400/500/600
+  e Mono 400/500, via `@font-face` com `font-display: swap`. **Nada de Google
+  Fonts nem CDN** — os aparelhos da loja podem estar sem internet.
+- **A tela de login carrega as fontes sem sessão**: `ASSETS_PUBLICOS =
+  ("fonts/",)` em `auth_routes.py` libera SÓ `assets/fonts/`. **Nunca libere o
+  endpoint `assets` inteiro** — a pasta guarda também planilha de vendas da
+  loja (`PLANILHA VENDAS PERÍODO PROMOCIONAL.xlsx`).
+- **Mono é para VALOR** (dinheiro, quantidade, NF, código de barras, CNPJ,
+  CodGrp) — classe `.num`. Rótulo pequeno não vai em mono.
+- **Algarismos tabulares em todo valor**: `font-variant-numeric: tabular-nums`
+  já está no `body`, e o `.num` repete.
+
+### Componentes (`base.html`)
+Reutilize antes de criar novos.
+- `.card` (+ `.card-flush`/`.card-head`/`.card-body`/`.card-title`).
+- `.btn`: `.btn-primary` = cobalto, `.btn-secondary` = superfície com borda
+  `--line-2`, `.btn-danger`, `.btn-sm`. `<a class="btn">` não fica sublinhado.
+- `.pill` (`p-aberto`/`p-parcial`/`p-quitado`): a cor sobre o próprio `-bg`,
+  sem borda. Escreva o texto em caixa normal ("Quitado").
+- `.stat-card` (`s-danger`/`s-success`/`s-amber`): número grande em mono e a cor
+  do estado **no próprio número** (a faixa colorida no topo saiu). O número
+  encolhe com a largura do cartão (`container-type` + `cqi`) em vez de quebrar a
+  linha — "R$ 9.190,43" num cartão de grade de 6 colunas não cabe a 26px.
+- **`.resumo`** (novo): poucos números grandes numa faixa só, separados por
+  1px (`.resumo-item` / `.resumo-rot` / `.resumo-v` [`v-danger`/`v-success`/
+  `v-zero`] / `.resumo-sub`; `--n` = colunas). Para números que contam uma
+  história junta (em aberto, abatido, crédito livre); `.stat-card` fica para
+  painéis de muitos indicadores.
+- `.seg` / `.fseg` (marcado = superfície + borda, não cobalto), `.chip`, `.tag`,
+  `.badge`, `.alertx`, `.search`, `.ingrp` (prefixo R$), `.ledger`
+  (`.lg-head`/`.lg-row`), `.metric`, `.result-box`, `.upload-area`,
+  `.spinner`, `.btn-lixo`, `.icon-btn`, `.empty-state`.
+- **Modal global** (`.modal-overlay`/`.modal` + `abrirModal`/`fecharModal`/
+  `fecharSeFundo`): o fundo só fecha se o clique **começou** no fundo
+  (`window._pressAlvo`, evita perder o formulário ao arrastar seleção para fora)
+  e **Esc com campo focado não fecha**, só tira o foco (protege digitação e
+  leitores de código de barras com sufixo ESC). O módulo de relatórios tem
+  handlers próprios com a mesma regra.
+- Foco de teclado: anel `--glow` (`:focus-visible`); `prefers-reduced-motion`
+  desliga transições e animações.
 
 ### Responsividade
-- `--maxw: 1200px` (largura do app no desktop), `--maxw-read: 880px` (coluna de
+- `--maxw: 1120px` (largura do app no desktop), `--maxw-read: 880px` (coluna de
   leitura p/ formulários), `--pad-x` fluido via `clamp()`.
 - Cartões de conteúdo (`main > .card`) ficam numa coluna centralizada legível.
-  Para um bloco ocupar a largura toda, use a classe `.full`.
-- Menu (`index.html`): grade `2 colunas (celular) → 3 (≥600px) → 4 (≥900px)`.
+  Para um bloco ocupar a largura toda, use `.full` (atenção: ela é
+  `max-width: none !important` e anula qualquer `max-width` do próprio
+  elemento).
+- **Nada pode empurrar a página para o lado no celular.** Abaixo de 600px os
+  botões da página (`header_actions`) descem para baixo do título e a barra de
+  cima esconde "· Ferramentas" e o nome do usuário (fica a inicial).
+
+### Padrões das telas (decididos no redesign)
+- **Menu (`index.html`)**: índice por setor (lista com ícone, nome e uma linha
+  de descrição; 1 → 2 → 3 colunas) e, no topo, a **faixa "pendente"** — o único
+  destaque da página. Ela lê, no navegador, as APIs que as telas já usam:
+  curadoria (`/reclassificacao/curadoria/api/fila?so_ativos=1&limite=1` →
+  `resumo.pendentes_ativos`) e máquinas (`/agente/painel/api/estado`, só com
+  `perm.agente`). O fechamento de débitos é um lembrete do mês anterior **sem
+  número**: débitos não têm API de resumo, e a faixa não inventa dado. API que
+  falha vira "—", e o item continua sendo link. Cada item mantém `data-nome`
+  (a busca depende dele) e os `id="setor-*"` (o menu de cima aponta para eles).
+- **Débitos**: `.resumo` com em aberto / abatido / crédito livre. Na página da
+  empresa, "Abatido no mês" é a soma do pago **nos débitos do mês filtrado**
+  (regra de competência do relatório); sem filtro, "em todos os meses". A lista
+  de empresas não tem mês, então lá é sempre "todos os meses". O **aviso de
+  crédito livre cruza os vendedores antes de prometer**: só oferece "Aplicar"
+  quando há crédito e débito em aberto do MESMO vendedor (o "Aplicar" chama
+  `alocar/auto` só para esses créditos); com vendedores diferentes, explica por
+  que não dá; com filtro de mês, manda ver todos os meses em vez de afirmar.
+  Cada débito tem barra de quitação ("pago X de Y") e os pagamentos dentro do
+  bloco.
+- **Curadoria (conferência)**: produto grande; "Hoje no ERP" ao lado do
+  "Destino proposto" — só o destino leva a borda de 2px no acento. Teclas
+  visíveis nos botões (Enter, D, P, X, Z, H; L na oferta de lote). **Abaixo de
+  600px os botões viram barra fixa no pé da tela** e as letras dos atalhos somem
+  (celular não tem teclado).
+- **Relatórios**: a consulta é uma **tabela pivotada** produto × mês, montada no
+  cliente com o que a API já devolve (mesma janela do Excel). **Produto preso à
+  esquerda e Total preso à direita** — com 10 meses a tabela não cabe nem a
+  1280px e só os meses rolam. "—" = sem venda no mês (o produto existe). Clicar
+  no produto abre o gráfico numa linha logo abaixo.
 
 ### Convenções de template
 Todo template começa com:
@@ -502,28 +601,27 @@ Helpers globais já disponíveis em `base.html`: `postJSON(url, data)`,
 seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 14).
 
 ### Outras regras de UI
-- **Ícones:** SVG **inline** (não emoji, não CDN). Decisão intencional: os
-  aparelhos da loja podem não ter internet, então nada de depender de fontes de
-  ícone externas. Ao adicionar um card no menu, copie o padrão de `<svg>` de
-  linha já usado em `index.html`.
-- A busca do menu filtra os cards no cliente via `data-nome` em cada `.tool-card`.
-- Componentes prontos no `base.html`: `.card` (+ `.card-flush`/`.card-head`/
-  `.card-body`), `.btn` (`.btn-primary` = navy, `.btn-secondary`, `.btn-danger`,
-  `.btn-sm`), `.pill` (status `p-aberto`/`p-parcial`/`p-quitado`), `.tag`,
-  `.chip`, `.stat-card` (`s-danger`/`s-success`/`s-amber`), `.alertx`, `.seg`
-  (seletor segmentado), `.fseg` + `.search` (filtros/busca), `.ingrp` (campo com
-  prefixo R$), o **modal global** (`.modal-overlay`/`.modal` + helpers JS
-  `abrirModal`/`fecharModal`/`fecharSeFundo` — o fundo só fecha se o clique
-  **começou** no fundo (`window._pressAlvo`, evita perder o formulário ao
-  arrastar seleção para fora) e **Esc com campo focado não fecha**, só tira o
-  foco (protege digitação e leitores de código de barras com sufixo ESC); o
-  módulo de relatórios tem handlers próprios com a mesma regra), o livro-razão (`.ledger`,
-  `.lg-head`/`.lg-row`), `.metric`, `.result-box`, `.upload-area`, `.badge`,
-  `.spinner`, `.btn-lixo`, `.icon-btn`, `.empty-state`. Reutilize antes de criar novos.
+- **Ícones:** SVG **inline** de linha (não emoji, não CDN). Decisão
+  intencional: os aparelhos da loja podem não ter internet. Ao adicionar um item
+  no menu, copie o padrão de `<svg>` já usado em `index.html`.
 - O header some numa tela ao sobrescrever `{% block header %}{% endblock %}`
   (usado em login/setup).
 - **Prints em `scripts/*.py`: só ASCII.** Com stdout em cp1252 (terminal
   Windows), um `print("✓")` derruba a requisição inteira com UnicodeEncodeError.
+- **Produção guarda o template em cache.** O waitress roda sem debug: cada
+  template é compilado na primeira vez que alguém abre a página e fica assim até
+  o serviço reiniciar. Mexeu em template com o serviço no ar? Ele pode mostrar
+  uma mistura de telas antigas e novas até o `nssm restart`.
+
+### Como conferir uma tela
+Nunca suba o app apontando para os bancos de `dados/` (o serviço da porta 80
+está com eles abertos, e importar o `app` roda migrações). Copie o projeto e
+os `.db` (pela API de backup do SQLite) para uma pasta à parte e sirva a cópia
+numa porta própria. Screenshot pelo Edge sem janela:
+`msedge --headless=new --window-size=1280,900 --screenshot=x.png <url>`.
+**Ele não desce de 492px de largura**: para ver o celular de verdade, ponha a
+página num `<iframe>` de 390px (o iframe tem viewport próprio, então as media
+queries valem). Confira sempre os dois temas.
 
 ---
 

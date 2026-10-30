@@ -18,53 +18,57 @@
                    margin-bottom: 14px; font-size: 13px; }
   .barra-filtros select { max-width: 230px; }
   .caixa-ativos { display: flex; align-items: center; gap: 6px; margin: 0;
-                  font-size: 13px; text-transform: none; letter-spacing: 0;
-                  color: var(--ink-2); font-weight: 600; }
+                  font-size: 13.5px; color: var(--ink-2); font-weight: 500; }
   .caixa-ativos input { width: 15px; height: 15px; margin: 0; }
 
   .progresso { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-               font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
-  .progresso .n { font-family: var(--mono); color: var(--ink); font-weight: 650; }
-  .progresso .barra { flex: 1 1 120px; height: 5px; background: var(--surface-3);
-                      border-radius: 3px; overflow: hidden; min-width: 90px; }
+               font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .progresso .n { font-family: var(--mono); color: var(--ink); font-weight: 500; }
+  .progresso .barra { flex: 1 1 120px; height: 4px; background: var(--surface-3);
+                      border-radius: 2px; overflow: hidden; min-width: 90px; }
   .progresso .barra i { display: block; height: 100%; background: var(--success); }
   .envio { font-size: 12px; color: var(--muted); }
-  .envio.erro { color: var(--danger); font-weight: 650; }
+  .envio.erro { color: var(--danger); font-weight: 500; }
 
   .ficha { border: 1px solid var(--line-2); border-radius: var(--radius);
            background: var(--surface); overflow: hidden; }
   .ficha-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-                padding: 10px 20px; background: var(--surface-2);
-                border-bottom: 1px solid var(--line); font-size: 12.5px;
-                color: var(--muted); }
-  .ficha-corpo { padding: 22px 20px; }
+                padding: 10px 22px; border-bottom: 1px solid var(--line);
+                font-size: 13px; color: var(--muted); }
+  .ficha-corpo { padding: 24px 22px 22px; }
 
-  .nome { font-size: 21px; font-weight: 650; line-height: 1.3; color: var(--ink); }
-  .cod  { font-family: var(--mono); font-size: 13.5px; color: var(--muted);
-          margin-top: 6px; }
-  .inativo { display: inline-block; font-size: 11px; font-weight: 700;
-             letter-spacing: .05em; padding: 2px 7px; border-radius: 3px;
-             background: var(--surface-3); color: var(--muted); margin-left: 8px; }
+  /* O produto é a coisa grande da tela: é ele que está sendo decidido. */
+  .nome { font-size: clamp(22px, 3.4vw, 30px); font-weight: 600; line-height: 1.2;
+          letter-spacing: -.01em; color: var(--ink); overflow-wrap: anywhere; }
+  .cod  { font-family: var(--mono); font-size: 14px; color: var(--muted);
+          margin-top: 8px; }
+  .inativo { display: inline-block; font-family: var(--sans); font-size: 12.5px;
+             font-weight: 500; padding: 1px 8px; border-radius: var(--radius-sm);
+             background: var(--surface-3); color: var(--ink-2); margin-left: 8px; }
 
-  .mov { margin-top: 22px; display: grid; gap: 10px; }
-  .mov-linha { display: grid; grid-template-columns: 52px 1fr; gap: 12px;
-               align-items: baseline; }
-  .mov-rot { font-size: 11px; font-weight: 700; letter-spacing: .08em;
-             text-transform: uppercase; color: var(--muted); text-align: right; }
-  .mov-de   { font-size: 14.5px; color: var(--muted); }
-  .mov-para { font-size: 17px; font-weight: 650; color: var(--success);
-              line-height: 1.35; }
-  .mov-para .trio { font-family: var(--mono); font-size: 12.5px;
-                    color: var(--muted); font-weight: 500; display: block;
-                    margin-top: 3px; }
-  .mov-para.vazio { color: var(--warning); }
-  .mov-para .revista { display: inline-block; margin-top: 6px; font-size: 11px;
-                       font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-                       color: var(--accent); background: var(--accent-soft);
-                       border-radius: var(--radius-sm); padding: 2px 7px; }
+  /* "Hoje no ERP" ao lado do "Destino proposto". Só o destino leva o acento:
+     é a proposta que o Enter aprova. */
+  .lado { margin-top: 22px; display: grid; grid-template-columns: 1fr; gap: 10px; }
+  @media (min-width: 600px) { .lado { grid-template-columns: 1fr 1fr; gap: 12px; } }
+  .caixa { border: 1px solid var(--line); border-radius: var(--radius);
+           padding: 13px 15px; min-width: 0; }
+  .caixa-rot { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .caixa-hoje .mov-de { font-size: 15px; color: var(--ink-2); line-height: 1.4; }
+  .caixa-para { border: 2px solid var(--accent); padding: 12px 14px; }
+  .mov-para { font-size: 17px; font-weight: 600; color: var(--ink); line-height: 1.35; }
+  .trio { font-family: var(--mono); font-size: 13px; color: var(--muted);
+          font-weight: 400; display: block; margin-top: 4px; }
+  .mov-para.vazio { color: var(--warning); font-weight: 500; }
+  .caixa-para.vazia { border-color: var(--warning); border-style: dashed; }
+  .mov-para .revista { display: inline-block; margin-top: 8px; font-size: 12.5px;
+                       font-weight: 500; color: var(--accent); background: var(--accent-soft);
+                       border-radius: var(--radius-sm); padding: 1px 8px; }
 
-  .conf { display: inline-block; font-size: 10.5px; font-weight: 700;
-          letter-spacing: .06em; padding: 2px 7px; border-radius: 3px; }
+  /* confiança: o valor vem do banco em caixa alta ("ALTA"); a tela escreve
+     "Alta", sem caixa alta espaçada */
+  .conf { display: inline-block; font-size: 12.5px; font-weight: 500;
+          padding: 1px 8px; border-radius: var(--radius-sm); text-transform: lowercase; }
+  .conf::first-letter { text-transform: uppercase; }
   .c-ALTA    { background: var(--success-bg);  color: var(--success); }
   .c-MEDIA   { background: var(--accent-soft); color: var(--accent); }
   .c-BAIXA   { background: var(--warning-bg);  color: var(--warning); }
@@ -76,11 +80,11 @@
      para a direita, desalinhado dos outros. Um separador marca os dois grupos
      sem depender de eles caberem na mesma linha. */
   .teclas { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch;
-            padding: 14px 20px; row-gap: 10px;
+            padding: 14px 22px; row-gap: 10px;
             border-top: 1px solid var(--line); background: var(--surface-2); }
   .tecla { display: inline-flex; align-items: center; gap: 7px;
            border-radius: var(--radius-sm); padding: 9px 13px; cursor: pointer;
-           font-family: var(--sans); font-size: 13.5px; font-weight: 600;
+           font-family: var(--sans); font-size: 14px; font-weight: 500;
            background: var(--surface); color: var(--ink-2);
            border: 1px solid var(--line-2); white-space: nowrap; }
   .tecla:hover { background: var(--surface-3); }
@@ -95,11 +99,32 @@
      menores por dentro, não por fora. Dois pixels de diferença numa fileira de
      botões já se lê como desalinhamento. */
   .tecla.sec:hover { color: var(--ink-2); }
-  .tecla kbd { font-family: var(--mono); font-size: 11px; font-weight: 700;
-               background: color-mix(in srgb, currentColor 14%, transparent);
-               border-radius: 3px; padding: 2px 6px; }
+  .tecla:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--glow); }
+  .tecla kbd { font-family: var(--mono); font-size: 11.5px; font-weight: 500;
+               border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+               border-bottom-width: 2px; border-radius: 3px; padding: 0 5px;
+               line-height: 1.5; }
   .teclas .sep { width: 1px; align-self: stretch; background: var(--line-2);
                  margin: 0 2px; }
+
+  /* Celular: os botões descem para uma barra fixa no pé da tela, ao alcance
+     do polegar, e a decisão não sai de vista ao rolar. Sem teclado ali, as
+     letras dos atalhos somem para os rótulos caberem. */
+  @media (max-width: 599px) {
+    .conf-wrap { padding-bottom: 128px; }
+    .ficha-corpo { padding: 18px 16px; }
+    .ficha-topo { padding: 9px 16px; }
+    .teclas { position: fixed; left: 0; right: 0; bottom: 0; z-index: 150;
+              display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+              padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+              background: var(--surface); border-top: 1px solid var(--line-2); }
+    .teclas .sep, .tecla kbd, .rodape { display: none; }
+    .tecla { justify-content: center; padding: 10px 4px; font-size: 13px; }
+    .tecla.sec { padding: 9px 4px; font-size: 12.5px; }
+    .tecla.prim { grid-column: span 2; font-size: 15px; }
+    .tecla.dest { grid-column: span 2; }
+    .tecla.dest:first-child { grid-column: 1 / -1; }   /* sem destino: não há Aprovar */
+  }
 
   /* A oferta de lote só aparece depois de o curador ter aprovado alguns
      seguidos do mesmo destino. É o "consciente" do lote consciente. */
@@ -134,8 +159,8 @@
   .hist-acts { display: flex; gap: 6px; flex-shrink: 0; }
   .hist-quando { font-family: var(--mono); font-size: 11.5px;
                  color: var(--muted); white-space: nowrap; }
-  .hist-tag { display: inline-block; font-size: 10.5px; font-weight: 700;
-              letter-spacing: .05em; padding: 2px 7px; border-radius: 3px;
+  .hist-tag { display: inline-block; font-size: 12px; font-weight: 500;
+              padding: 1px 7px; border-radius: var(--radius-sm);
               background: var(--surface-3); color: var(--muted); }
   .hist-tag.ok { background: var(--success-bg); color: var(--success); }
   .hist-vazio { padding: 30px 18px; text-align: center; color: var(--muted); }
@@ -146,13 +171,13 @@
   .lote-topo { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
                padding: 12px 14px; border-radius: var(--radius);
                background: var(--accent-soft); margin-bottom: 12px; }
-  .lote-topo .destino { font-size: 15px; font-weight: 650; color: var(--ink);
+  .lote-topo .destino { font-size: 15px; font-weight: 600; color: var(--ink);
                         flex: 1 1 260px; line-height: 1.35; }
   .lote-topo .trio { font-family: var(--mono); font-size: 12px;
                      color: var(--muted); font-weight: 500; display: block; }
   .lote-barra { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
                 margin-bottom: 6px; font-size: 13px; }
-  .lote-barra .cnt { font-weight: 650; }
+  .lote-barra .cnt { font-weight: 600; }
   .lote-barra .cnt b { font-family: var(--mono); }
   .lote-lista { max-height: 50vh; overflow-y: auto; margin: 0 -18px;
                 border-top: 1px solid var(--line); }
@@ -174,8 +199,9 @@
 
   .rodape { font-size: 12.5px; color: var(--muted); margin-top: 16px;
             text-align: center; }
-  .rodape kbd { font-family: var(--mono); background: var(--surface-3);
-                border-radius: 3px; padding: 1px 5px; }
+  .rodape kbd { font-family: var(--mono); font-size: 11.5px;
+                border: 1px solid var(--line-2); border-bottom-width: 2px;
+                border-radius: 3px; padding: 0 5px; }
 </style>
 {% endblock %}
 
@@ -478,15 +504,22 @@ function desenhar() {
         <div class="cod">${esc(it.cod)}${it.ativo ? ""
           : '<span class="inativo">inativo</span>'}</div>
 
-        <div class="mov">
-          <div class="mov-linha">
-            <div class="mov-rot">hoje</div>
-            <div class="mov-de">${esc(it.atual_nome
-              || [it.dep_atual, it.sec_atual, it.sub_atual].filter(Boolean).join("/")
-              || "sem classificação")}</div>
+        <div class="lado">
+          <div class="caixa caixa-hoje">
+            <div class="caixa-rot">Hoje no ERP</div>
+            <div class="mov-de">${(() => {
+              // Código antigo que não existe na estrutura nova não tem nome:
+              // mostra só o código, uma vez, e diz por que não há nome.
+              const trio = [it.dep_atual, it.sec_atual, it.sub_atual];
+              if (!trio.some(Boolean)) return "sem classificação";
+              const cod = `<span class="trio">CodGrp ${esc(trio.join("/"))}</span>`;
+              return it.atual_nome
+                ? esc(it.atual_nome) + cod
+                : `fora da estrutura nova${cod}`;
+            })()}</div>
           </div>
-          <div class="mov-linha">
-            <div class="mov-rot">vai</div>
+          <div class="caixa caixa-para ${temDestino(it) ? "" : "vazia"}">
+            <div class="caixa-rot">Destino proposto</div>
             <div class="mov-para ${temDestino(it) ? "" : "vazio"}">
               ${temDestino(it)
                 ? esc(it.destino_nome) +
@@ -503,7 +536,7 @@ function desenhar() {
         ${temDestino(it)
           ? `<button class="tecla prim" onclick="aprovar()"><kbd>Enter</kbd> Aprovar</button>`
           : ""}
-        <button class="tecla" onclick="abrirDestino()"><kbd>D</kbd> Destino</button>
+        <button class="tecla dest" onclick="abrirDestino()"><kbd>D</kbd> Destino</button>
         <span class="sep"></span>
         <button class="tecla sec" onclick="pular()"><kbd>P</kbd> Pular</button>
         <button class="tecla sec" onclick="abrirDescartar()"><kbd>X</kbd> Descartar</button>
