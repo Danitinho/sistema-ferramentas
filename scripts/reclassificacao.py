@@ -100,19 +100,49 @@ ORDEM_CONF["MÉDIA"] = 1          # a planilha usa a forma acentuada
 
 LEASE_PADRAO_S = 20 * 60         # a reserva é prazo, não trava
 
-# Produto ATIVO = movimentado deste ano em diante ("Últ. mov." da planilha).
-# A coluna "Ativo" da planilha vinha com o corte em 2022; o usuário pediu
-# (30/10/2026) para contar só o que movimentou em 2026. Mudar este número
-# reaplica a regra a todo o banco no próximo boot (ver `_aplicar_ativo`).
-ANO_ATIVO_DESDE = 2026
+# Produto ATIVO = VENDEU (qtd > 0) deste mês em diante, pelo banco de vendas do
+# módulo de relatórios (Curva ABC). Decisão do usuário em 30/10/2026, depois de
+# medir que a "Últ. mov." da planilha não é a última venda: 2.048 itens com
+# "2025" venderam entre jan e jul/2026, e 437 com "2026" não venderam nada.
+# A regra é reaplicada sozinha quando muda o critério ou o banco de vendas
+# (mês novo processado) — ver `_aplicar_ativo`.
+VENDA_DESDE = "2026-01"
+
+# Caminho do banco de vendas montado aqui, sem importar `relatorios_vendas`:
+# aquele módulo puxa o leitor de PDF (pdfplumber), e a reclassificação não pode
+# cair por falta dele. Mesmo arquivo de `relatorios_vendas.BANCO`.
+VENDAS_DB = RAIZ / "dados" / "relatorios" / "vendas.db"
 
 
-def ativo_pelo_ano(ano: str) -> bool:
-    """Ano vazio ou ilegível = inativo (não há movimento para provar o contrário)."""
+def _chave_cb(cb) -> str:
+    """Código sem zeros à esquerda. O mesmo produto aparece como `42360407` no
+    relatório de vendas e `0000042360407` na planilha (EAN-8 completado). Aqui
+    o erro barato é o falso positivo — um item a mais na curadoria —, por isso
+    não se exige casamento exato como no catálogo, onde o zero separa preços."""
+    return str(cb or "").strip().lstrip("0") or "0"
+
+
+def codigos_com_venda(desde: str = VENDA_DESDE):
+    """(conjunto de códigos que venderam desde `desde`, assinatura do banco).
+
+    Devolve (None, None) se o banco de vendas não existe ou não tem nenhum mês
+    no período — e aí ninguém mexe em `ativo`: zerar todos os ativos por falta
+    de dado esconderia a curadoria inteira."""
+    import sqlite3 as _sq
+    if not VENDAS_DB.exists():
+        return None, None
+    con = _sq.connect(f"file:{VENDAS_DB.as_posix()}?mode=ro", uri=True)
     try:
-        return int(str(ano).strip()[:4]) >= ANO_ATIVO_DESDE
-    except ValueError:
-        return False
+        ultimo = con.execute(
+            "SELECT MAX(mes) FROM vendas WHERE mes >= ?", (desde,)).fetchone()[0]
+        if not ultimo:
+            return None, None
+        cods = {_chave_cb(r[0]) for r in con.execute(
+            "SELECT DISTINCT codigo_barras FROM vendas WHERE mes >= ? AND qtd > 0",
+            (desde,)) if str(r[0] or "").strip()}
+    finally:
+        con.close()
+    return cods, f"venda:{desde}:{ultimo}:{len(cods)}"
 
 COLUNAS = {
     "cod": "Cód. Barras",
@@ -284,7 +314,7 @@ def ler_planilha(origem, aba: str = "Lista de Trabalho") -> list[Item]:
             continue
         itens.append(Item(
             linha=n, cod=cod, produto=g("produto"),
-            ativo=ativo_pelo_ano(g("ano")), ano=g("ano"),
+            ativo=False, ano=g("ano"),   # `ativo` vem das vendas (semear recalcula)
             dep_atual=g("dep_atual"), sec_atual=g("sec_atual"),
             sub_atual=g("sub_atual"),
             dep_novo=g("dep_novo"), sec_novo=g("sec_novo"), sub_novo=g("sub_novo"),
@@ -392,31 +422,46 @@ class FilaBanco:
 
         self._aplicar_ativo()
 
-    def _aplicar_ativo(self):
-        """Recalcula `ativo` pelo ano da última movimentação.
+    def _aplicar_ativo(self, forcar: bool = False) -> dict | None:
+        """Recalcula `ativo` = vendeu desde `VENDA_DESDE` (banco de vendas).
 
-        Roda quando `ANO_ATIVO_DESDE` difere do que está gravado em
-        `config.ativo_desde` — uma vez por mudança de regra. Só mexe na coluna
-        `ativo`: estado, curadoria e reservas ficam como estão.
+        Só roda quando a assinatura (critério + último mês + quantos códigos
+        venderam) difere da gravada em `config.ativo_criterio` — ao subir o
+        sistema, ao importar a planilha e depois de processar PDFs de venda.
+        Só mexe na coluna `ativo`: estado, curadoria e reservas ficam como
+        estão. Sem banco de vendas, não mexe em nada.
         """
+        cods, assinatura = codigos_com_venda()
+        if cods is None:
+            return None
         marca = self.con.execute(
-            "SELECT valor FROM config WHERE chave='ativo_desde'").fetchone()
-        if marca and json.loads(marca[0]) == ANO_ATIVO_DESDE:
-            return
-        cur = self.con.execute(
-            "UPDATE itens SET ativo = CASE WHEN"
-            " CAST(substr(trim(COALESCE(ano,'')),1,4) AS INTEGER) >= ?"
-            " THEN 1 ELSE 0 END", (ANO_ATIVO_DESDE,))
+            "SELECT valor FROM config WHERE chave='ativo_criterio'").fetchone()
+        if not forcar and marca and json.loads(marca[0]) == assinatura:
+            return None
+        mudar = [(1 if _chave_cb(cod) in cods else 0, cod, 1 if _chave_cb(cod) in cods else 0)
+                 for (cod,) in self.con.execute("SELECT cod FROM itens")]
+        self.con.executemany(
+            "UPDATE itens SET ativo=? WHERE cod=? AND COALESCE(ativo,-1)<>?", mudar)
         self.con.execute(
             "INSERT OR REPLACE INTO config (chave, valor, em, por)"
             " VALUES (?,?,?,?)",
-            ("ativo_desde", json.dumps(ANO_ATIVO_DESDE),
+            ("ativo_criterio", json.dumps(assinatura),
              time.strftime("%Y-%m-%d %H:%M:%S"), "migracao"))
         ativos = self.con.execute(
             "SELECT COUNT(*) FROM itens WHERE ativo=1").fetchone()[0]
+        total = len(mudar)
         self._evento("migrou", "", "",
-                     f"ativo = movimentado desde {ANO_ATIVO_DESDE}:"
-                     f" {ativos} ativos de {cur.rowcount}")
+                     f"ativo = vendeu desde {VENDA_DESDE} ({assinatura}):"
+                     f" {ativos} ativos de {total}")
+        return {"ativos": ativos, "total": total, "assinatura": assinatura}
+
+    def recalcular_ativos(self) -> dict | None:
+        """Porta pública: o módulo de relatórios chama depois de processar PDFs,
+        para um mês novo de vendas valer na curadoria sem reiniciar o sistema."""
+        with self.lock:
+            r = self._aplicar_ativo()
+            self.con.commit()
+        return r
 
     # ── apoio ────────────────────────────────────────────────────────────────
     def _evento(self, acao, cod="", operador="", detalhe="",
@@ -604,6 +649,7 @@ class FilaBanco:
                 existentes.add(it.cod)
                 novos += 1
             self._evento("importou", "", "", f"{novos} novos, {ignorados} já existiam")
+            self._aplicar_ativo(forcar=True)
             self.con.commit()
             return {"novos": novos, "ja_existiam": ignorados,
                     "sem_destino": sem_destino, "para_curadoria": curadoria}

@@ -59,6 +59,14 @@ def api_upload():
 @relatorios_bp.route("/api/processar", methods=["POST"])
 def api_processar():
     relatorio = rv.processar_entrada()
+    # Produto "ativo" na reclassificação = vendeu em 2026 por este banco: um
+    # mês novo processado muda quem é ativo. Protegido — a reclassificação fora
+    # do ar não pode impedir ninguém de processar PDF.
+    try:
+        from scripts import reclassificacao
+        reclassificacao.banco().recalcular_ativos()
+    except Exception as e:  # noqa: BLE001
+        print(f"[relatorios] nao recalculei os ativos da reclassificacao: {e}")
     relatorio["ok"] = True
     relatorio["status"] = rv.status()
     return jsonify(relatorio)
