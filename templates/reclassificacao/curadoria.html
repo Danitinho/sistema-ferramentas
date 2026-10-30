@@ -60,6 +60,9 @@
           font-weight: 400; display: block; margin-top: 4px; }
   .mov-para.vazio { color: var(--warning); font-weight: 500; }
   .caixa-para.vazia { border-color: var(--warning); border-style: dashed; }
+  .caixa .foto { display: block; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .ja-destino { font-size: 13px; color: var(--success); background: var(--success-bg);
+                border-radius: var(--radius-sm); padding: 4px 8px; margin-bottom: 6px; }
   .mov-para .revista { display: inline-block; margin-top: 8px; font-size: 12.5px;
                        font-weight: 500; color: var(--accent); background: var(--accent-soft);
                        border-radius: var(--radius-sm); padding: 1px 8px; }
@@ -508,18 +511,31 @@ function desenhar() {
           <div class="caixa caixa-hoje">
             <div class="caixa-rot">Hoje no ERP</div>
             <div class="mov-de">${(() => {
-              // Código antigo que não existe na estrutura nova não tem nome:
-              // mostra só o código, uma vez, e diz por que não há nome.
-              const trio = [it.dep_atual, it.sec_atual, it.sub_atual];
+              // Vem do CATÁLOGO (foto do ERP) quando ele tem o grupo; senão,
+              // da planilha. Código antigo, fora da estrutura nova, não tem
+              // nome: mostra só o código, uma vez, e diz por que não há nome.
+              const erp = it.erp;
+              const trio = erp ? [erp.dep, erp.sec, erp.sub]
+                               : [it.dep_atual, it.sec_atual, it.sub_atual];
               if (!trio.some(Boolean)) return "sem classificação";
+              const nome = erp ? erp.nome : it.atual_nome;
               const cod = `<span class="trio">CodGrp ${esc(trio.join("/"))}</span>`;
-              return it.atual_nome
-                ? esc(it.atual_nome) + cod
-                : `fora da estrutura nova${cod}`;
+              let h = nome ? esc(nome) + cod : `fora da estrutura nova${cod}`;
+              if (erp) {
+                h += `<span class="foto">pelo catálogo${erp.foto ? " de " + esc(erp.foto) : ""}</span>`;
+                if (erp.difere_planilha) {
+                  const pl = [it.dep_atual, it.sec_atual, it.sub_atual].join("/");
+                  h += `<span class="foto">a planilha dizia CodGrp ${esc(pl)}</span>`;
+                }
+              }
+              return h;
             })()}</div>
           </div>
           <div class="caixa caixa-para ${temDestino(it) ? "" : "vazia"}">
             <div class="caixa-rot">Destino proposto</div>
+            ${it.erp && it.erp.ja_no_destino
+              ? `<div class="ja-destino">O ERP já está neste destino: aprovar só confirma o que já foi gravado.</div>`
+              : ""}
             <div class="mov-para ${temDestino(it) ? "" : "vazio"}">
               ${temDestino(it)
                 ? esc(it.destino_nome) +

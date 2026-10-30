@@ -34,6 +34,7 @@ Armadilhas do arquivo real (medidas no relatório de 08/09/2026, 95.750 linhas):
 Camada de lógica: NÃO importa Flask.
 """
 import io
+import json
 import os
 import re
 import codecs
@@ -52,17 +53,32 @@ MAX_BUFFER = 4000      # trava do acumulador de linha quebrada (caracteres)
 # Colunas localizadas PELO NOME no cabeçalho, nunca pela posição: se o layout do
 # relatório mudar, a importação falha com mensagem clara em vez de ler a coluna
 # errada calada (mesma regra do módulo de reclassificação).
+#
+# O PREÇO DE VENDA é o `ValorVendaCaixa` (decisão do usuário, 30/10/2026). O
+# `PrecoKit`, usado antes, não é o preço de prateleira: no arquivo de 30/10 os
+# dois diferem em 5.525 produtos (ex.: leite condensado bag 2,5 kg, R$ 23,99 no
+# PrecoKit e R$ 55,49 no ValorVendaCaixa). Ele continua guardado em `preco_kit`.
 COLUNAS = {
     "codigo_barras":  ("barra1",),
     "descricao":      ("descricao",),
-    "venda":          ("precokit",),
+    "venda":          ("valorvendacaixa",),
     "custo":          ("precocustoaquisicao",),
     "codigo_interno": ("codigo",),          # opcional
-    "ncm":            ("ncm",),             # opcional (usado na reclassificação)
+    "ncm":            ("ncm",),             # opcional (revisão da reclassificação)
+    "preco_kit":      ("precokit",),        # opcional (era o "venda" até 30/10/2026)
+    "dep":            ("codgrp1",),         # opcional: departamento no ERP
+    "sec":            ("codgrp2",),         # opcional: seção
+    "sub":            ("codgrp3",),         # opcional: subseção
+    "ultima_entrada": ("ultimaentrada",),   # opcional (data, DD/MM/AAAA)
+    "ultima_entrada_ant": ("ultimaentradaant",),
+    "data_cadastro":  ("datacadastro",),
+    "atualizado":     ("atualizado",),      # última alteração do cadastro no ERP
 }
 OBRIGATORIAS = ("codigo_barras", "descricao", "venda", "custo")
 ROTULO_COLUNA = {"codigo_barras": "Barra1", "descricao": "Descrição",
-                 "venda": "PrecoKit", "custo": "PrecoCustoAquisição"}
+                 "venda": "ValorVendaCaixa", "custo": "PrecoCustoAquisição"}
+DATAS = ("ultima_entrada", "ultima_entrada_ant", "data_cadastro", "atualizado")
+TEXTOS = ("dep", "sec", "sub")
 
 
 class ErroPlanilha(Exception):
@@ -111,9 +127,21 @@ def _init_schema(conn):
     """)
     # NCM chegou depois (30/10/2026), para a revisão das sugestões da
     # reclassificação. Arquivo sem a coluna continua importando, com NCM nulo.
+    # Campos que chegaram com o catálogo completo (30/10/2026), quando ele virou
+    # a fonte primária de informação de produto do sistema. `extras` guarda, em
+    # JSON, toda coluna do arquivo que o sistema ainda não conhece — um campo
+    # novo no relatório do ERP é importado sem mudar código.
     tem = {r[1] for r in conn.execute("PRAGMA table_info(produtos)")}
-    if "ncm" not in tem:
-        conn.execute("ALTER TABLE produtos ADD COLUMN ncm TEXT")
+    for coluna, tipo in (("ncm", "TEXT"), ("preco_kit", "REAL"),
+                         ("dep", "TEXT"), ("sec", "TEXT"), ("sub", "TEXT"),
+                         ("ultima_entrada", "TEXT"), ("ultima_entrada_ant", "TEXT"),
+                         ("data_cadastro", "TEXT"), ("atualizado", "TEXT"),
+                         ("extras", "TEXT")):
+        if coluna not in tem:
+            conn.execute(f"ALTER TABLE produtos ADD COLUMN {coluna} {tipo}")
+    tem_i = {r[1] for r in conn.execute("PRAGMA table_info(importacoes)")}
+    if "obs" not in tem_i:
+        conn.execute("ALTER TABLE importacoes ADD COLUMN obs TEXT")
     conn.commit()
 
 
@@ -223,10 +251,26 @@ def _parse_dinheiro(txt):
     return v if v > 0 else None
 
 
+def _ncm(txt):
+    """Só dígitos; NCM com 7 dígitos ganha o zero que o ERP corta (capítulos
+    01 a 09: '2071100' é 02071100, coração de frango). NCM tem sempre 8."""
+    n = _SO_DIGITOS.sub("", txt or "")
+    return n.zfill(8) if len(n) == 7 else (n or None)
+
+
+def _data_iso(txt):
+    """'28/04/2026' → '2026-04-28'. Vazio ou fora do formato → None."""
+    m = re.fullmatch(r"\s*(\d{2})/(\d{2})/(\d{4})\s*", txt or "")
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else None
+
+
 # ── Importação ────────────────────────────────────────────────────────────────
-_SQL_INSERT = ("INSERT OR REPLACE INTO produtos "
-               "(codigo_barras, codigo_interno, descricao, venda, custo, cb_chave, ncm) "
-               "VALUES (?,?,?,?,?,?,?)")
+_CAMPOS_INSERT = ("codigo_barras", "codigo_interno", "descricao", "venda", "custo",
+                  "cb_chave", "ncm", "preco_kit", "dep", "sec", "sub",
+                  "ultima_entrada", "ultima_entrada_ant", "data_cadastro",
+                  "atualizado", "extras")
+_SQL_INSERT = (f"INSERT OR REPLACE INTO produtos ({', '.join(_CAMPOS_INSERT)}) "
+               f"VALUES ({','.join('?' * len(_CAMPOS_INSERT))})")
 
 
 def importar(caminho, arquivo=None, usuario=None):
@@ -253,11 +297,25 @@ def importar(caminho, arquivo=None, usuario=None):
         i_venda, i_custo = pos["venda"], pos["custo"]
         i_cod = pos.get("codigo_interno")
         i_ncm = pos.get("ncm")
+        usados = set(pos.values())
+        extras_pos = [(i, _limpar(n)) for i, n in enumerate(cabeca)
+                      if i not in usados and _limpar(n)]
+
+        def campo(campos, nome):
+            i = pos.get(nome)
+            return campos[i] if (i is not None and i < len(campos)) else ""
 
         conn = _conn()
         conn.isolation_level = None            # a transação é conduzida na mão
         try:
             conn.execute("BEGIN IMMEDIATE")
+            # Arquivo sem a coluna NCM não apaga o NCM que já havia: a revisão da
+            # reclassificação depende dele, e o modelo de 30/10/2026 não o trazia.
+            # O NCM anterior é do mesmo ERP; o resumo diz que foi mantido.
+            ncm_antigo = {} if i_ncm is not None else {
+                r[0]: r[1] for r in conn.execute(
+                    "SELECT codigo_barras, ncm FROM produtos WHERE ncm IS NOT NULL")}
+            ncm_mantidos = 0
             conn.execute("DELETE FROM produtos")
 
             linhas = gravados = ignorados = conflitos = sem_venda = sem_custo = 0
@@ -293,10 +351,20 @@ def importar(caminho, arquivo=None, usuario=None):
                     gravados += 1
                 vistos[cb] = (desc, venda)
                 cod_int = campos[i_cod] if (i_cod is not None and i_cod < len(campos)) else None
-                ncm = (_SO_DIGITOS.sub("", campos[i_ncm])
-                       if (i_ncm is not None and i_ncm < len(campos)) else "")
-                lote.append((cb, cod_int, desc, venda, custo, cb.lstrip("0") or "0",
-                             ncm or None))
+                if i_ncm is not None:
+                    ncm = _ncm(campo(campos, "ncm"))
+                else:
+                    ncm = ncm_antigo.get(cb)
+                    ncm_mantidos += ncm is not None
+                extras = {n: campos[i].strip() for i, n in extras_pos
+                          if i < len(campos) and campos[i].strip()}
+                lote.append((
+                    cb, cod_int, desc, venda, custo, cb.lstrip("0") or "0", ncm,
+                    _parse_dinheiro(campo(campos, "preco_kit")),
+                    *[(campo(campos, k).strip() or None) for k in TEXTOS],
+                    *[_data_iso(campo(campos, k)) for k in DATAS],
+                    json.dumps(extras, ensure_ascii=False) if extras else None,
+                ))
                 if len(lote) >= LOTE:
                     conn.executemany(_SQL_INSERT, lote)
                     lote.clear()
@@ -309,11 +377,22 @@ def importar(caminho, arquivo=None, usuario=None):
                     "Nenhum produto válido no arquivo — o catálogo anterior foi mantido.")
 
             quando = _agora()
+            obs = []
+            if i_ncm is None:
+                # contado no banco: o laço passa duas vezes por código repetido
+                ncm_mantidos = conn.execute(
+                    "SELECT COUNT(*) FROM produtos WHERE ncm IS NOT NULL").fetchone()[0]
+                obs.append(f"arquivo sem NCM: mantido o da importação anterior "
+                           f"em {ncm_mantidos} produtos")
+            if extras_pos:
+                obs.append("colunas guardadas em extras: "
+                           + ", ".join(n for _, n in extras_pos))
             conn.execute(
                 "INSERT INTO importacoes (quando, usuario, arquivo, linhas, gravados, "
-                "ignorados, conflitos, sem_venda, sem_custo) VALUES (?,?,?,?,?,?,?,?,?)",
+                "ignorados, conflitos, sem_venda, sem_custo, obs)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (quando, usuario, arquivo, linhas, gravados, ignorados, conflitos,
-                 sem_venda, sem_custo))
+                 sem_venda, sem_custo, "; ".join(obs) or None))
             conn.execute("COMMIT")
         except Exception:
             try:
@@ -331,9 +410,12 @@ def importar(caminho, arquivo=None, usuario=None):
         "linhas": linhas, "gravados": gravados, "ignorados": ignorados,
         "conflitos": conflitos, "conflitos_exemplo": exemplos,
         "sem_venda": sem_venda, "sem_custo": sem_custo,
+        "ncm_mantidos": ncm_mantidos if i_ncm is None else None,
         "msg": (f"{gravados} produtos no catálogo — {linhas} linhas lidas, "
                 f"{ignorados} sem código de barras ou nome, "
-                f"{conflitos} códigos repetidos."),
+                f"{conflitos} códigos repetidos."
+                + (f" Arquivo sem NCM: mantido o da importação anterior em "
+                   f"{ncm_mantidos} produtos." if i_ncm is None else "")),
     }
 
 
@@ -345,6 +427,10 @@ def _linha(r, exato):
         "venda": r["venda"], "custo": r["custo"],
         # código do produto no ERP: o agente geral confere a linha da nota por ele
         "codigo_interno": r["codigo_interno"] or "",
+        # classificação e datas do cadastro no ERP (catálogo completo, 30/10/2026)
+        "dep": r["dep"] or "", "sec": r["sec"] or "", "sub": r["sub"] or "",
+        "ultima_entrada": r["ultima_entrada"], "data_cadastro": r["data_cadastro"],
+        "atualizado": r["atualizado"],
     }
 
 
@@ -551,3 +637,27 @@ def ncm_por_codigos(codigos=None):
         return saida
     finally:
         conn.close()
+
+
+def produtos_por_codigos(codigos):
+    """{codigo_barras: produto} — o produto COMPLETO, para outros módulos.
+
+    É a porta de leitura do catálogo como fonte primária de informação de
+    produto. Casamento EXATO, como `ncm_por_codigos`; quem precisar da regra
+    dos zeros à esquerda usa `consultar`. `extras` volta já decodificado.
+    """
+    lista = [str(c) for c in (codigos or []) if c]
+    saida = {}
+    conn = _conn()
+    try:
+        for i in range(0, len(lista), 900):
+            parte = lista[i:i + 900]
+            for r in conn.execute(
+                    f"SELECT * FROM produtos WHERE codigo_barras IN ({','.join('?' * len(parte))})",
+                    parte):
+                d = dict(r)
+                d["extras"] = json.loads(d["extras"]) if d.get("extras") else {}
+                saida[d["codigo_barras"]] = d
+    finally:
+        conn.close()
+    return saida

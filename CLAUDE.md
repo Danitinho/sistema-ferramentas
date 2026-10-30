@@ -787,12 +787,30 @@ clara em vez de ler a coluna errada calado.
 `CodGrp1/2/3` (destino) · `Confiança` (ALTA|MÉDIA|BAIXA|REVISAR) ·
 `Base da sugestão`.
 
-**"Ativo" não vem da coluna `Ativo`** (30/10/2026): é derivado de `Últ. mov.`
-— ativo = movimentado de `ANO_ATIVO_DESDE` (**2026**) em diante
-(`ativo_pelo_ano`). A planilha trazia o corte em 2022 (27.412 ativos); com 2026
-são 2.248. Mudar a constante reaplica a regra ao banco inteiro no próximo boot
-(`_aplicar_ativo`, marca em `config.ativo_desde`), mexendo só na coluna `ativo`.
-A coluna `Ativo` continua exigida no cabeçalho, mas é ignorada.
+**"Ativo" = VENDEU de jan/2026 em diante** (30/10/2026), pelo banco de vendas
+do módulo de relatórios (`dados/relatorios/vendas.db`, Curva ABC) —
+`VENDA_DESDE` + `codigos_com_venda` em `reclassificacao.py`. Nem a coluna
+`Ativo` nem a `Últ. mov.` da planilha valem mais (ambas continuam exigidas no
+cabeçalho e guardadas, mas são ignoradas). Por que não a `Últ. mov.`: medido,
+ela não é a última venda — 2.048 itens com "2025" venderam entre jan e jul/2026
+e 437 com "2026" não venderam nada (movimentação de entrada/estoque, insumo de
+padaria, unidade de compra como "BATATA DOCE CX 22KG"). Com a regra nova são
+5.089 ativos (eram 2.248).
+- Casamento por código **sem zeros à esquerda nos dois lados** (`_chave_cb`):
+  `0000042360407` na planilha é `42360407` nas vendas. Aqui o falso positivo é
+  barato (um item a mais na curadoria); no catálogo, onde o zero separa preço,
+  a busca continua exata.
+- Recalcula sozinho quando muda a **assinatura** das vendas (último mês +
+  quantos códigos venderam; `config.ativo_criterio`): ao subir o sistema, ao
+  importar a planilha e logo depois de **processar PDFs no /relatorios**
+  (`recalcular_ativos`, chamado protegido em `relatorios_routes.api_processar`).
+  Sem banco de vendas, ou sem mês de 2026 nele, **não mexe em nada** — zerar os
+  ativos esconderia a curadoria inteira.
+- Só a coluna `ativo` muda; estado, curadoria e reservas ficam. Item já
+  confirmado que deixa de ser ativo continua confirmado, mas a rodada "só
+  ativos" não o pega mais (21 de 111 na troca de critério).
+- O caminho do `vendas.db` é montado aqui, sem importar `relatorios_vendas`:
+  aquele módulo puxa o `pdfplumber`, e a reclassificação não pode cair por ele.
 
 A planilha é **semente, não estado**: depois da importação o que vale é o banco.
 Reimportar é seguro — só acrescenta código que ainda não está lá e não encosta em
@@ -806,6 +824,13 @@ não há perda — **se uma planilha futura trouxer duplicata com destinos
 diferentes, isso precisa virar erro em vez de descarte silencioso.**
 
 ### A curadoria (`/reclassificacao/curadoria`)
+
+**"Hoje no ERP" vem do catálogo** (30/10/2026; `_classificacao_do_erp` em
+`reclassificacao_routes.py`), a foto do ERP, e não da planilha de agosto.
+Quando o ERP diverge da planilha, a ficha diz o que a planilha dizia; quando o
+ERP **já está no destino proposto**, avisa (aprovar só confirma o que já foi
+gravado). Só leitura, só na tela — `dep_atual` no banco e o contrato do agente
+não mudam. Catálogo fora do ar ou sem grupo: fica a da planilha.
 
 É a metade que antes era o painel de confirmação do programa de mesa.
 
@@ -1275,6 +1300,8 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
 ## 12. Como adicionar um módulo novo (receita)
 
 1. `scripts/<modulo>.py` — lógica + persistência (SQLite de preferência), sem Flask.
+   **Dado de produto (nome, custo, venda, NCM, grupo) vem do catálogo**
+   (seção 17) — não crie tabela própria de produtos nem peça outro arquivo.
 2. `scripts/<modulo>_routes.py` — `Blueprint("<modulo>", __name__, url_prefix="/<modulo>")`
    com a página e as APIs.
 3. Registrar em `app.py`: adicionar `("scripts.<modulo>_routes", "<modulo>_bp")`
@@ -1591,15 +1618,47 @@ calculadas no servidor (`_margem`/`_observacao`), as mesmas na tela e no Excel;
 a linha 1 do Excel diz de quando é a foto do catálogo. A atualização do
 catálogo continua num modal do `/vencidos`.
 
-**Não é fonte da verdade — é uma FOTO**, com a idade da última importação. Toda
-consulta devolve `atualizado_em`, e a tela mostra essa data junto do preço: um
-valor de três meses atrás não pode ser apresentado como se fosse de hoje.
+**É a FONTE PRIMÁRIA de informação de produto do sistema** (decisão do
+usuário, 30/10/2026): nome, custo, venda, NCM, classificação no ERP (`CodGrp`)
+e datas do cadastro saem daqui. **Módulo novo que precisar de dado de produto lê
+o catálogo** (`consultar` para um código com a regra dos zeros,
+`produtos_por_codigos` para o produto completo em lote, `ncm_por_codigos`) —
+nunca guarda cópia própria nem pede outro arquivo ao usuário.
 
-### O arquivo do ERP (armadilhas medidas no relatório de 08/09/2026)
-95.750 linhas, 15,7 MB. Colunas: `Código` · `Barra1` · `Descrição` · `PrecoKit`
-(venda) · `PrecoCustoAquisição` (custo) e, opcional desde 30/10/2026, `NCM`
-(só dígitos em `produtos.ncm`; alimenta a revisão da reclassificação via
-`ncm_por_codigos`, arquivo sem a coluna continua importando), localizadas **pelo nome no cabeçalho**
+**Mas não é a fonte da VERDADE — é uma FOTO** do ERP, com a idade da última
+importação. Toda consulta devolve `atualizado_em`, e a tela mostra essa data
+junto do preço: um valor de três meses atrás não pode ser apresentado como se
+fosse de hoje.
+
+### O modelo de 30/10/2026 (`catalogo_novo.txt`)
+96.871 linhas, 26,9 MB, 13 colunas: `Código` · `Barra1` · `Descrição` ·
+`ÚltimaEntrada` · `DataCadastro` · `Atualizado` · `CodGrp3` · `CodGrp2` ·
+`CodGrp1` · `PrecoKit` · `PrecoCustoAquisição` · `ValorVendaCaixa` ·
+`ÚltimaEntradaAnt`. Importa em ~5 s.
+- **Preço de venda = `ValorVendaCaixa`** (antes era `PrecoKit`, que não é o
+  preço de prateleira: os dois diferem em 5.525 produtos; ex.: leite condensado
+  bag 2,5 kg, R$ 23,99 × R$ 55,49). `PrecoKit` fica em `preco_kit`. Arquivo sem
+  `ValorVendaCaixa` (o modelo antigo) é **recusado** com mensagem clara e o
+  catálogo anterior fica intacto.
+- **`CodGrp1/2/3` → `dep`/`sec`/`sub`**: a classificação de HOJE no ERP. A
+  curadoria da reclassificação mostra esta, não a da planilha (seção 10-B).
+- **Datas** (`ultima_entrada`, `ultima_entrada_ant`, `data_cadastro`,
+  `atualizado`) gravadas em ISO. Nenhuma é a última VENDA — esse campo não
+  existe no cadastro do RADGe; venda vem do banco de relatórios (seção 7).
+- **O modelo não tem `NCM`**: arquivo sem a coluna **mantém o NCM da importação
+  anterior** (é do mesmo ERP; a revisão da reclassificação depende dele) e o
+  resumo diz em quantos produtos. Para atualizar o NCM, inclua a coluna `NCM`
+  no modelo de exportação.
+- **Coluna que o sistema não conhece vai para `extras`** (JSON por produto),
+  então o relatório pode ganhar campos sem mudar código; usar um campo novo é
+  que pede código. Coluna sem nome no cabeçalho é ignorada.
+- O relatório de cadastro completo do RADGe (168 colunas, testado no
+  `teste.txt`) também importa: traz `Barra2`–`Barra4`, nomes de departamento/
+  seção/subseção, marca, `Descontinuado`, estoque — tudo em `extras` por ora.
+  Não traz fornecedor do produto.
+
+### O arquivo do ERP (armadilhas medidas em 08/09/2026, valem ainda)
+Colunas localizadas **pelo nome no cabeçalho**
 (`COLUNAS`) — layout diferente falha com mensagem clara em vez de ler a coluna
 errada calado.
 - **UTF-16 LE com BOM**, não UTF-8 (`_detectar_encoding` cobre as outras formas).

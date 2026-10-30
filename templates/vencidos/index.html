@@ -582,9 +582,11 @@
       <button class="modal-close" onclick="fecharModal('modal-catalogo')">&times;</button></div>
     <div class="modal-body">
       <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:14px">
-        É deste catálogo que saem o nome, o custo e a venda quando alguém bipa um
-        código de barras. Envie o TXT de <b>todos os produtos</b> exportado do ERP;
-        a lista nova <b>substitui</b> a anterior por inteiro.
+        O catálogo é a fonte de informação de produto do sistema: é dele que saem
+        o nome, o custo e a venda quando alguém bipa um código de barras. Envie o
+        TXT do <b>catálogo</b> exportado do ERP — ele precisa ter a coluna
+        <b>ValorVendaCaixa</b> (o preço de venda). A lista nova <b>substitui</b> a
+        anterior por inteiro.
       </div>
       <div class="cat-status" id="cat-situacao">Carregando…</div>
       <div class="upload-area" onclick="document.getElementById('cat-arquivo').click()">

@@ -325,8 +325,35 @@ def cur_fila():
                                             it["sub_novo"])
         it["atual_nome"] = e.rotulo_curto(it["dep_atual"], it["sec_atual"],
                                           it["sub_atual"])
+    _classificacao_do_erp(dados["itens"], e)
     dados["resumo"] = b.resumo_curadoria()
     return jsonify(dados)
+
+
+def _classificacao_do_erp(itens, e):
+    """"Hoje no ERP" vem do CATÁLOGO, a fonte primária de produto (seção 17),
+    e não da planilha — que é uma foto de agosto. Se alguém já reclassificou
+    o produto pelo ERP, a curadoria mostra, e avisa quando o ERP já está no
+    destino proposto. Catálogo fora do ar ou sem o grupo: fica a da planilha.
+    Só leitura e só nesta tela — o contrato do agente não muda."""
+    try:
+        from scripts import catalogo
+        cat = catalogo.produtos_por_codigos([it["cod"] for it in itens])
+        foto = catalogo.status().get("ultima") or {}
+    except Exception:  # noqa: BLE001
+        return
+    for it in itens:
+        p = cat.get(it["cod"])
+        if not p or not p.get("dep"):
+            continue
+        trio = (p["dep"] or "", p["sec"] or "", p["sub"] or "")
+        it["erp"] = {
+            "dep": trio[0], "sec": trio[1], "sub": trio[2],
+            "nome": e.rotulo_curto(*trio),
+            "foto": foto.get("quando_fmt", ""),
+            "difere_planilha": trio != (it["dep_atual"], it["sec_atual"], it["sub_atual"]),
+            "ja_no_destino": trio == (it["dep_novo"], it["sec_novo"], it["sub_novo"]),
+        }
 
 
 @reclassificacao_bp.post("/curadoria/api/aceitar")
