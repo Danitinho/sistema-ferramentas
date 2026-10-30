@@ -1130,9 +1130,86 @@ class FilaBanco:
         return {"ok": True, "aplicados": aplicados, "ja_curados": ja,
                 "recusados": recusados, "mudaram": mudaram}
 
+    # ── inclusão a partir do catálogo ────────────────────────────────────────
+    def incluir_do_catalogo(self, so_com_venda: bool = True, aplicar: bool = False,
+                            por: str = "") -> dict:
+        """Põe no lote o produto cuja classificação de HOJE no ERP (catálogo)
+        está fora da estrutura nova e que a planilha não trouxe.
+
+        Achado em 30/10/2026: 7.410 produtos assim estavam fora do lote — o
+        departamento 3 inteiro (seção 35, um balaio de 7 mil itens) e 306 trios
+        inconsistentes dentro dos departamentos novos (a armadilha dos códigos:
+        `6/51/28`, subseção 28 é da seção 34). A curadoria só mostra o que está
+        no lote, então ninguém os veria.
+
+        `so_com_venda` (padrão, pedido do usuário): só quem vendeu desde
+        `VENDA_DESDE` — os ativos, prioritários. Entram como os outros: ativos,
+        **sem nada confirmado** (`pronto=0`), sem destino e confiança REVISAR; o
+        destino sugerido vem do motor de revisão rodado SÓ para eles. Sem
+        `aplicar`, é a prévia. Repetir é seguro: quem já está no lote é pulado.
+        """
+        from scripts import catalogo
+        from scripts.reclassificacao_estrutura import estrutura
+
+        est = estrutura()
+        if not est.carregada:
+            return {"ok": False, "erro": "estrutura merceológica não carregada"}
+        vendidos, _ = codigos_com_venda()
+        if so_com_venda and vendidos is None:
+            return {"ok": False, "erro": "sem banco de vendas: não há como saber quem vendeu"}
+        with self.lock:
+            no_lote = {_chave_cb(c) for (c,) in self.con.execute("SELECT cod FROM itens")}
+        hoje = time.strftime("%d/%m/%Y")
+        novos, vistos = [], set()
+        for cb, desc, dep, sec, sub in catalogo.produtos_com_grupo():
+            k = _chave_cb(cb)
+            if k in no_lote or k in vistos:
+                continue          # já no lote (inclusive variante só de zeros)
+            if so_com_venda and k not in vendidos:
+                continue
+            ok, motivo = est.validar(dep or "", sec or "", sub or "")
+            if ok:
+                continue
+            vistos.add(k)
+            trio = f"{dep or '?'}/{sec or '?'}/{sub or '?'}"
+            novos.append({"cod": cb, "produto": desc or "", "dep": dep or "",
+                          "sec": sec or "", "sub": sub or "",
+                          "base": f"incluído do catálogo em {hoje}: no ERP está em "
+                                  f"{trio}, fora da estrutura nova ({motivo})"})
+        resumo = {"ok": True, "encontrados": len(novos), "so_com_venda": so_com_venda,
+                  "amostra": [{"cod": n["cod"], "produto": n["produto"],
+                               "atual": f'{n["dep"]}/{n["sec"]}/{n["sub"]}',
+                               "base": n["base"]} for n in novos[:50]]}
+        if not aplicar or not novos:
+            return resumo
+
+        with self.lock:
+            self.con.execute("BEGIN IMMEDIATE")
+            try:
+                for n in novos:
+                    self.con.execute(
+                        "INSERT INTO itens (cod, produto, ativo, ano, dep_atual,"
+                        " sec_atual, sub_atual, confianca, ordem_conf, base, estado,"
+                        " pronto, sug_conf, sug_base)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (n["cod"], n["produto"], 1, "", n["dep"], n["sec"], n["sub"],
+                         "REVISAR", ORDEM_CONF["REVISAR"], n["base"], SEM_DESTINO, 0,
+                         "REVISAR", n["base"]))
+                self._evento("incluiu", "", por,
+                             f"{len(novos)} produtos do catálogo com classificação fora"
+                             f" da estrutura nova{' e venda em 2026' if so_com_venda else ''}")
+                self.con.commit()
+            except Exception:
+                self.con.rollback()
+                raise
+        rev = self.revisar(so_ativos=False, aplicar=True, por=por,
+                           somente={n["cod"] for n in novos})
+        resumo.update({"incluidos": len(novos), "com_sugestao": rev.get("revisados", 0)})
+        return resumo
+
     # ── revisão das sugestões ────────────────────────────────────────────────
     def revisar(self, so_ativos: bool = True, aplicar: bool = False,
-                por: str = "") -> dict:
+                por: str = "", somente: set | None = None) -> dict:
         """Revê o destino sugerido dos pendentes à luz do que já foi confirmado.
 
         O motor mora em `reclassificacao_revisao` (lá estão a regra e a
@@ -1172,7 +1249,8 @@ class FilaBanco:
                              "destino": tuple(str(x) for x in destino),
                              "confirmado": confirmado})
             if (not r["pronto"] and r["estado"] in (LIVRE, SEM_DESTINO)
-                    and (r["ativo"] or not so_ativos)):
+                    and (r["ativo"] or not so_ativos)
+                    and (somente is None or r["cod"] in somente)):
                 alvo.append({
                     "cod": r["cod"], "produto": r["produto"] or "",
                     "planilha": (r["sug_dep"] or "", r["sug_sec"] or "",

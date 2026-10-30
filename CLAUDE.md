@@ -812,6 +812,20 @@ padaria, unidade de compra como "BATATA DOCE CX 22KG"). Com a regra nova são
 - O caminho do `vendas.db` é montado aqui, sem importar `relatorios_vendas`:
   aquele módulo puxa o `pdfplumber`, e a reclassificação não pode cair por ele.
 
+**Produtos que a planilha não trouxe** (30/10/2026; `incluir_do_catalogo`):
+cruzando o catálogo, 7.410 produtos estavam com classificação fora da estrutura
+nova e fora do lote — o departamento 3 inteiro (seção 35, um "balaio" de ~7 mil
+itens: biscoito, chinelo, panela, tinta) e 306 trios inconsistentes dentro dos
+departamentos novos (a armadilha dos códigos: `6/51/28`, `12/28/207`). Por
+decisão do usuário entraram **só os 338 que venderam em 2026** (prioritários):
+ativos, `pronto=0`, `REVISAR`, com o motivo em `sug_base` ("incluído do catálogo
+em …: no ERP está em X, fora da estrutura nova (motivo)"); o motor de revisão
+rodou só para eles (`revisar(somente=…)`) e sugeriu destino para 244. Repetir é
+seguro (pula quem já está no lote, inclusive variante só de zeros). Os outros
+~7.070 sem venda continuam fora; `incluir_do_catalogo(so_com_venda=False)` os
+traria. Na curadoria, o "Hoje no ERP" de trio inconsistente mostra o motivo em
+vez de nomes soltos de cada nível, que pareceriam uma classificação válida.
+
 A planilha é **semente, não estado**: depois da importação o que vale é o banco.
 Reimportar é seguro — só acrescenta código que ainda não está lá e não encosta em
 nada já trabalhado.

@@ -661,3 +661,15 @@ def produtos_por_codigos(codigos):
     finally:
         conn.close()
     return saida
+
+
+def produtos_com_grupo():
+    """[(codigo_barras, descricao, dep, sec, sub)] de todo o catálogo — a
+    classificação de HOJE no ERP. A reclassificação usa para achar produto com
+    grupo fora da estrutura nova que não entrou no lote."""
+    conn = _conn()
+    try:
+        return [tuple(r) for r in conn.execute(
+            "SELECT codigo_barras, descricao, dep, sec, sub FROM produtos")]
+    finally:
+        conn.close()

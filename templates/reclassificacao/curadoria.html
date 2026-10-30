@@ -521,6 +521,7 @@ function desenhar() {
               const nome = erp ? erp.nome : it.atual_nome;
               const cod = `<span class="trio">CodGrp ${esc(trio.join("/"))}</span>`;
               let h = nome ? esc(nome) + cod : `fora da estrutura nova${cod}`;
+              if (erp && erp.invalido) h += `<span class="foto">${esc(erp.invalido)}</span>`;
               if (erp) {
                 h += `<span class="foto">pelo catálogo${erp.foto ? " de " + esc(erp.foto) : ""}</span>`;
                 if (erp.difere_planilha) {

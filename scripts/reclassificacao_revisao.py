@@ -173,12 +173,12 @@ def propor(motor: Motor, alvo: list, rotulo=None, validar=None) -> list:
                        if len(ncm) == 8 else "")
             conf_txt = (f" ({p['confirmados']} confirmados)"
                         if p["confirmados"] else "")
-            antes = (rotulo(*planilha).split(" › ")[-1] if all(planilha)
-                     else "sem sugestão")
+            antes = (f"A planilha dizia {rotulo(*planilha).split(' › ')[-1]}"
+                     if all(planilha) else "Não havia sugestão")
             base = (f"revisada: {p['vizinhos']} de {p['de_vizinhos']} parecidos"
                     f"{conf_txt} estão em "
                     f"{rotulo(*p['destino']).split(' › ')[-1]}{ncm_txt}."
-                    f" A planilha dizia {antes}")
+                    f" {antes}")
             saida.append({
                 "cod": it["cod"], "produto": it["produto"], "revisado": True,
                 "destino": p["destino"], "planilha": planilha,

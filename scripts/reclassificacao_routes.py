@@ -347,9 +347,13 @@ def _classificacao_do_erp(itens, e):
         if not p or not p.get("dep"):
             continue
         trio = (p["dep"] or "", p["sec"] or "", p["sub"] or "")
+        valido, motivo = e.validar(*trio)
         it["erp"] = {
             "dep": trio[0], "sec": trio[1], "sub": trio[2],
-            "nome": e.rotulo_curto(*trio),
+            # trio inconsistente (ex.: 6/51/28) não ganha nome: os nomes de cada
+            # nível soltos pareceriam uma classificação válida
+            "nome": e.rotulo_curto(*trio) if valido else "",
+            "invalido": "" if valido else motivo,
             "foto": foto.get("quando_fmt", ""),
             "difere_planilha": trio != (it["dep_atual"], it["sec_atual"], it["sub_atual"]),
             "ja_no_destino": trio == (it["dep_novo"], it["sec_novo"], it["sub_novo"]),
