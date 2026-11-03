@@ -97,6 +97,20 @@ class TestCalculadora(unittest.TestCase):
         self.assertEqual(d["preco"], 13.99)
         self.assertEqual(d["valor_arredondamento"], 0.99)
 
+    def test_meio_centavo_sobe_como_na_tela(self):
+        # 9,90 x 1,15 = 11,385: a tela (Intl) mostra 11,39; o round() do
+        # Python dava 11,38 pelo binário. O servidor tem de bater com a tela.
+        st, d = self.calc(custo=9.9, margem=15, origem="sem")
+        self.assertEqual(d["preco"], 11.39)
+        st, d = self.calc(custo=1234.5, margem=15, origem="sem")
+        self.assertEqual(d["preco"], 1419.68)
+
+    def test_pagina_calcula_sem_botao(self):
+        html = self.cli.get("/cadastro/calculadora").get_data(as_text=True)
+        self.assertIn('id="preco"', html)
+        self.assertIn("function calcularPreco", html)
+        self.assertNotIn(">Calcular</button>", html)
+
     def test_custo_zero_400_e_nao_500(self):
         st, _ = self.calc(custo=0, margem=30)
         self.assertEqual(st, 400)

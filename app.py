@@ -7,6 +7,7 @@ Acesse em:  http://localhost:5000  (mesmo PC)
 import os
 import socket
 import importlib
+from decimal import Decimal, ROUND_HALF_UP
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect
 
@@ -161,6 +162,14 @@ def index():
 def calculadora():
     return render_template("cadastro/calculadora.html")
 
+def _rs(v):
+    """Centavos no arredondamento comercial (meio centavo sobe), pelo valor
+    ESCRITO do número: 9,90 x 1,15 = 11,385 -> 11,39. O round() do Python
+    olha o binário (11,38499...) e dava 11,38, um centavo diferente da tela,
+    que formata com Intl (calculadora.html)."""
+    return float(Decimal(repr(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 def arredondar_preco(preco, modo):
     """Arredonda PARA CIMA até o final escolhido ("99", "90" ou "49_99"); o
     preço nunca fica abaixo do calculado (não come a margem). Em centavos, para
@@ -209,13 +218,13 @@ def calcular_preco():
         preco             = arredondar_preco(preco_calc, data.get("arredondamento"))
 
         return jsonify({
-            "preco":              round(preco, 2),
-            "valor_desconto":     round(custo - custo_liquido, 2),
-            "custo_liquido":      round(custo_liquido, 2),
-            "custo_com_imposto":  round(custo_com_imposto, 2),
-            "valor_imposto":      round(custo_com_imposto - custo_liquido, 2),
-            "valor_margem":       round(preco_calc - custo_com_imposto, 2),
-            "valor_arredondamento": round(preco - preco_calc, 2),
+            "preco":              _rs(preco),
+            "valor_desconto":     _rs(custo - custo_liquido),
+            "custo_liquido":      _rs(custo_liquido),
+            "custo_com_imposto":  _rs(custo_com_imposto),
+            "valor_imposto":      _rs(custo_com_imposto - custo_liquido),
+            "valor_margem":       _rs(preco_calc - custo_com_imposto),
+            "valor_arredondamento": _rs(preco - preco_calc),
             # as duas leituras do preço final (já arredondado)
             "markup_pct":         round((preco / custo_com_imposto - 1) * 100, 2),
             "margem_venda_pct":   round((1 - custo_com_imposto / preco) * 100, 2),

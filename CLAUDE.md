@@ -209,7 +209,20 @@ blueprints próprios.
   catálogo). `arredondamento`: `99` | `90` | `49_99`, **sempre para cima**
   (`arredondar_preco`, em centavos). A resposta e a tela mostram as DUAS
   leituras do preço final (markup e margem sobre a venda). A tela repete as
-  contas em JS: mude os dois lados juntos.
+  contas em JS (`calcularPreco`): mude os dois lados juntos. Centavos no
+  arredondamento comercial (`_rs`, meio centavo sobe) — o `round()` do Python
+  dava 11,38 onde a tela mostra 11,39; conferido em 1.152 combinações.
+  **Tela** (03/11/2026; mockups em https://claude.ai/artifact/Wav5Ak2bnvNMRDgBvB9sq5):
+  feita para vários produtos seguidos, com a janela encostada ao lado do RADGe
+  (~500 px). Calcula enquanto digita (sem botão) e o **preço nunca sai da
+  tela**: no topo em janela estreita, coluna da direita a partir de 720 px de
+  CARTÃO (container query). **Enter no custo = próximo produto** (limpa só o
+  custo); Enter na margem/desconto volta ao custo. Origem, tipo de margem e
+  arredondamento = "configurações do lote": uma linha com Alterar na janela
+  estreita, sempre abertas na larga; lembradas no aparelho (`calc_pref`). A
+  margem NÃO é lembrada. Copiar copia "29,99" (sem milhar) e funciona por
+  http:// (cai no `execCommand` sem `navigator.clipboard`). Sem histórico e
+  sem código de barras: decisão do usuário.
 - `GET /cadastro/placas-hortifruti` + `POST .../gerar` → **placeholder**.
 - `GET /cadastro/registro-perda` + `POST .../salvar` → **placeholder**.
 - `GET /loja/lote-vencimento` + `POST .../consultar` → **placeholder**.

@@ -5,93 +5,165 @@
 
 {% block extra_head %}
 <style>
-  .origem-toggle { margin-bottom: 4px; }
-  .origem-toggle button { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-  .taxa-chip { font-size: 12px; font-weight: 500; padding: 0 7px; border-radius: var(--radius-sm);
-    background: var(--surface-3); color: var(--ink-2); font-family: var(--mono); }
-  .origem-toggle button.ativo .taxa-chip { background: var(--accent-soft); color: var(--accent); }
+  /* Feita para calcular VÁRIOS produtos em sequência, com a janela encostada
+     ao lado do RADGe (~500px). O preço nunca sai da tela: em janela estreita
+     ele fica no topo; a partir de 720px de CARTÃO (container query — vale
+     para a janela, não para o monitor) vira a coluna da direita. As
+     configurações do lote (origem, tipo de margem, arredondamento) mudam
+     pouco e ficam recolhidas numa linha quando falta espaço. */
+  .calc { container-type: inline-size; }
+  .calc-grade { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "res" "ent"; gap: 14px; }
+  .calc-res { grid-area: res; display: flex; flex-direction: column; gap: 2px;
+    padding-bottom: 12px; border-bottom: 2px solid var(--ink); }
+  .calc-ent { grid-area: ent; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
-  .linha-margem { display: grid; grid-template-columns: 1fr 120px; gap: 12px; align-items: end; }
-  .linha-margem > div { min-width: 0; }
-
-  .preco-destaque { font-size: 38px; font-weight: 750; color: var(--success);
-    letter-spacing: -.5px; line-height: 1.1; margin: 6px 0 16px;
-    font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .detalhe { display: flex; justify-content: space-between; align-items: center;
-    font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .res-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .res-rot { font-size: 13px; color: var(--muted); }
+  .btn-copiar { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px;
+    border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--surface);
+    color: var(--accent); font-family: var(--sans); font-size: 13.5px; font-weight: 500; cursor: pointer; }
+  .btn-copiar:hover { border-color: var(--accent); }
+  .btn-copiar:disabled { color: var(--muted); cursor: default; border-color: var(--line); }
+  .res-preco { font-family: var(--mono); font-size: 40px; font-weight: 500; letter-spacing: -.02em;
+    line-height: 1.15; color: var(--ink); white-space: nowrap; }
+  .res-preco.vazio { color: var(--muted); }
+  .res-leit { font-size: 13px; color: var(--ink-2); min-height: 18px; }
+  .res-leit.erro { color: var(--danger); }
+  .btn-conta { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px;
+    margin-top: 4px; padding: 4px 0; border: 0; background: none; color: var(--accent);
+    font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer; }
+  .btn-conta svg { transition: transform .15s; }
+  .btn-conta[aria-expanded="true"] svg { transform: rotate(90deg); }
+  .conta { margin-top: 4px; }
+  .conta[hidden] { display: none; }
+  .detalhe { display: flex; justify-content: space-between; gap: 12px;
+    font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--line); }
   .detalhe:last-child { border-bottom: none; }
   .detalhe .rot { color: var(--muted); }
-  .detalhe .val { font-weight: 550; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .detalhe.sep { border-top: 1.5px solid var(--line-2); margin-top: 4px; padding-top: 10px; }
-  .detalhe.sep .val { font-size: 14px; font-weight: 700; color: var(--success); }
+  .detalhe .val { font-family: var(--mono); white-space: nowrap; }
+
+  .calc label { margin-top: 0; }
+  .calc .ingrp input { font-family: var(--mono); }
+  #custo { font-size: 17px; }
+  .linha2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+  .lote-resumo { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .lote-resumo span { flex-grow: 1; font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+  .lote-resumo button { flex-shrink: 0; height: 32px; padding: 0 12px; border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm); background: var(--surface); color: var(--ink);
+    font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer; }
+  .lote-painel { display: none; flex-direction: column; gap: 10px; }
+  .lote-painel.aberto { display: flex; }
+  .lote-tit { display: none; font-size: 13.5px; font-weight: 500; color: var(--muted);
+    padding-bottom: 7px; border-bottom: 2px solid var(--ink); }
+  .grupo-rot { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .lote-painel .seg button { height: 34px; padding: 0 6px; font-size: 13px; white-space: nowrap; min-width: 0; }
+  .lote-painel .seg .x { font-family: var(--mono); font-size: 12px; margin-left: 4px; color: var(--muted); }
+  .lote-painel .seg button.ativo .x { color: var(--accent); }
+  .linha2-lote { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+
+  .dica { font-size: 12.5px; color: var(--muted); }
+  .dica kbd { font-family: var(--mono); font-size: 11.5px; padding: 1px 5px; border: 1px solid var(--line-2);
+    border-radius: 3px; color: var(--ink-2); }
+
+  /* Janela larga: entradas à esquerda, preço à direita, tudo à vista. */
+  @container (min-width: 720px) {
+    .calc-grade { grid-template-columns: minmax(0, 1fr) 320px; grid-template-areas: "ent res"; gap: 0; }
+    .calc-ent { padding-right: 22px; border-right: 1px solid var(--line); }
+    .calc-res { padding: 0 0 0 22px; border-bottom: 0; align-self: start; }
+    .res-preco { font-size: 44px; }
+    .res-leit { padding-bottom: 12px; border-bottom: 2px solid var(--ink); margin-bottom: 6px; }
+    .btn-conta { display: none; }
+    .conta[hidden] { display: block; }
+    .lote-resumo { display: none; }
+    .lote-painel { display: flex; }
+    .lote-tit { display: block; }
+    .linha2-lote { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="card">
-  <span class="badge badge-cadastro">Cadastro</span>
-  <div class="card-title">Calcular preço de venda</div>
+<div class="card calc">
+  <div class="calc-grade">
 
-  <label>Origem do produto</label>
-  <div class="seg origem-toggle">
-    <button class="ativo" id="btn-dentro" onclick="selecionarOrigem('dentro')">
-      Dentro do estado
-      <span class="taxa-chip">+5%</span>
-    </button>
-    <button id="btn-fora" onclick="selecionarOrigem('fora')">
-      Fora do estado
-      <span class="taxa-chip">+19%</span>
-    </button>
-    <button id="btn-sem" onclick="selecionarOrigem('sem')">
-      Sem acréscimo
-      <span class="taxa-chip">+0%</span>
-    </button>
-  </div>
+    <section class="calc-res" aria-label="Resultado" aria-live="polite">
+      <div class="res-topo">
+        <span class="res-rot">Preço de venda</span>
+        <button type="button" class="btn-copiar" id="btn-copiar" onclick="copiar()" disabled
+                title="Copia o preço (ex.: 29,99) para colar no ERP">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+          <span id="copiar-rot">Copiar</span>
+        </button>
+      </div>
+      <div class="res-preco vazio" id="preco">—</div>
+      <div class="res-leit" id="leituras">Digite o custo e a margem</div>
+      <button type="button" class="btn-conta" id="btn-conta" aria-expanded="false" aria-controls="conta" onclick="alternarConta()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+        <span id="conta-rot">Ver a conta</span>
+      </button>
+      <div class="conta" id="conta" hidden></div>
+    </section>
 
-  <label>Preço de custo <em>*</em></label>
-  <div class="ingrp"><span class="pre">R$</span>
-    <input type="number" id="custo" placeholder="0,00" step="0.01" min="0" inputmode="decimal"></div>
+    <div class="calc-ent">
+      <div>
+        <label for="custo">Preço de custo <em>*</em></label>
+        <div class="ingrp"><span class="pre">R$</span>
+          <input type="text" id="custo" placeholder="0,00" inputmode="decimal" autocomplete="off" autofocus></div>
+      </div>
 
-  <div class="linha-margem">
-    <div>
-      <label>Margem <em>*</em></label>
-      <div class="ingrp"><span class="pre">%</span>
-        <input type="number" id="margem" placeholder="ex: 30" step="0.1" min="0" inputmode="decimal"></div>
+      <div class="linha2">
+        <div>
+          <label for="margem">Margem <em>*</em></label>
+          <div class="ingrp"><span class="pre">%</span>
+            <input type="text" id="margem" placeholder="ex: 30" inputmode="decimal" autocomplete="off"></div>
+        </div>
+        <div>
+          <label for="desconto">Desc. no custo</label>
+          <div class="ingrp"><span class="pre">%</span>
+            <input type="text" id="desconto" placeholder="0" inputmode="decimal" autocomplete="off"
+                   title="Desconto opcional sobre o preço de custo, aplicado antes do acréscimo e da margem"></div>
+        </div>
+      </div>
+
+      <div class="lote-resumo">
+        <span id="lote-resumo"></span>
+        <button type="button" id="btn-lote" aria-expanded="false" aria-controls="lote" onclick="alternarLote()">Alterar</button>
+      </div>
+
+      <div class="lote-painel" id="lote">
+        <div class="lote-tit">Configurações do lote</div>
+        <div>
+          <div class="grupo-rot" id="rot-origem">Origem do produto</div>
+          <div class="seg" role="group" aria-labelledby="rot-origem" data-grupo="origem">
+            <button type="button" data-v="dentro">Dentro<span class="x">+5%</span></button>
+            <button type="button" data-v="fora">Fora<span class="x">+19%</span></button>
+            <button type="button" data-v="sem">Sem<span class="x">+0%</span></button>
+          </div>
+        </div>
+        <div class="linha2-lote">
+          <div>
+            <div class="grupo-rot" id="rot-tipo">A margem é</div>
+            <div class="seg" role="group" aria-labelledby="rot-tipo" data-grupo="tipo">
+              <button type="button" data-v="custo" title="Preço = custo × (1 + margem). 30% sobre R$ 10 = R$ 13,00">Sobre o custo</button>
+              <button type="button" data-v="venda" title="A margem é a fatia do PREÇO que sobra. 30% sobre a venda de R$ 10 de custo = R$ 14,29">Sobre a venda</button>
+            </div>
+          </div>
+          <div>
+            <div class="grupo-rot" id="rot-arred">Arredondar para cima</div>
+            <div class="seg" role="group" aria-labelledby="rot-arred" data-grupo="arred">
+              <button type="button" data-v="">Não</button>
+              <button type="button" data-v="99">,99</button>
+              <button type="button" data-v="90">,90</button>
+              <button type="button" data-v="49_99">,49/,99</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dica"><kbd>Enter</kbd> no custo: próximo produto — limpa o custo e mantém o resto.</div>
     </div>
-    <div class="col-desconto">
-      <label>Desc. custo</label>
-      <div class="ingrp"><span class="pre">%</span>
-        <input type="number" id="desconto" placeholder="0" step="0.1" min="0" max="99.9" inputmode="decimal"
-               title="Desconto opcional sobre o preço de custo, aplicado antes do imposto e da margem"></div>
-    </div>
-  </div>
-
-  <label>A margem é</label>
-  <div class="seg" id="seg-tipo">
-    <button class="ativo" id="tipo-custo" onclick="selecionarTipo('custo')"
-            title="Preço = custo × (1 + margem). 30% sobre R$ 10 = R$ 13,00">Sobre o custo (markup)</button>
-    <button id="tipo-venda" onclick="selecionarTipo('venda')"
-            title="A margem é a fatia do PREÇO que sobra. 30% sobre a venda de R$ 10 de custo = R$ 14,29">Sobre a venda</button>
-  </div>
-
-  <label for="arred">Arredondar o preço</label>
-  <select id="arred" onchange="lembrar(); if ($('resultado').classList.contains('show')) calcular()">
-    <option value="">Não arredondar</option>
-    <option value="99">Para cima, terminando em ,99</option>
-    <option value="90">Para cima, terminando em ,90</option>
-    <option value="49_99">Para cima, terminando em ,49 ou ,99</option>
-  </select>
-
-  <button class="btn btn-primary" onclick="calcular()">Calcular</button>
-
-  <div class="result-box error" id="erro">
-    <div class="result-value error" id="msg-erro"></div>
-  </div>
-
-  <div class="result-box" id="resultado">
-    <div class="result-label">Preço de venda sugerido</div>
-    <div class="preco-destaque" id="preco-final"></div>
-    <div id="detalhes"></div>
   </div>
 </div>
 {% endblock %}
@@ -99,154 +171,165 @@
 {% block extra_scripts %}
 <script>
 const $ = id => document.getElementById(id);
-let _origem = "dentro";
-// Acréscimo por origem — o mesmo mapa da rota em app.py. "sem" = só a margem.
-const TAXAS = { dentro: 0.05, fora: 0.19, sem: 0 };
-// Tipo de margem e arredondamento: as mesmas contas de app.py (calcular_preco).
-let _tipo = "custo";
 
-function selecionarTipo(tipo) {
-  _tipo = tipo;
-  $("tipo-custo").classList.toggle("ativo", tipo === "custo");
-  $("tipo-venda").classList.toggle("ativo", tipo === "venda");
-  lembrar();
-  if ($("resultado").classList.contains("show")) calcular();
+// Acréscimo por origem e as contas: as MESMAS de app.py (calcular_preco /
+// arredondar_preco). Mudou uma, mude a outra.
+const TAXAS  = { dentro: 0.05, fora: 0.19, sem: 0 };
+const ORIGEM = { dentro: "Dentro do estado", fora: "Fora do estado", sem: "Sem acréscimo" };
+const ARRED  = { "": "sem arredondar", "99": "termina em ,99", "90": "termina em ,90", "49_99": "termina em ,49 ou ,99" };
+
+// Configurações do lote: origem, tipo de margem, arredondamento. Lembradas
+// neste aparelho (conveniência; tudo funciona sem). A margem NÃO é lembrada:
+// uma margem de ontem preenchida sozinha passaria despercebida.
+const lote = { origem: "dentro", tipo: "custo", arred: "" };
+try {
+  const p = JSON.parse(localStorage.getItem("calc_pref") || "{}");
+  if (p.origem in TAXAS) lote.origem = p.origem;
+  if (p.tipo === "venda" || p.tipo === "custo") lote.tipo = p.tipo;
+  if (typeof p.arred === "string" && p.arred in ARRED) lote.arred = p.arred;
+} catch (e) {}
+
+// Número digitado em pt-BR: "1.234,56" ou "20,5"; ponto sozinho também vale ("20.5").
+function num(txt) {
+  let s = String(txt || "").trim();
+  if (!s) return NaN;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  return /^-?\d*\.?\d+$/.test(s) ? Number(s) : NaN;
 }
 
-// Preferência de quem usa este aparelho (conveniência; nada depende disto).
-function lembrar() {
-  try { localStorage.setItem("calc_pref", JSON.stringify({ tipo: _tipo, arred: $("arred").value })); } catch (e) {}
-}
-(function restaurarPref() {
-  try {
-    const p = JSON.parse(localStorage.getItem("calc_pref") || "{}");
-    if (p.tipo === "venda") selecionarTipo("venda");
-    if (p.arred !== undefined && [...$("arred").options].some(o => o.value === p.arred)) $("arred").value = p.arred;
-  } catch (e) {}
-})();
-
-// Arredonda SEMPRE para cima (nunca come a margem): o menor preço com o final
-// escolhido que seja >= o calculado. Trabalha em centavos para não errar 0,01.
+// Arredonda SEMPRE para cima (nunca come a margem), em centavos.
 function arredondar(preco, modo) {
   if (!modo) return preco;
   const c = Math.round(preco * 100);
   const finais = modo === "49_99" ? [49, 99] : [Number(modo)];
-  let melhor = null;
-  for (let base = Math.floor(c / 100) * 100; melhor === null; base += 100) {
-    for (const f of finais) {
-      if (base + f >= c) { melhor = base + f; break; }
-    }
-  }
-  return melhor / 100;
+  for (let base = Math.floor(c / 100) * 100; ; base += 100)
+    for (const f of finais) if (base + f >= c) return (base + f) / 100;
 }
 
-function selecionarOrigem(origem) {
-  _origem = origem;
-  $("btn-dentro").classList.toggle("ativo", origem === "dentro");
-  $("btn-fora").classList.toggle("ativo",   origem === "fora");
-  $("btn-sem").classList.toggle("ativo",    origem === "sem");
-  if ($("resultado").classList.contains("show")) calcular();
-}
-
-function calcular() {
-  const custo  = parseFloat($("custo").value);
-  const margem = parseFloat($("margem").value);
-
-  $("resultado").classList.remove("show");
-  $("erro").classList.remove("show");
-
-  if (isNaN(custo) || custo <= 0) {
-    $("msg-erro").textContent = "Informe um preço de custo válido.";
-    $("erro").classList.add("show");
-    return;
-  }
-  if (isNaN(margem) || margem < 0 || (_tipo === "venda" && margem >= 100)) {
-    $("msg-erro").textContent = _tipo === "venda"
-      ? "Margem sobre a venda tem de ficar abaixo de 100%."
-      : "Informe uma margem válida.";
-    $("erro").classList.add("show");
-    return;
-  }
-  // Desconto em branco = sem desconto.
-  const desconto = $("desconto").value.trim() === "" ? 0 : parseFloat($("desconto").value);
-  if (isNaN(desconto) || desconto < 0 || desconto >= 100) {
-    $("msg-erro").textContent = "Informe um desconto entre 0 e 99,9%.";
-    $("erro").classList.add("show");
-    return;
-  }
-
-  // O desconto reduz o custo ANTES do imposto e da margem.
-  const valorDesconto   = custo * desconto / 100;
-  const custoLiquido    = custo - valorDesconto;
-  const taxa            = TAXAS[_origem] ?? 0.05;
+// Conta pura: {ok, erro} ou {ok, preco, precoCalc, custoLiquido, custoComImposto, taxa, markup, margemVenda}.
+function calcularPreco(custo, margem, desconto, origem, tipo, arred) {
+  if (!(custo > 0) || !(margem >= 0)) return { ok: false, erro: "" };
+  if (tipo === "venda" && margem >= 100) return { ok: false, erro: "Margem sobre a venda tem de ficar abaixo de 100%." };
+  if (!(desconto >= 0 && desconto < 100)) return { ok: false, erro: "Desconto no custo entre 0 e 99,9%." };
+  const taxa = TAXAS[origem] ?? 0.05;
+  const custoLiquido = custo * (1 - desconto / 100);
   const custoComImposto = custoLiquido * (1 + taxa);
-  const precoCalc       = _tipo === "venda"
-                          ? custoComImposto / (1 - margem / 100)
-                          : custoComImposto * (1 + margem / 100);
-  const preco           = arredondar(precoCalc, $("arred").value);
-  const valorImposto    = custoComImposto - custoLiquido;
-  const taxaPct        = (taxa * 100).toLocaleString("pt-BR");
-  const pct = v => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
-  // As duas leituras do MESMO preço final (já arredondado): é a confusão mais
-  // comum entre quem fala "margem" — o catálogo mostra a margem sobre a venda.
-  const markupFinal     = (preco / custoComImposto - 1) * 100;
-  const margemVendaFinal = (1 - custoComImposto / preco) * 100;
-
-  $("preco-final").textContent = brl(preco);
-  $("detalhes").innerHTML = `
-    <div class="detalhe">
-      <span class="rot">Preço de custo</span>
-      <span class="val">${brl(custo)}</span>
-    </div>
-    ${desconto > 0 ? `
-    <div class="detalhe">
-      <span class="rot">Desconto (${desconto.toLocaleString("pt-BR")}%)</span>
-      <span class="val">− ${brl(valorDesconto)}</span>
-    </div>
-    <div class="detalhe">
-      <span class="rot">Custo com desconto</span>
-      <span class="val">${brl(custoLiquido)}</span>
-    </div>` : ""}
-    ${taxa > 0 ? `
-    <div class="detalhe">
-      <span class="rot">Imposto (${taxaPct}%)</span>
-      <span class="val">+ ${brl(valorImposto)}</span>
-    </div>
-    <div class="detalhe">
-      <span class="rot">Custo com imposto</span>
-      <span class="val">${brl(custoComImposto)}</span>
-    </div>` : `
-    <div class="detalhe">
-      <span class="rot">Sem acréscimo de origem</span>
-      <span class="val">+ ${brl(0)}</span>
-    </div>`}
-    <div class="detalhe">
-      <span class="rot">Margem (${margem.toLocaleString("pt-BR")}% ${_tipo === "venda" ? "sobre a venda" : "sobre o custo"})</span>
-      <span class="val">+ ${brl(precoCalc - custoComImposto)}</span>
-    </div>
-    ${preco !== precoCalc ? `
-    <div class="detalhe">
-      <span class="rot">Arredondamento</span>
-      <span class="val">+ ${brl(preco - precoCalc)}</span>
-    </div>` : ""}
-    <div class="detalhe sep">
-      <span class="rot">Preço de venda</span>
-      <span class="val">${brl(preco)}</span>
-    </div>
-    <div class="detalhe">
-      <span class="rot">Neste preço: markup sobre o custo</span>
-      <span class="val">${pct(markupFinal)}</span>
-    </div>
-    <div class="detalhe">
-      <span class="rot">Neste preço: margem sobre a venda</span>
-      <span class="val">${pct(margemVendaFinal)}</span>
-    </div>
-  `;
-  $("resultado").classList.add("show");
+  const precoCalc = tipo === "venda" ? custoComImposto / (1 - margem / 100)
+                                     : custoComImposto * (1 + margem / 100);
+  const preco = arredondar(precoCalc, arred);
+  return { ok: true, preco, precoCalc, custoLiquido, custoComImposto, taxa,
+           markup: (preco / custoComImposto - 1) * 100,
+           margemVenda: (1 - custoComImposto / preco) * 100 };
 }
 
-document.querySelectorAll("input").forEach(i =>
-  i.addEventListener("keydown", e => { if (e.key === "Enter") calcular(); })
-);
+const pct = v => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let _ultimo = null;   // preço exibido agora (o que o Copiar copia)
+
+function atualizar() {
+  const custo = num($("custo").value), margem = num($("margem").value);
+  const descTxt = $("desconto").value.trim();
+  const desconto = descTxt ? num(descTxt) : 0;
+  const r = calcularPreco(custo, margem, desconto, lote.origem, lote.tipo, lote.arred);
+  const leit = $("leituras");
+  if (!r.ok) {
+    _ultimo = null;
+    $("preco").textContent = "—";
+    $("preco").classList.add("vazio");
+    leit.textContent = r.erro || "Digite o custo e a margem";
+    leit.classList.toggle("erro", !!r.erro);
+    $("conta").innerHTML = "";
+    $("btn-copiar").disabled = true;
+    return;
+  }
+  _ultimo = r.preco;
+  $("preco").textContent = brl(r.preco);
+  $("preco").classList.remove("vazio");
+  leit.classList.remove("erro");
+  leit.textContent = `markup ${pct(r.markup)} · margem s/ venda ${pct(r.margemVenda)}`;
+  $("btn-copiar").disabled = false;
+  $("copiar-rot").textContent = "Copiar";
+
+  const linhas = [["Preço de custo", brl(custo)]];
+  if (desconto > 0) linhas.push([`Desconto (${pct(desconto)})`, "− " + brl(custo - r.custoLiquido)]);
+  if (r.taxa > 0) linhas.push([`Acréscimo de origem (${pct(r.taxa * 100)})`, "+ " + brl(r.custoComImposto - r.custoLiquido)]);
+  linhas.push([`Margem (${pct(margem)} ${lote.tipo === "venda" ? "sobre a venda" : "sobre o custo"})`,
+               "+ " + brl(r.precoCalc - r.custoComImposto)]);
+  if (r.preco !== r.precoCalc) linhas.push(["Arredondamento", "+ " + brl(r.preco - r.precoCalc)]);
+  linhas.push(["Preço de venda", brl(r.preco)]);
+  $("conta").innerHTML = linhas.map(([rot, val]) =>
+    `<div class="detalhe"><span class="rot">${esc(rot)}</span><span class="val">${esc(val)}</span></div>`).join("");
+}
+
+// ── Configurações do lote ───────────────────────────────────────────────────
+function desenharLote() {
+  document.querySelectorAll("[data-grupo]").forEach(g => {
+    g.querySelectorAll("button").forEach(b => {
+      const ativo = b.dataset.v === lote[g.dataset.grupo];
+      b.classList.toggle("ativo", ativo);
+      b.setAttribute("aria-pressed", ativo ? "true" : "false");
+    });
+  });
+  $("lote-resumo").textContent =
+    `${ORIGEM[lote.origem]} +${TAXAS[lote.origem] * 100}% · margem sobre ${lote.tipo === "venda" ? "a venda" : "o custo"} · ${ARRED[lote.arred]}`;
+}
+document.querySelectorAll("[data-grupo]").forEach(g => {
+  g.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    lote[g.dataset.grupo] = b.dataset.v;
+    try { localStorage.setItem("calc_pref", JSON.stringify(lote)); } catch (e) {}
+    desenharLote();
+    atualizar();
+  });
+});
+function alternarLote() {
+  const aberto = $("lote").classList.toggle("aberto");
+  $("btn-lote").setAttribute("aria-expanded", aberto ? "true" : "false");
+  $("btn-lote").textContent = aberto ? "Fechar" : "Alterar";
+}
+function alternarConta() {
+  const aberto = $("conta").hidden;
+  $("conta").hidden = !aberto;
+  $("btn-conta").setAttribute("aria-expanded", aberto ? "true" : "false");
+  $("conta-rot").textContent = aberto ? "Esconder a conta" : "Ver a conta";
+}
+
+// ── Copiar (também por http://, onde navigator.clipboard não existe) ─────────
+async function copiar() {
+  if (_ultimo === null) return;
+  const txt = _ultimo.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false });
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(txt); ok = true; }
+  } catch (e) {}
+  if (!ok) {
+    const ta = document.createElement("textarea");
+    ta.value = txt; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+  }
+  $("copiar-rot").textContent = ok ? "Copiado" : "Não copiou";
+  $("custo").focus();
+}
+
+// ── Teclado: digitar já calcula; Enter no custo = próximo produto ───────────
+["custo", "margem", "desconto"].forEach(id => $(id).addEventListener("input", atualizar));
+$("custo").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  $("custo").value = "";
+  atualizar();
+});
+["margem", "desconto"].forEach(id => $(id).addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  $("custo").focus();
+  $("custo").select();
+}));
+
+desenharLote();
+atualizar();
 </script>
 {% endblock %}
