@@ -227,6 +227,8 @@ def index():
         estrutura_erro=est.estrutura().erro,
         maquinas_ok=_maquinas_com_acesso(),
         aviso=request.args.get("aviso", ""),
+        # o painel de andamento já chega com os dados: sem tela vazia no 1º paint
+        andamento_inicial=_andamento_com_cache(_usuario()),
     )
 
 
@@ -462,6 +464,56 @@ def painel_estado():
                                int(request.args.get("limite", 60))),
         "agora": resumo["agora"],
     })
+
+
+# ── painel de andamento (só leitura) ─────────────────────────────────────────
+# Nomes `painel_*` / `cur_*`, NUNCA `api_*`: o prefixo `reclassificacao.api_` é
+# público (API do agente, por token) e uma rota de pessoa com esse nome ficaria
+# sem login. O `/api/` fica só no caminho.
+
+_CACHE_ANDAMENTO: dict = {}      # usuario -> (quando, dados)
+CACHE_ANDAMENTO_S = 60
+
+
+@reclassificacao_bp.get("/painel/api/andamento")
+def painel_andamento():
+    """Painel de andamento. `?parte=leve` = só etapas, percentual, fila e
+    máquinas (o painel chama a cada 4 s); sem isso, tudo — ritmo, melhor dia,
+    departamentos —, com cache de 60 s por usuário (custa ~80 ms e divide a
+    trava do lote com os agentes)."""
+    b = r.banco()
+    if request.args.get("parte") == "leve":
+        return jsonify(b.andamento_leve())
+    return jsonify(_andamento_com_cache(_usuario()))
+
+
+def _andamento_com_cache(usuario: str) -> dict:
+    """`andamento` com o pesado em cache de 60 s por usuário e o rápido (etapas,
+    percentual, fila, máquinas) sempre fresco."""
+    b = r.banco()
+    agora = time.time()
+    em_cache = _CACHE_ANDAMENTO.get(usuario)
+    if not em_cache or agora - em_cache[0] >= CACHE_ANDAMENTO_S:
+        em_cache = (agora, b.andamento(usuario))
+        _CACHE_ANDAMENTO[usuario] = em_cache
+    dados = dict(em_cache[1])
+    leve = b.andamento_leve()
+    for k in ("etapas", "total", "gravados", "pct_gravado", "proximo_marco", "maquinas"):
+        dados[k] = leve[k]
+    dados["gravacao"] = dict(dados["gravacao"], **leve["gravacao_leve"])
+    dados["agora"] = leve["agora"]
+    dados["cache_s"] = int(agora - em_cache[0])
+    return dados
+
+
+@reclassificacao_bp.get("/curadoria/api/resumo-sessao")
+def cur_resumo_sessao():
+    """Resumo da sessão de curadoria desta pessoa, desde `?desde=<epoch>`."""
+    try:
+        desde = float(request.args.get("desde", ""))
+    except ValueError:
+        return jsonify({"ok": False, "erro": "desde inválido"}), 400
+    return jsonify(r.banco().resumo_sessao(_usuario(), desde))
 
 
 @reclassificacao_bp.post("/erp/mapa")

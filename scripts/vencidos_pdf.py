@@ -181,8 +181,11 @@ def _detalhe_aviso(a):
     elif risco:
         p.append(f"<b>risco {_NIVEL_LABEL.get(risco['nivel'], risco['nivel'])}</b>: "
                  f"sobra estimada {num(risco['sobra'], 1)} un "
-                 f"({brl(risco['valor_sobra'])}), venda esperada até o vencimento "
-                 f"{num(risco['venda_esperada'], 1)} un")
+                 f"({brl(risco['valor_sobra'])}), venda esperada de "
+                 f"{risco['desde_fmt']} até o vencimento "
+                 f"{num(risco['venda_esperada'], 1)} un"
+                 + (f" (dividida entre {risco['lotes']} avisos do produto)"
+                    if risco.get("lotes", 1) > 1 else ""))
     else:
         p.append("sem venda registrada no período — sem estimativa de sobra")
     if dias is not None and dias >= 0:
@@ -422,9 +425,10 @@ def _capa_avisos(rel, est, f):
     story += [
         Spacer(1, 9 * mm),
         Paragraph(
-            "A sobra estimada é a quantidade avisada menos a venda esperada até o "
-            "vencimento, pela média mensal dos últimos meses fechados no módulo de "
-            "relatórios de venda. Produto sem venda registrada fica sem estimativa "
+            "A sobra estimada é a quantidade avisada menos a venda esperada do dia "
+            "do aviso até o vencimento, pelo ritmo de venda dos últimos 3 meses do "
+            "módulo de relatórios de venda. Avisos do mesmo produto dividem a "
+            "venda: o lote que vence antes vende primeiro. Produto sem venda registrada fica sem estimativa "
             f"({r['sem_estimativa']} neste relatório). {r['fora_prazo']} aviso(s) "
             f"foram feitos com menos de {v.DIAS_MINIMO} dias de antecedência.",
             est["nota"]),

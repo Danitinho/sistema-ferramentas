@@ -400,6 +400,7 @@
           <br><span class="acc {% if a.risco.nivel == 'alto' %}acc-bad{% elif a.risco.nivel == 'medio' %}acc-warn{% else %}acc-ok{% endif %}">
             📉 vende ~<span class="num">{{ a.risco.media_mensal }}</span>/mês →
             sobra estimada ~<span class="num">{{ a.risco.sobra }}</span> un
+            <span title="A venda conta desde o dia da quantidade avisada{% if a.risco.lotes > 1 %}, dividida entre os {{ a.risco.lotes }} avisos deste produto (o que vence antes vende primeiro){% endif %}.">(desde {{ a.risco.desde_fmt }}{% if a.risco.lotes > 1 %}, {{ a.risco.lotes }} lotes{% endif %})</span>
             {% if a.risco.valor_sobra %}(<span class="num">{{ a.risco.valor_sobra | brl }}</span> em custo){% endif %}
             · risco {{ a.risco.nivel }}
           </span>
@@ -507,6 +508,7 @@
           <button type="button" data-a="1" onclick="selecionarAvisado(1)">Sim</button>
           <button type="button" class="ativo" data-a="0" onclick="selecionarAvisado(0)">Não</button>
         </div>
+        <div id="ve-avisado-hint" style="margin-top:6px;font-size:13px;color:var(--muted)"></div>
       </div>
       <label>Produto <em>*</em></label>
       <input type="text" id="ve-produto" placeholder="Nome do produto">
@@ -773,10 +775,31 @@ ligarFiltros("sec-avisos",
 let _modoVenc = "novo";   // 'novo' | 'editar'
 let _editVencId = null;
 let _veAvisado = 0;
+// No cadastro, o "Foi avisado?" acompanha a checagem do código de barras até a
+// pessoa clicar; daí em diante vale o que ela marcou. Sem clique, o servidor
+// decide sozinho (não depende de a checagem ter voltado antes do Registrar).
+let _veAvisadoManual = false;
+let _veTemAviso = false;
 
-function selecionarAvisado(a) {
+function selecionarAvisado(a, auto) {
   _veAvisado = a;
+  if (!auto && _modoVenc === "novo") _veAvisadoManual = true;
   document.querySelectorAll("#ve-avisado-seg button").forEach(b => b.classList.toggle("ativo", +b.dataset.a === a));
+  dicaAvisado();
+}
+
+function dicaAvisado() {
+  const h = $("ve-avisado-hint");
+  if (_modoVenc !== "novo") { h.textContent = ""; return; }
+  if (!_veAvisadoManual) {
+    h.textContent = "Automático pelo código de barras. Marque Sim se a seção avisou sem registrar o aviso no sistema.";
+  } else if (_veAvisado && !_veTemAviso) {
+    h.textContent = "Marcado como avisado por você — sem aviso no sistema para vincular.";
+  } else if (!_veAvisado && _veTemAviso) {
+    h.textContent = "Marcado como não avisado: o aviso deste código não será vinculado e continua na vigília.";
+  } else {
+    h.textContent = "Marcado por você.";
+  }
 }
 
 function abrirVencido() {
@@ -785,7 +808,9 @@ function abrirVencido() {
   pickVe.set(null);
   $("chk-aviso").className = "alertx chk-banner"; $("chk-aviso").innerHTML = "";
   limparCatalogo("ve-cat");
-  $("ve-avisado-bloco").style.display = "none";   // no cadastro, o aviso é detectado sozinho
+  $("ve-avisado-bloco").style.display = "";       // detectado sozinho, mas dá para marcar
+  _veAvisadoManual = false; _veTemAviso = false;
+  selecionarAvisado(0, true);
   $("ve-titulo").textContent = "Registrar vencido no escritório";
   $("ve-salvar").textContent = "Registrar";
   $("msg-ve").classList.remove("show");
@@ -820,9 +845,17 @@ function checarAviso() {
   clearTimeout(_chkTimer);
   const cb = $("ve-barras").value.trim();
   const banner = $("chk-aviso");
-  if (!cb) { banner.classList.remove("show"); limparCatalogo("ve-cat"); return; }
+  if (!cb) {
+    banner.classList.remove("show"); limparCatalogo("ve-cat");
+    _veTemAviso = false;
+    if (!_veAvisadoManual) selecionarAvisado(0, true); else dicaAvisado();
+    return;
+  }
   _chkTimer = setTimeout(async () => {
     const r = await postJSON("/vencidos/api/checar-aviso", { codigo_barras: cb });
+    if ($("ve-barras").value.trim() !== cb) return;   // já digitaram outro código
+    _veTemAviso = !!r.avisado;
+    if (!_veAvisadoManual) selecionarAvisado(r.avisado ? 1 : 0, true); else dicaAvisado();
     if (r.avisado) {
       banner.style.background = "var(--success-bg)";
       banner.style.borderColor = "color-mix(in srgb, var(--success) 35%, transparent)";
@@ -868,6 +901,7 @@ async function salvarVencido() {
     else { $("msg-ve-txt").textContent = r.msg; msg.classList.add("show"); }
     return;
   }
+  if (_veAvisadoManual) body.foi_avisado = _veAvisado;   // sem clique: automático no servidor
   const r = await postJSON("/vencidos/api/vencido", body);
   if (r.ok) location.href = "/vencidos/";   // volta p/ todos os meses
   else { $("msg-ve-txt").textContent = r.msg; msg.classList.add("show"); }

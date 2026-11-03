@@ -100,6 +100,22 @@ ORDEM_CONF["MÉDIA"] = 1          # a planilha usa a forma acentuada
 
 LEASE_PADRAO_S = 20 * 60         # a reserva é prazo, não trava
 
+# ── Painel de andamento ──────────────────────────────────────────────────────
+# "Dia" é o dia de São Paulo. O Python do Windows não traz a base de fusos
+# (falta o pacote tzdata), e o ZoneInfo falha; cai para UTC-3 fixo, que é o
+# mesmo desde que o Brasil aboliu o horário de verão (2019).
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    FUSO = _ZoneInfo("America/Sao_Paulo")
+except Exception:  # noqa: BLE001
+    from datetime import timedelta as _td, timezone as _tz
+    FUSO = _tz(_td(hours=-3), "America/Sao_Paulo")
+
+TEMPO_DECISAO_S = 13        # ~tempo de uma decisão na conferência (estimativa)
+INTERVALO_MAX_S = 60        # intervalo entre gravações acima disto = pausa, fora da mediana
+DIAS_RITMO = 10             # dias úteis do gráfico de ritmo
+DIAS_MEDIA = 7              # dias úteis da média da curadoria
+
 # Produto ATIVO = VENDEU (qtd > 0) deste mês em diante, pelo banco de vendas do
 # módulo de relatórios (Curva ABC). Decisão do usuário em 30/10/2026, depois de
 # medir que a "Últ. mov." da planilha não é a última venda: 2.048 itens com
@@ -374,7 +390,12 @@ class FilaBanco:
                              ("sug_dep", "TEXT"), ("sug_sec", "TEXT"),
                              ("sug_sub", "TEXT"), ("sug_conf", "TEXT"),
                              ("sug_base", "TEXT"),
-                             ("rev_em", "REAL"), ("rev_por", "TEXT")):
+                             ("rev_em", "REAL"), ("rev_por", "TEXT"),
+                             # 'aceitou' = ficou com a sugestão; 'corrigiu' =
+                             # escolheu outro destino. Só a partir de 30/10/2026:
+                             # a sugestão de antes é sobrescrita ao curar, então
+                             # não há como saber isso para as decisões antigas.
+                             ("curado_acao", "TEXT")):
             if coluna not in tem_i:
                 self.con.execute(f"ALTER TABLE itens ADD COLUMN {coluna} {tipo}")
 
@@ -1034,18 +1055,21 @@ class FilaBanco:
             try:
                 for cod in cods:
                     r = self.con.execute(
-                        "SELECT estado, pronto FROM itens WHERE cod=?",
-                        (cod,)).fetchone()
+                        "SELECT estado, pronto, dep_novo, sec_novo, sub_novo"
+                        " FROM itens WHERE cod=?", (cod,)).fetchone()
                     if r is None:
                         continue
                     if r["pronto"] or r["estado"] not in (LIVRE, SEM_DESTINO):
                         ja += 1
                         continue
+                    sugerido = (r["dep_novo"] or "", r["sec_novo"] or "", r["sub_novo"] or "")
+                    acao_item = "aceitou" if sugerido == (dep, sec, sub) else "corrigiu"
                     self.con.execute(
                         "UPDATE itens SET dep_novo=?, sec_novo=?, sub_novo=?,"
                         " estado=?, pronto=1, curado_em=?, curado_por=?,"
-                        " curado_nota=? WHERE cod=?",
-                        (dep, sec, sub, LIVRE, agora, por, nota or None, cod))
+                        " curado_nota=?, curado_acao=? WHERE cod=?",
+                        (dep, sec, sub, LIVRE, agora, por, nota or None,
+                         acao_item, cod))
                     aplicados += 1
                 if aplicados:
                     self._evento(acao, "", por, f"{aplicados} itens -> {dep}/{sec}/{sub}",
@@ -1129,6 +1153,316 @@ class FilaBanco:
             ja += res["ja_curados"]
         return {"ok": True, "aplicados": aplicados, "ja_curados": ja,
                 "recusados": recusados, "mudaram": mudaram}
+
+    # ── painel de andamento (só leitura) ─────────────────────────────────────
+    def andamento(self, usuario: str = "", agora: float | None = None) -> dict:
+        """Tudo o que o painel de andamento mostra. Só LÊ: nada aqui aprova,
+        reserva ou grava.
+
+        Conta só os ATIVOS (coluna `ativo`, regra `VENDA_DESDE`); o total geral
+        vai só como texto auxiliar. "Dia" = dia de São Paulo (`FUSO`); dia útil =
+        segunda a sexta. Atividade de sábado/domingo entra no acumulado, nos
+        "hoje" e nos dias seguidos não-úteis, mas não vira barra no ritmo.
+        """
+        from datetime import datetime, timedelta
+        import math
+        import statistics
+        from scripts.reclassificacao_estrutura import estrutura
+
+        est = estrutura()
+        agora = time.time() if agora is None else agora
+        hoje = datetime.fromtimestamp(agora, FUSO).date()
+        meia_noite = datetime(hoje.year, hoje.month, hoje.day, tzinfo=FUSO).timestamp()
+        dia = lambda t: datetime.fromtimestamp(t, FUSO).date()  # noqa: E731
+
+        with self.lock:
+            itens = [dict(r) for r in self.con.execute(
+                "SELECT cod, produto, estado, pronto, curado_em, curado_por,"
+                " concluido_em, operador, expira_em, dep_novo, sec_novo, sub_novo"
+                " FROM itens WHERE ativo=1")]
+            total_geral = self.con.execute("SELECT COUNT(*) FROM itens").fetchone()[0]
+            hora_atras = self.con.execute(
+                "SELECT operador, concluido_em FROM itens WHERE estado=?"
+                " AND concluido_em >= ? ORDER BY operador, concluido_em",
+                (CONCLUIDO, agora - 3600)).fetchall()
+            ultimos = [dict(r) for r in self.con.execute(
+                "SELECT cod, produto, concluido_em, operador,"
+                " COALESCE(NULLIF(dep_grav,''), dep_novo) AS dep,"
+                " COALESCE(NULLIF(sec_grav,''), sec_novo) AS sec,"
+                " COALESCE(NULLIF(sub_grav,''), sub_novo) AS sub"
+                " FROM itens WHERE estado=? AND concluido_em IS NOT NULL"
+                " ORDER BY concluido_em DESC LIMIT 5", (CONCLUIDO,))]
+        total = len(itens)
+
+        # ── as sete etapas (somam o total de ativos) ───────────────────────────
+        # `concluido` inclui ja_correto e pulado: o agente fechou o item, nada
+        # mais a fazer. `simulado` conta como "confirmado na fila": a pessoa já
+        # decidiu, só falta a rodada de verdade gravar.
+        etapas = {"gravado": 0, "gravando": 0, "confirmado": 0, "esperando": 0,
+                  "sem_destino": 0, "falhou": 0, "descartado": 0}
+        for it in itens:
+            e = it["estado"]
+            if e == CONCLUIDO:
+                etapas["gravado"] += 1
+            elif e == RESERVADO:
+                etapas["gravando"] += 1
+            elif e == SIMULADO or (e == LIVRE and it["pronto"]):
+                etapas["confirmado"] += 1
+            elif e == LIVRE:
+                etapas["esperando"] += 1
+            elif e == SEM_DESTINO:
+                etapas["sem_destino"] += 1
+            elif e == FALHOU:
+                etapas["falhou"] += 1
+            elif e == DESCARTADO:
+                etapas["descartado"] += 1
+        pct = lambda n: round(n * 100 / total, 1) if total else 0.0  # noqa: E731
+
+        gravados = etapas["gravado"]
+        grav_antes_hoje = sum(1 for it in itens if it["estado"] == CONCLUIDO
+                              and it["concluido_em"] and it["concluido_em"] < meia_noite)
+        pct_gravado = pct(gravados)
+        marco = min(100, (math.floor(pct_gravado / 10) + 1) * 10)
+        faltam_marco = max(0, math.ceil(total * marco / 100) - gravados)
+
+        # ── por dia (só ativos) ────────────────────────────────────────────────
+        conf_dia, grav_dia, meu_dia = {}, {}, {}
+        for it in itens:
+            if it["curado_em"]:
+                d = dia(it["curado_em"])
+                conf_dia[d] = conf_dia.get(d, 0) + 1
+                if usuario and it["curado_por"] == usuario:
+                    meu_dia[d] = meu_dia.get(d, 0) + 1
+            if it["estado"] == CONCLUIDO and it["concluido_em"]:
+                d = dia(it["concluido_em"])
+                grav_dia[d] = grav_dia.get(d, 0) + 1
+
+        def uteis_ate(d, n):
+            """Os `n` últimos dias úteis até `d` (inclusive se for útil), do mais
+            antigo para o mais novo."""
+            out = []
+            while len(out) < n:
+                if d.weekday() < 5:
+                    out.append(d)
+                d -= timedelta(days=1)
+            return out[::-1]
+
+        ritmo_dias = uteis_ate(hoje, DIAS_RITMO)
+        ritmo = [{"dia": d.isoformat(), "rotulo": f"{d.day:02d}/{d.month:02d}",
+                  "semana": "smtqqss"[d.weekday()],
+                  "confirmados": conf_dia.get(d, 0), "gravados": grav_dia.get(d, 0),
+                  "hoje": d == hoje} for d in ritmo_dias]
+        soma = [r["confirmados"] + r["gravados"] for r in ritmo]
+        melhor_i = max(range(len(ritmo)), key=lambda i: soma[i]) if any(soma) else None
+        for i, r in enumerate(ritmo):
+            r["melhor"] = i == melhor_i
+        # "o melhor dia do LOTE": contra todos os dias, não só os 10 do gráfico
+        por_dia = {x: conf_dia.get(x, 0) + grav_dia.get(x, 0) for x in set(conf_dia) | set(grav_dia)}
+        hoje_melhor_do_lote = bool(por_dia.get(hoje)) and por_dia[hoje] >= max(por_dia.values())
+
+        # dias úteis seguidos com avanço. Hoje sem avanço AINDA não quebra a
+        # sequência (o dia não acabou): conta-se a partir do último dia útil.
+        avancou = lambda d: conf_dia.get(d, 0) + grav_dia.get(d, 0) > 0  # noqa: E731
+        d = hoje
+        if d.weekday() >= 5 or not avancou(d):
+            d -= timedelta(days=1)
+        seguidos = 0
+        while True:
+            if d.weekday() < 5:
+                if not avancou(d):
+                    break
+                seguidos += 1
+            d -= timedelta(days=1)
+
+        # ── curadoria (pessoas) ────────────────────────────────────────────────
+        # Os 7 últimos dias úteis INCLUINDO hoje: hoje ainda pela metade puxa a
+        # média para baixo, então a estimativa erra para o lado seguro (diz mais
+        # dias do que vai levar), e aparece já no primeiro dia de trabalho.
+        media_dias = uteis_ate(hoje, DIAS_MEDIA)
+        media = sum(conf_dia.get(x, 0) for x in media_dias) / DIAS_MEDIA
+        faltam_decidir = etapas["esperando"] + etapas["sem_destino"]
+        est_cur = round(faltam_decidir / media, 1) if media > 0 and faltam_decidir else None
+        melhor_meu = max(meu_dia.items(), key=lambda x: x[1]) if meu_dia else None
+        curadoria = {
+            "hoje_equipe": conf_dia.get(hoje, 0),
+            "hoje_usuario": meu_dia.get(hoje, 0),
+            "melhor_dia_usuario": ({"dia": melhor_meu[0].isoformat(), "n": melhor_meu[1]}
+                                   if melhor_meu else None),
+            "media_dia_util": round(media, 1),
+            "faltam_decidir": faltam_decidir,
+            "estimativa_dias_uteis": est_cur,
+        }
+
+        # ── gravação (máquinas) ────────────────────────────────────────────────
+        seg = self._seg_por_produto(hora_atras)
+        operadores = self.listar_operadores()
+        vivas = [o for o in operadores if o["vivo"]]
+        fila = etapas["confirmado"] + etapas["gravando"]
+        est_fila = (round(fila * seg / len(vivas) / 60, 1)
+                    if seg and vivas and fila else (0.0 if not fila else None))
+        gravacao = {
+            "hoje": grav_dia.get(hoje, 0), "seg_por_produto": seg,
+            "fila": fila, "maquinas_vivas": len(vivas),
+            "estimativa_min": est_fila, "falharam": etapas["falhou"],
+        }
+
+        # ── por departamento de DESTINO ────────────────────────────────────────
+        deps = {}
+        for it in itens:
+            dep = it["dep_novo"] or ""
+            if not dep or it["estado"] in (DESCARTADO, SEM_DESTINO):
+                continue    # sem destino não tem departamento
+            g = deps.setdefault(dep, {"dep": dep, "nome": est.nome_dep(dep) or f"Departamento {dep}",
+                                      "total": 0, "gravados": 0, "confirmados": 0, "faltam": 0})
+            g["total"] += 1
+            if it["estado"] == CONCLUIDO:
+                g["gravados"] += 1
+            elif it["estado"] == LIVRE and not it["pronto"]:
+                g["faltam"] += 1
+            elif it["estado"] in (LIVRE, RESERVADO, SIMULADO):
+                g["confirmados"] += 1
+        concluidos_dep = sorted(g["nome"] for g in deps.values() if g["gravados"] == g["total"])
+        departamentos = sorted((g for g in deps.values() if g["gravados"] < g["total"]),
+                               key=lambda g: (g["faltam"], g["nome"]))
+        for g in departamentos:
+            g["pct_gravado"] = round(g["gravados"] * 100 / g["total"], 1)
+            g["pct_confirmado"] = round(g["confirmados"] * 100 / g["total"], 1)
+        perto = next((g for g in departamentos if g["faltam"] > 0), None)
+        mais_perto = (dict(perto, estimativa_min=max(1, round(perto["faltam"] * TEMPO_DECISAO_S / 60)))
+                      if perto else None)
+
+        maquinas = self._maquinas_painel(operadores, agora)
+
+        # ── últimos gravados ───────────────────────────────────────────────────
+        for u in ultimos:
+            quando = datetime.fromtimestamp(u["concluido_em"], FUSO)
+            u["hora"] = quando.strftime("%H:%M")
+            u["e_hoje"] = quando.date() == hoje
+            # de outro dia, a hora sozinha enganaria ("18:21" parece de hoje)
+            u["quando"] = u["hora"] if u["e_hoje"] else quando.strftime("%d/%m %H:%M")
+            u["destino"] = " › ".join(x for x in (est.nome_dep(u["dep"]), est.nome_sub(u["sub"])) if x) \
+                or "/".join(str(x or "") for x in (u["dep"], u["sec"], u["sub"]))
+
+        fim = None
+        if total and gravados == total:
+            fim = datetime.fromtimestamp(max(it["concluido_em"] or 0 for it in itens),
+                                         FUSO).date().isoformat()
+        return {
+            "ok": True, "agora": agora, "hoje": hoje.isoformat(),
+            "total": total, "total_geral": total_geral,
+            "etapas": etapas, "gravados": gravados,
+            "pct_gravado": pct_gravado, "pct_inicio_do_dia": pct(grav_antes_hoje),
+            "proximo_marco": {"pct": marco, "faltam": faltam_marco} if pct_gravado < 100 else None,
+            "curadoria": curadoria, "gravacao": gravacao,
+            "ritmo": ritmo, "dias_seguidos_com_avanco": seguidos,
+            "hoje_melhor_do_lote": hoje_melhor_do_lote,
+            "departamentos": departamentos, "departamentos_concluidos": concluidos_dep,
+            "mais_perto": mais_perto, "maquinas": maquinas,
+            "ultimos_gravados": ultimos, "lote_concluido_em": fim,
+        }
+
+    @staticmethod
+    def _seg_por_produto(conclusoes):
+        """Mediana dos intervalos entre conclusões SEGUIDAS da mesma máquina
+        (`conclusoes` ordenadas por operador e hora). Intervalo acima de
+        `INTERVALO_MAX_S` é pausa, não ritmo, e fica de fora."""
+        import statistics
+        intervalos, anterior = [], {}
+        for op, t in conclusoes:
+            if op in anterior and 0 < t - anterior[op] <= INTERVALO_MAX_S:
+                intervalos.append(t - anterior[op])
+            anterior[op] = t
+        return round(statistics.median(intervalos), 1) if intervalos else None
+
+    def _maquinas_painel(self, operadores, agora):
+        with self.lock:
+            vencidos = dict(self.con.execute(
+                "SELECT operador, COUNT(*) FROM itens WHERE estado=?"
+                " AND expira_em < ? GROUP BY operador", (RESERVADO, agora)).fetchall())
+        maquinas = []
+        for o in operadores:
+            if o.get("revogado_em"):
+                continue
+            bloco = o["bloco"] or 0
+            res = o["reservados"] or 0
+            maquinas.append({
+                "nome": o["nome"], "maquina": o["maquina"], "estado": o["agente_estado"] or "",
+                "vivo": o["vivo"], "silencio_s": o["silencio_s"], "atual": o["agente_atual"] or "",
+                "comando": o["comando"], "reservados": res, "bloco": bloco,
+                # feitos dentro do bloco = o que já saiu da reserva dele
+                "feitos_bloco": max(0, bloco - res) if res else 0,
+                # sem contato e com TODA a reserva vencida: os itens voltam à
+                # fila na próxima reserva de qualquer máquina. Sem reserva não
+                # há item nenhum para "voltar" — a frase seria falsa.
+                "itens_voltaram": (not o["vivo"]) and res > 0 and vencidos.get(o["nome"], 0) == res,
+            })
+        return maquinas
+
+    def andamento_leve(self, agora: float | None = None) -> dict:
+        """A parte do painel que muda a cada segundo — etapas, percentual, fila e
+        máquinas —, com contagens agrupadas no SQL. O painel chama a cada 4 s;
+        o `andamento` completo (ritmo, departamentos) vai em cache de 60 s."""
+        import math
+        agora = time.time() if agora is None else agora
+        with self.lock:
+            linhas = self.con.execute(
+                "SELECT estado, pronto, COUNT(*) FROM itens WHERE ativo=1"
+                " GROUP BY estado, pronto").fetchall()
+            hora_atras = self.con.execute(
+                "SELECT operador, concluido_em FROM itens WHERE estado=?"
+                " AND concluido_em >= ? ORDER BY operador, concluido_em",
+                (CONCLUIDO, agora - 3600)).fetchall()
+        etapas = {"gravado": 0, "gravando": 0, "confirmado": 0, "esperando": 0,
+                  "sem_destino": 0, "falhou": 0, "descartado": 0}
+        chave = {CONCLUIDO: "gravado", RESERVADO: "gravando", SIMULADO: "confirmado",
+                 SEM_DESTINO: "sem_destino", FALHOU: "falhou", DESCARTADO: "descartado"}
+        for estado, pronto, n in linhas:
+            k = ("confirmado" if pronto else "esperando") if estado == LIVRE else chave.get(estado)
+            if k:
+                etapas[k] += n
+        total = sum(etapas.values())
+        gravados = etapas["gravado"]
+        pct_gravado = round(gravados * 100 / total, 1) if total else 0.0
+        marco = min(100, (math.floor(pct_gravado / 10) + 1) * 10)
+        operadores = self.listar_operadores()
+        vivas = [o for o in operadores if o["vivo"]]
+        seg = self._seg_por_produto(hora_atras)
+        fila = etapas["confirmado"] + etapas["gravando"]
+        return {
+            "ok": True, "agora": agora, "total": total, "etapas": etapas,
+            "gravados": gravados, "pct_gravado": pct_gravado,
+            "proximo_marco": ({"pct": marco, "faltam": max(0, math.ceil(total * marco / 100) - gravados)}
+                              if pct_gravado < 100 else None),
+            "gravacao_leve": {
+                "fila": fila, "maquinas_vivas": len(vivas), "seg_por_produto": seg,
+                "estimativa_min": (round(fila * seg / len(vivas) / 60, 1)
+                                   if seg and vivas and fila else (0.0 if not fila else None)),
+                "falharam": etapas["falhou"]},
+            "maquinas": self._maquinas_painel(operadores, agora),
+        }
+
+    def resumo_sessao(self, usuario: str, desde: float) -> dict:
+        """O que esta pessoa decidiu desde `desde` (início da sessão na tela).
+
+        Conta pelo estado ATUAL do banco: aprovação que voltou em `ja_curados`
+        (era de outra pessoa) ou que foi desfeita não está como dela, então o
+        número bate com o que de fato ficou aprovado."""
+        with self.lock:
+            linhas = self.con.execute(
+                "SELECT estado, curado_acao FROM itens WHERE curado_por=?"
+                " AND curado_em >= ? AND pronto=1", (usuario, float(desde))).fetchall()
+        a = self.andamento(usuario)
+        return {
+            "ok": True, "desde": float(desde),
+            "confirmados": len(linhas),
+            "ja_gravados": sum(1 for e, _ in linhas if e == CONCLUIDO),
+            "na_fila": sum(1 for e, _ in linhas if e in (LIVRE, RESERVADO, SIMULADO)),
+            "corrigidos": sum(1 for _, ac in linhas if ac == "corrigiu"),
+            "pct_inicio_do_dia": a["pct_inicio_do_dia"], "pct_agora": a["pct_gravado"],
+            "equipe_hoje": a["curadoria"]["hoje_equipe"],
+            "mais_perto": a["mais_perto"],
+            "algum_departamento_concluido": bool(a["departamentos_concluidos"]),
+        }
 
     # ── inclusão a partir do catálogo ────────────────────────────────────────
     def incluir_do_catalogo(self, so_com_venda: bool = True, aplicar: bool = False,
@@ -1394,8 +1728,11 @@ class FilaBanco:
             antes = (r["dep_novo"] or "", r["sec_novo"] or "", r["sub_novo"] or "")
             self.con.execute(
                 "UPDATE itens SET dep_novo=?, sec_novo=?, sub_novo=?,"
-                " curado_em=?, curado_por=?, curado_nota=? WHERE cod=?",
-                (dep, sec, sub, time.time(), por, nota or None, cod))
+                " curado_em=?, curado_por=?, curado_nota=?,"
+                " curado_acao=CASE WHEN ? THEN 'corrigiu' ELSE curado_acao END"
+                " WHERE cod=?",
+                (dep, sec, sub, time.time(), por, nota or None,
+                 antes != (dep, sec, sub), cod))
             self._evento("corrigiu", cod, por,
                          f"destino corrigido (era de {r['curado_por'] or '—'})",
                          antes=antes, depois=(dep, sec, sub))
@@ -1784,3 +2121,8 @@ def exportar_resultado(destino: str | Path) -> Path:
     destino.parent.mkdir(parents=True, exist_ok=True)
     wb.save(destino)
     return destino
+
+
+def andamento(usuario: str = "") -> dict:
+    """Atalho de módulo: `banco().andamento(usuario)`."""
+    return banco().andamento(usuario)

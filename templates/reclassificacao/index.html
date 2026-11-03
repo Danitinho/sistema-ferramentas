@@ -5,6 +5,7 @@
 
 {% block header_actions %}
   <a class="btn btn-primary btn-sm" href="/reclassificacao/curadoria">Curadoria</a>
+  <a class="btn btn-secondary btn-sm" href="#console">Console das máquinas</a>
   <a class="btn btn-secondary btn-sm" href="/reclassificacao/exportar">Exportar resultado</a>
 {% endblock %}
 
@@ -82,6 +83,131 @@
   .rev-item .de { color: var(--muted); text-decoration: line-through; }
   .rev-item .para { color: var(--success); font-weight: 600; }
   .rev-item .por { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ═══ Painel de andamento ═══════════════════════════════════════════════
+     Feito para dar sensação de progresso a quem faz a curadoria (tarefa
+     repetitiva). Só LÊ. Um destaque: o percentual gravado; o resto quieto.
+     Cores das etapas: misturas do acento com a superfície, então valem nos
+     dois temas sem hex cravado. */
+  .and { display: flex; flex-direction: column; gap: 28px; margin-bottom: 40px; }
+  .and-atual { font-size: 13.5px; color: var(--muted); text-align: right; margin-bottom: -16px; }
+  .and-topo { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px; }
+  .and-big { display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap; min-width: 0; }
+  .and-pct { font-family: var(--mono); font-size: clamp(64px, 9vw, 104px); line-height: .9;
+             font-weight: 500; letter-spacing: -.05em; color: var(--accent); }
+  .and-pct small { font-size: .54em; letter-spacing: 0; margin-left: .06em; }
+  .and-tit { padding-bottom: 6px; min-width: 0; }
+  .and-tit h1 { margin: 0; font-size: clamp(19px, 2.4vw, 28px); line-height: 1.2; font-weight: 600; letter-spacing: -.01em; }
+  .and-tit p { margin: 4px 0 0; font-size: 16px; color: var(--ink-2); }
+  .and-aux { font-size: 13.5px; color: var(--muted); }
+  .marco { flex: 0 1 300px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line);
+           border-radius: var(--radius); }
+  .marco-rot { font-size: 14px; color: var(--muted); }
+  .marco-v { font-size: 17px; font-weight: 500; }
+  .trilho { height: 6px; margin-top: 8px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+  .trilho i { display: block; height: 100%; background: var(--accent); transition: width .5s ease; }
+
+  .etapas-barra { display: flex; height: 28px; gap: 2px; border-radius: var(--radius-sm); overflow: hidden;
+                  background: var(--surface); }
+  .etapas-barra i { flex: 0 0 auto; min-width: 3px; transition: width .5s ease; }
+  .etapas-leg { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+  .etapas-leg li { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--ink-2); }
+  .etapas-leg .q { width: 12px; height: 12px; border-radius: 2px; border: 1px solid transparent; }
+  .etapas-leg b { font-family: var(--mono); font-weight: 500; color: var(--ink); }
+  .et-gravado     { background: var(--accent); }
+  .et-gravando    { background: color-mix(in srgb, var(--accent) 65%, var(--surface)); }
+  .et-confirmado  { background: color-mix(in srgb, var(--accent) 32%, var(--surface)); }
+  .et-esperando   { background: var(--line); border-color: var(--line-2) !important; }
+  .et-sem_destino { background: var(--line-2); }
+  .et-falhou      { background: var(--danger); }
+  .et-descartado  { background: var(--muted); }
+
+  .and-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; }
+  .and-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+              padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .and-card h2 { margin: 0; font-size: 19px; font-weight: 600; }
+  .and-card .cab { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .and-card p { margin: 0; font-size: 16px; color: var(--ink-2); }
+  .and-card p strong { color: var(--ink); font-weight: 600; }
+  .tres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .tres .v { font-family: var(--mono); font-size: 30px; font-weight: 500; letter-spacing: -.03em; line-height: 1.15; }
+  .tres .l { font-size: 14px; color: var(--muted); }
+  .selo { font-size: 13px; font-weight: 500; padding: 2px 8px; border-radius: var(--radius-sm);
+          background: var(--warning-bg); color: var(--warning); white-space: nowrap; }
+  .and-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+  .b44 { min-height: 44px; width: auto; margin-top: 0; padding: 0 18px; }
+  .falhas { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+            padding: 10px 14px; background: var(--danger-bg); color: var(--danger); border-radius: var(--radius-sm);
+            margin-top: auto; font-size: 15px; }
+  .falhas a { color: var(--danger); font-weight: 500; text-decoration: underline; min-height: 44px;
+              display: inline-flex; align-items: center; }
+
+  .ritmo-cab { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .ritmo-leg { display: flex; gap: 18px; font-size: 14px; color: var(--ink-2); }
+  .ritmo-leg span { display: flex; align-items: center; gap: 6px; }
+  .ritmo-leg i { width: 12px; height: 12px; border-radius: 2px; }
+  .ritmo-rolo { overflow-x: auto; }
+  .ritmo-graf, .ritmo-rot { min-width: 560px; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 10px; }
+  .ritmo-graf { align-items: end; height: 210px; border-bottom: 1px solid var(--ink); }
+  .ritmo-graf .dia { display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+                     gap: 4px; height: 100%; }
+  .ritmo-graf .n { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--accent); }
+  .ritmo-graf .par { display: flex; gap: 3px; align-items: flex-end; width: 100%; justify-content: center; }
+  .ritmo-graf .par i { width: 40%; border-radius: 2px 2px 0 0; }
+  .ritmo-c { background: var(--accent); }
+  .ritmo-g { background: var(--muted); }
+  .ritmo-rot { padding-top: 6px; }
+  .ritmo-rot span { text-align: center; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .ritmo-rot span.hoje { color: var(--accent); font-weight: 500; }
+
+  .and-baixo { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .and-baixo > .deps { flex: 999 1 540px; }
+  .and-baixo > .agora { flex: 1 1 320px; }
+  .perto { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+           padding: 12px 14px; background: var(--accent-soft); border-radius: var(--radius-sm); font-size: 15px; color: var(--ink); }
+  .perto .btn { border-color: var(--accent); color: var(--accent); }
+  .dep-l { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr) 96px; gap: 14px;
+           align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .dep-l .nome { font-size: 15px; font-weight: 500; }
+  .dep-l .fal { text-align: right; font-size: 14px; color: var(--ink-2); }
+  .dep-l .fal b { font-family: var(--mono); font-weight: 400; color: var(--ink); }
+  .dep-barra { display: flex; height: 10px; border-radius: 2px; overflow: hidden; background: var(--surface-3); gap: 1px; }
+  .dep-barra .g { background: var(--accent); }
+  .dep-barra .c { background: color-mix(in srgb, var(--accent) 32%, var(--surface)); }
+  .ver-deps { display: none; }
+
+  .maq-a { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .maq-a .l1 { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .maq-a .nm { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 15px; font-weight: 500; }
+  .bola { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .b-rodando { background: var(--accent); } .b-pausado { background: var(--warning); } .b-sem { background: var(--line-2); }
+  .maq-a .st { font-size: 14px; } .st-rodando { color: var(--accent); } .st-pausado { color: var(--warning); } .st-sem { color: var(--muted); }
+  .maq-a .at { font-size: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
+  .maq-a .blo { display: flex; align-items: center; gap: 10px; }
+  .maq-a .blo .trilho { flex: 1; height: 4px; margin: 0; }
+  .maq-a .blo span { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .feed { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 14px; }
+  .feed .h { font-family: var(--mono); color: var(--muted); }
+  .feed .d { color: var(--muted); }
+  .and-vazio { font-size: 16px; color: var(--ink-2); }
+  .sec-console { margin: 8px 0 16px; padding-bottom: 7px; border-bottom: 2px solid var(--ink);
+                 font-size: 13.5px; font-weight: 500; color: var(--muted); scroll-margin-top: 140px; }
+
+  @media (max-width: 599px) {
+    .and { gap: 18px; }
+    .and-pct { font-size: 72px; }
+    .marco { flex-basis: 100%; }
+    .and-card { padding: 16px; gap: 12px; }
+    .tres .v { font-size: 24px; }
+    .tres .l { font-size: 13px; }
+    .continuar { width: 100%; min-height: 52px; font-size: 17px; justify-content: center; }
+    .deps:not(.todos) .dep-l:nth-of-type(n+5) { display: none; }
+    .ver-deps { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); }
+    .deps.todos .ver-deps { display: none; }
+    .dep-l { grid-template-columns: minmax(0, 1fr) 84px; }
+    .dep-l .dep-barra { grid-column: 1 / -1; grid-row: 2; }
+    .and-atual { text-align: left; margin-bottom: -8px; }
+  }
 </style>
 {% endblock %}
 
@@ -97,6 +223,25 @@
 </div>
 {% endif %}
 
+
+<!-- ═══ Painel de andamento (só leitura; montado pelo script com os dados da
+     rota e atualizado a cada 4 s / 60 s) ═══════════════════════════════════ -->
+<section class="and full" id="andamento" aria-label="Andamento da reclassificação">
+  <div class="and-atual" id="and-atual" aria-live="polite"></div>
+  <div id="and-topo"></div>
+  <div id="and-etapas"></div>
+  <div class="and-cards">
+    <section class="and-card" id="and-cur" aria-labelledby="t-cur"></section>
+    <section class="and-card" id="and-grav" aria-labelledby="t-grav"></section>
+  </div>
+  <section class="and-card" id="and-ritmo" aria-labelledby="t-ritmo"></section>
+  <div class="and-baixo">
+    <section class="and-card deps" id="and-deps" aria-labelledby="t-dep"></section>
+    <section class="and-card agora" id="and-agora" aria-labelledby="t-agora"></section>
+  </div>
+</section>
+
+<h2 class="sec-console full" id="console">Console das máquinas</h2>
 <!-- Painel do lote -->
 <div class="painel full">
   <div class="stat-card">
@@ -261,7 +406,7 @@
 </div>
 
 <!-- Ações do lote -->
-<div class="card full">
+<div class="card full" id="acoes-lote" style="scroll-margin-top:140px">
   <div class="card-title">Lote</div>
 
   <form method="post" action="/reclassificacao/importar" enctype="multipart/form-data"
@@ -451,6 +596,253 @@ async function revisarAplicar() {
 }
 </script>
 {% endif %}
+
+<script>
+// ═══ Painel de andamento ═══════════════════════════════════════════════════
+// Só lê. Os números chegam com a página (AND_INICIAL); depois, a parte leve
+// (etapas, %, fila, máquinas) a cada 4 s e o resto (ritmo, departamentos) a
+// cada 60 s — que é o cache do servidor.
+const AND_INICIAL = {{ andamento_inicial | tojson }};
+let _and = AND_INICIAL;
+const $a = id => document.getElementById(id);
+const fN = n => Number(n || 0).toLocaleString("pt-BR");
+const fP = n => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+const escA = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ETAPAS = [
+  ["gravado", "gravados no ERP"], ["gravando", "gravando agora"], ["confirmado", "confirmados, na fila"],
+  ["esperando", "esperando curadoria"], ["sem_destino", "sem destino"], ["falhou", "falharam"],
+  ["descartado", "descartados"],
+];
+
+function dataBR(iso) { const [a, m, d] = String(iso).split("-"); return `${d}/${m}/${a}`; }
+
+function desenharTopo(d) {
+  const el = $a("and-topo");
+  if (d.lote_concluido_em) {
+    el.innerHTML = `<div class="and-topo"><div class="and-big">
+      <span class="and-pct">100<small>%</small></span>
+      <div class="and-tit"><h1>Lote concluído</h1>
+        <p>Os <span class="num">${fN(d.total)}</span> produtos ativos foram gravados no ERP. Terminou em ${dataBR(d.lote_concluido_em)}.</p></div>
+    </div></div>`;
+    return;
+  }
+  if (!el.dataset.pronto) {
+    // estrutura uma vez só: depois só os números e as larguras mudam, para a
+    // barra fazer UMA transição curta quando o percentual sobe
+    el.innerHTML = `<div class="and-topo">
+      <div class="and-big">
+        <span class="and-pct" id="a-pct"></span>
+        <div class="and-tit"><h1>do lote já está gravado no ERP</h1>
+          <p id="a-sub"></p><div class="and-aux" id="a-aux"></div></div>
+      </div>
+      <div class="marco" id="a-marco"><div class="marco-rot">Próximo marco</div>
+        <div class="marco-v" id="a-marco-v"></div><div class="trilho"><i id="a-marco-i"></i></div></div>
+    </div>`;
+    el.dataset.pronto = "1";
+  }
+  const pct = Number(d.pct_gravado || 0);
+  $a("a-pct").innerHTML = `${fP(Math.floor(pct))}<small>%</small>`;
+  $a("a-sub").innerHTML = `<span class="num">${fN(d.gravados)}</span> de <span class="num">${fN(d.total)}</span> produtos ativos. Hoje começou em ${fP(Math.floor(d.pct_inicio_do_dia || 0))}%.`;
+  $a("a-aux").textContent = d.total_geral ? `O lote tem ${fN(d.total_geral)} produtos contando os inativos.` : "";
+  const m = d.proximo_marco;
+  $a("a-marco").hidden = !m;
+  if (m) {
+    $a("a-marco-v").innerHTML = `${m.pct}%, faltam <span class="num">${fN(m.faltam)}</span> produtos`;
+    const base = m.pct - 10;      // progresso DENTRO da faixa de 10% do marco
+    $a("a-marco-i").style.width = Math.max(0, Math.min(100, (pct - base) * 10)) + "%";
+  }
+}
+
+function desenharEtapas(d) {
+  const el = $a("and-etapas");
+  const e = d.etapas || {};
+  const total = d.total || 1;
+  if (!el.dataset.pronto) {
+    el.innerHTML = `<div class="etapas-barra" role="img" id="e-barra">${ETAPAS.map(([k]) =>
+      `<i class="et-${k}" data-k="${k}"></i>`).join("")}</div>
+      <ul class="etapas-leg" style="margin-top:12px" id="e-leg"></ul>`;
+    el.dataset.pronto = "1";
+  }
+  el.querySelectorAll("#e-barra i").forEach(i => {
+    const n = e[i.dataset.k] || 0;
+    i.style.width = n ? `calc(${(n / total * 100).toFixed(3)}% - 2px)` : "0";
+    i.style.display = n ? "" : "none";
+  });
+  $a("e-barra").setAttribute("aria-label", `Situação dos ${fN(d.total)} produtos ativos: `
+    + ETAPAS.map(([k, nome]) => `${fN(e[k])} ${nome}`).join(", "));
+  $a("e-leg").innerHTML = ETAPAS.filter(([k]) => e[k]).map(([k, nome]) =>
+    `<li><span class="q et-${k}"></span><b>${fN(e[k])}</b>${nome}</li>`).join("");
+}
+
+function minutosAte22h() {
+  const a = new Date(), f = new Date(a); f.setHours(22, 0, 0, 0);
+  return (f - a) / 60000;
+}
+
+function desenharCards(d) {
+  const c = d.curadoria || {}, g = d.gravacao || {};
+  // gargalo: a curadoria leva mais que a fila das máquinas (1 dia útil = 8 h)
+  const curMin = c.estimativa_dias_uteis != null ? c.estimativa_dias_uteis * 8 * 60 : null;
+  const gargalo = curMin != null && g.estimativa_min != null && curMin > g.estimativa_min;
+  const semDest = (d.etapas || {}).sem_destino || 0;
+  let frase = "";
+  if (c.estimativa_dias_uteis != null) {
+    const dias = Math.max(1, Math.round(c.estimativa_dias_uteis));
+    frase += `No ritmo da semana, a curadoria termina em <strong>cerca de ${fN(dias)} ${dias === 1 ? "dia útil" : "dias úteis"}</strong>. `;
+  }
+  frase += `Hoje você confirmou <span class="num">${fN(c.hoje_usuario)}</span>`;
+  frase += c.melhor_dia_usuario ? `; seu melhor dia foi <span class="num">${fN(c.melhor_dia_usuario.n)}</span>.` : ".";
+  $a("and-cur").innerHTML = `
+    <div class="cab"><h2 id="t-cur">Curadoria, feita pelas pessoas</h2>${gargalo ? '<span class="selo">é o gargalo</span>' : ""}</div>
+    <div class="tres">
+      <div><div class="v">${fN(c.hoje_equipe)}</div><div class="l">confirmados hoje</div></div>
+      <div><div class="v">${fN(Math.round(c.media_dia_util || 0))}</div><div class="l">por dia, média de 7 dias úteis</div></div>
+      <div><div class="v">${fN(c.faltam_decidir)}</div><div class="l">faltam decidir</div></div>
+    </div>
+    <p>${frase}</p>
+    <div class="and-acoes">
+      <a class="btn btn-primary b44 continuar" href="/reclassificacao/curadoria">Continuar curadoria</a>
+      ${semDest ? `<a class="btn btn-secondary b44" href="/reclassificacao/curadoria?conf=REVISAR">Ver os ${fN(semDest)} sem destino</a>` : ""}
+    </div>`;
+
+  let fg = "";
+  if (!g.fila) fg = "A fila das máquinas está vazia: tudo o que foi confirmado já foi gravado.";
+  else if (!g.maquinas_vivas) fg = "Nenhuma máquina ligada agora: os confirmados esperam na fila.";
+  else if (g.estimativa_min != null) {
+    const min = Math.max(1, Math.round(g.estimativa_min));
+    fg = `A fila das máquinas acaba em <strong>cerca de ${fN(min)} ${min === 1 ? "minuto" : "minutos"}</strong>.`;
+    // só é verdade se a fila acaba antes das 22h
+    if (g.estimativa_min < minutosAte22h()) fg += " Tudo o que for confirmado agora é gravado ainda hoje.";
+  }
+  $a("and-grav").innerHTML = `
+    <h2 id="t-grav">Gravação no ERP, feita pelas máquinas</h2>
+    <div class="tres">
+      <div><div class="v">${fN(g.hoje)}</div><div class="l">gravados hoje</div></div>
+      <div><div class="v">${g.seg_por_produto != null ? fP(g.seg_por_produto) + " s" : "—"}</div><div class="l">por produto</div></div>
+      <div><div class="v">${fN(g.fila)}</div><div class="l">na fila delas</div></div>
+    </div>
+    <p>${fg}</p>
+    ${g.falharam ? `<div class="falhas"><span><span class="num">${fN(g.falharam)}</span> ${g.falharam === 1 ? "produto o ERP recusou e está parado" : "produtos o ERP recusou e estão parados"}</span>
+      <a href="#acoes-lote">Ver motivos</a></div>` : ""}`;
+}
+
+function desenharRitmo(d) {
+  const e = d.etapas || {};
+  const algoConfirmado = (e.confirmado || 0) + (e.gravando || 0) + (e.gravado || 0) + (e.falhou || 0);
+  const el = $a("and-ritmo");
+  if (!algoConfirmado) {
+    el.innerHTML = `<h2 id="t-ritmo">Ritmo</h2>
+      <p class="and-vazio">Nenhum produto ativo confirmado ainda. O ritmo aparece aqui assim que a curadoria começar.</p>
+      <div><a class="btn btn-primary b44" href="/reclassificacao/curadoria">Começar a curadoria</a></div>`;
+    return;
+  }
+  const dias = d.ritmo || [];
+  const max = Math.max(1, ...dias.map(x => Math.max(x.confirmados, x.gravados)));
+  const alt = 180;
+  const hoje = dias.find(x => x.hoje);
+  const frases = [];
+  if (d.hoje_melhor_do_lote) frases.push("Hoje é o melhor dia do lote até agora.");
+  if ((d.dias_seguidos_com_avanco || 0) >= 3) frases.push(`São ${fN(d.dias_seguidos_com_avanco)} dias úteis seguidos com avanço.`);
+  const rotulo = `Confirmados e gravados por dia útil, de ${dias[0] ? dias[0].rotulo : ""} a ${dias.length ? dias[dias.length - 1].rotulo : ""}.`
+    + (hoje ? ` Hoje: ${fN(hoje.confirmados)} confirmados e ${fN(hoje.gravados)} gravados.` : "");
+  el.innerHTML = `
+    <div class="ritmo-cab"><h2 id="t-ritmo">Ritmo dos últimos 10 dias úteis</h2>
+      <div class="ritmo-leg"><span><i class="ritmo-c"></i>confirmados</span><span><i class="ritmo-g"></i>gravados</span></div></div>
+    <div class="ritmo-rolo">
+      <div class="ritmo-graf" role="img" aria-label="${escA(rotulo)}">${dias.map(x => `
+        <div class="dia">${x.hoje ? `<span class="n">${fN(x.confirmados)}</span>` : ""}
+          <div class="par"><i class="ritmo-c" style="height:${Math.round(x.confirmados / max * alt)}px"></i><i class="ritmo-g" style="height:${Math.round(x.gravados / max * alt)}px"></i></div>
+        </div>`).join("")}</div>
+      <div class="ritmo-rot">${dias.map(x => `<span class="${x.hoje ? "hoje" : ""}">${x.hoje ? "hoje" : x.rotulo}</span>`).join("")}</div>
+    </div>
+    ${frases.length ? `<p style="font-size:15px">${frases.join(" ")}</p>` : ""}`;
+}
+
+function desenharDeps(d) {
+  const deps = d.departamentos || [];
+  const mp = d.mais_perto;
+  const el = $a("and-deps");
+  const todos = el.classList.contains("todos");
+  el.innerHTML = `
+    <h2 id="t-dep">Por departamento</h2>
+    <p style="font-size:15px;color:var(--muted)">Em ordem do que está mais perto de acabar.</p>
+    ${mp ? `<div class="perto"><span>${escA(mp.nome)} fecha com mais <strong class="num" style="font-weight:500">${fN(mp.faltam)}</strong> ${mp.faltam === 1 ? "confirmação" : "confirmações"}. Dá para terminar em uns ${fN(mp.estimativa_min)} minutos.</span>
+      <a class="btn btn-secondary b44" href="/reclassificacao/curadoria?dep=${encodeURIComponent(mp.dep)}">Curar só ${escA(mp.nome)}</a></div>` : ""}
+    <div>${deps.map(g => `
+      <div class="dep-l"><span class="nome">${escA(g.nome)}</span>
+        <div class="dep-barra" role="img" aria-label="${escA(g.nome)}: ${fN(g.gravados)} gravados e ${fN(g.confirmados)} confirmados de ${fN(g.total)}">
+          <div class="g" style="width:${g.pct_gravado}%"></div><div class="c" style="width:${g.pct_confirmado}%"></div></div>
+        <span class="fal"><b>${fN(g.faltam)}</b> faltam</span></div>`).join("")}</div>
+    ${deps.length > 4 ? `<a href="#" class="ver-deps" onclick="this.closest('.deps').classList.add('todos');return false">Ver os ${fN(deps.length)} departamentos</a>` : ""}
+    ${(d.departamentos_concluidos || []).length ? `<p class="and-aux">Concluídos: ${d.departamentos_concluidos.map(escA).join(", ")}.</p>` : ""}`;
+  if (todos) el.classList.add("todos");
+}
+
+function desenharAgora(d) {
+  const maq = d.maquinas || [];
+  const ult = d.ultimos_gravados || [];
+  const linha = m => {
+    const vivo = m.vivo;
+    const est = !vivo ? "sem" : (m.estado === "rodando" ? "rodando" : (m.estado === "pausado" ? "pausado" : "sem"));
+    const texto = !vivo ? (m.silencio_s != null ? `sem contato há ${tempo(m.silencio_s)}` : "nunca conectou")
+                        : (m.estado || "ligada");
+    const atual = !vivo && m.itens_voltaram ? "Os itens dela voltaram para a fila"
+                : (m.atual ? escA(m.atual) : (vivo ? "esperando trabalho" : ""));
+    return `<div class="maq-a">
+      <div class="l1"><span class="nm"><span class="bola b-${est}"></span>${escA(m.nome)}</span><span class="st st-${est}">${escA(texto)}</span></div>
+      ${atual ? `<span class="at">${atual}</span>` : ""}
+      ${m.reservados && m.bloco ? `<div class="blo"><div class="trilho"><i style="width:${Math.round(m.feitos_bloco / m.bloco * 100)}%"></i></div><span>${fN(m.feitos_bloco)}/${fN(m.bloco)}</span></div>` : ""}
+    </div>`;
+  };
+  $a("and-agora").innerHTML = `
+    <h2 id="t-agora">Sendo trabalhado agora</h2>
+    ${maq.length ? maq.map(linha).join("") : '<p class="and-vazio">Nenhuma máquina cadastrada ainda.</p>'}
+    ${ult.length ? `<h3 style="margin:8px 0 0;font-size:15px;font-weight:600;color:var(--muted)">Últimos gravados</h3>
+      <div class="feed">${ult.map(u => `<span class="h">${escA(u.quando)}</span><span>${escA(u.produto)}<br><span class="d">para ${escA(u.destino)}</span></span>`).join("")}</div>` : ""}`;
+}
+
+function tempo(s) {
+  if (s < 120) return `${s} s`;
+  if (s < 7200) return `${Math.round(s / 60)} min`;
+  if (s < 172800) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86400)} dias`;
+}
+
+function carimbo(d) {
+  const h = new Date((d.agora || Date.now() / 1000) * 1000).toLocaleTimeString("pt-BR", { hour12: false });
+  $a("and-atual").innerHTML = `Atualizado às <span class="num">${h}</span>`;
+}
+
+function desenharTudo(d) {
+  desenharTopo(d); desenharEtapas(d); desenharCards(d);
+  desenharRitmo(d); desenharDeps(d); desenharAgora(d); carimbo(d);
+}
+
+async function andLeve() {
+  try {
+    const r = await fetch("/reclassificacao/painel/api/andamento?parte=leve");
+    if (!r.ok) return;
+    const l = await r.json();
+    Object.assign(_and, { etapas: l.etapas, total: l.total, gravados: l.gravados, pct_gravado: l.pct_gravado,
+                          proximo_marco: l.proximo_marco, maquinas: l.maquinas, agora: l.agora });
+    _and.gravacao = Object.assign({}, _and.gravacao, l.gravacao_leve);
+    desenharTopo(_and); desenharEtapas(_and); desenharCards(_and); desenharAgora(_and); carimbo(_and);
+  } catch (e) { /* rede oscilou: tenta de novo em 4 s */ }
+}
+
+async function andCompleto() {
+  try {
+    const r = await fetch("/reclassificacao/painel/api/andamento");
+    if (!r.ok) return;
+    _and = await r.json();
+    desenharTudo(_and);
+  } catch (e) { /* idem */ }
+}
+
+desenharTudo(_and);
+setInterval(andLeve, 4000);
+setInterval(andCompleto, 60000);
+</script>
 <script>
 // Atualização ao vivo. O agente não tem tela: sem isto o coordenador teria de
 // recarregar a página para saber se a máquina do operador ainda está de pé.

@@ -31,7 +31,9 @@ Regras que dão sentido ao documento:
     vencem DEPOIS da data de geração — o que já venceu não é mais aviso, é
     vencido (ou uma pendência do estágio anterior).
   • O risco vem do cruzamento com o histórico de venda (vendas.db do módulo de
-    relatórios): sobra = quantidade avisada − venda esperada até o vencimento.
+    relatórios): sobra = quantidade avisada − venda esperada do dia do aviso
+    até o vencimento (a quantidade é o estoque do lote naquele dia). Avisos do
+    mesmo produto dividem a venda, o lote que vence antes primeiro.
     Produto sem venda registrada fica sem estimativa — em branco, nunca zero,
     porque "não sei" e "não vende" são coisas diferentes.
 

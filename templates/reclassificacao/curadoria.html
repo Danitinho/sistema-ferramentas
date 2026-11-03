@@ -6,6 +6,7 @@
 {% block header_actions %}
   <a class="btn btn-secondary btn-sm" href="/reclassificacao/curadoria/lista">Ver em lista</a>
   <a class="btn btn-secondary btn-sm" href="/reclassificacao">Painel do lote</a>
+  <button class="btn btn-primary btn-sm" type="button" id="bt-encerrar" onclick="encerrarSessao()">Encerrar sessão</button>
 {% endblock %}
 
 {% block extra_head %}
@@ -199,6 +200,28 @@
               white-space: nowrap; }
   .hist-filtro { display: flex; gap: 10px; align-items: center;
                  margin-bottom: 6px; font-size: 13px; }
+
+  /* Resumo ao sair (modal): o que esta sessão fez pelo lote. */
+  .ses { max-width: 580px; }
+  .ses-cab { padding: 26px 26px 6px; }
+  .ses-cab .tempo { margin: 0; font-size: 15px; color: var(--muted); }
+  .ses-cab h2 { margin: 4px 0 0; font-size: clamp(24px, 4vw, 30px); line-height: 1.15; font-weight: 600; letter-spacing: -.02em; }
+  .ses-cab h2 .num { color: var(--accent); font-weight: 500; }
+  .ses-tres { padding: 14px 26px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .ses-tres .v { font-family: var(--mono); font-size: 26px; font-weight: 500; line-height: 1.2; }
+  .ses-tres .l { font-size: 14px; color: var(--muted); }
+  .ses-lote { margin: 0 26px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+              display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+  .ses-barra { position: relative; height: 12px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+  .ses-barra i { position: absolute; top: 0; height: 100%; }
+  .ses-barra .antes { left: 0; background: var(--accent); }
+  .ses-barra .hoje { background: color-mix(in srgb, var(--accent) 65%, var(--surface)); }
+  .ses-leg { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .ses-perto { margin: 16px 26px 0; padding: 12px 14px; background: var(--accent-soft); border-radius: var(--radius-sm); font-size: 15px; }
+  .ses-nota { margin: 14px 26px 0; font-size: 14px; color: var(--muted); }
+  .ses-acoes { padding: 20px 26px 24px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .ses-acoes .btn { min-height: 44px; width: auto; margin-top: 0; }
+  @media (max-width: 599px) { .ses-tres .v { font-size: 22px; } .ses-acoes .btn { flex: 1 1 100%; } }
 
   .rodape { font-size: 12.5px; color: var(--muted); margin-top: 16px;
             text-align: center; }
@@ -397,6 +420,14 @@
   </div>
 </div>
 
+<!-- Resumo ao sair da curadoria: só aparece quando a pessoa clica em
+     "Encerrar sessão". Nada de beforeunload, nada de bloquear a saída. -->
+<div class="modal-overlay" id="modal-sessao" onmousedown="window._pressAlvo=event.target"
+     onclick="fecharSeFundo(event,'modal-sessao')">
+  <div class="modal ses" role="dialog" aria-modal="true" aria-labelledby="ses-tit">
+    <div id="ses-corpo"></div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -1121,6 +1152,76 @@ document.querySelectorAll("#f-conf button").forEach(b => b.onclick = () => {
 document.getElementById("f-dep").onchange = () => carregar(true);
 document.getElementById("f-ativos").onchange = () => carregar(true);
 
+// Filtros vindos da URL: o painel abre a curadoria já filtrada ("Curar só
+// Bebidas" = ?dep=7; "Ver os sem destino" = ?conf=REVISAR). Usa os MESMOS
+// filtros da tela — a pessoa vê e pode trocar.
+(function filtrosDaUrl() {
+  const q = new URLSearchParams(location.search);
+  const dep = q.get("dep"), conf = q.get("conf");
+  if (dep && [...document.getElementById("f-dep").options].some(o => o.value === dep)) {
+    document.getElementById("f-dep").value = dep;
+  }
+  if (conf) {
+    const b = [...document.querySelectorAll("#f-conf button")].find(x => x.dataset.v === conf);
+    if (b) {
+      document.querySelectorAll("#f-conf button").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+    }
+  }
+})();
+
 carregar(true);
+
+// ── Resumo ao sair ──────────────────────────────────────────────────────────
+// O início da sessão fica SÓ em memória: recarregar a página começa outra
+// sessão, e é isso mesmo (o resumo é "o que você fez desde que abriu").
+const _sessaoInicio = Date.now() / 1000;
+
+async function encerrarSessao() {
+  const bt = document.getElementById("bt-encerrar");
+  bt.disabled = true; bt.textContent = "Salvando…";
+  await enviarAgora();           // sobe o que ainda está na fila local
+  let d;
+  try {
+    const r = await fetch(`/reclassificacao/curadoria/api/resumo-sessao?desde=${_sessaoInicio}`);
+    d = await r.json();
+  } catch (e) { d = null; }
+  bt.disabled = false; bt.textContent = "Encerrar sessão";
+  // sem confirmações (ou sem resposta), não há o que resumir: volta ao painel
+  if (!d || !d.ok || !d.confirmados) { location.href = "/reclassificacao/"; return; }
+
+  const n = v => Number(v || 0).toLocaleString("pt-BR");
+  const p = v => Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const min = Math.max(1, Math.round((Date.now() / 1000 - _sessaoInicio) / 60));
+  const antes = Number(d.pct_inicio_do_dia || 0), agora = Number(d.pct_agora || 0);
+  const parte = d.equipe_hoje ? Math.round(d.confirmados * 100 / d.equipe_hoje) : null;
+  const mp = d.mais_perto;
+  document.getElementById("ses-corpo").innerHTML = `
+    <div class="ses-cab">
+      <p class="tempo">Sessão de hoje, ${n(min)} ${min === 1 ? "minuto" : "minutos"}</p>
+      <h2 id="ses-tit">Você confirmou <span class="num">${n(d.confirmados)}</span> ${d.confirmados === 1 ? "produto" : "produtos"}</h2>
+    </div>
+    <div class="ses-tres">
+      <div><div class="v">${n(d.ja_gravados)}</div><div class="l">já gravados no ERP</div></div>
+      <div><div class="v">${n(d.na_fila)}</div><div class="l">na fila das máquinas</div></div>
+      <div><div class="v">${n(d.corrigidos)}</div><div class="l">destinos que você corrigiu</div></div>
+    </div>
+    <div class="ses-lote">
+      <span>O lote foi de <span class="num">${p(antes)}%</span> para <span class="num" style="color:var(--accent);font-weight:500">${p(agora)}%</span> hoje</span>
+      <div class="ses-barra" role="img" aria-label="Progresso do lote: ${p(antes)}% no começo do dia, ${p(agora)}% agora">
+        <i class="antes" style="width:${antes}%"></i><i class="hoje" style="left:${antes}%;width:${Math.max(0, agora - antes)}%"></i>
+      </div>
+      <div class="ses-leg"><span>começo do dia</span>
+        <span>a equipe toda fez ${n(d.equipe_hoje)} hoje${parte != null ? `, a sua parte é ${parte}%` : ""}</span></div>
+    </div>
+    ${mp ? `<div class="ses-perto">${esc(mp.nome)} fecha com mais <strong class="num" style="font-weight:500">${n(mp.faltam)}</strong>.${
+      d.algum_departamento_concluido ? "" : " Seria o primeiro departamento concluído do lote."}</div>` : ""}
+    <p class="ses-nota">O que você não decidiu continua na fila.</p>
+    <div class="ses-acoes">
+      <a class="btn btn-secondary" href="/reclassificacao/">Encerrar por hoje</a>
+      ${mp ? `<a class="btn btn-primary" href="/reclassificacao/curadoria?dep=${encodeURIComponent(mp.dep)}">Curar os ${n(mp.faltam)} de ${esc(mp.nome)}</a>` : ""}
+    </div>`;
+  abrirModal("modal-sessao");
+}
 </script>
 {% endblock %}

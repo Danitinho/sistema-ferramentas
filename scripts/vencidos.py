@@ -133,6 +133,12 @@ def _init_schema(conn):
         conn.execute("ALTER TABLE avisos ADD COLUMN atualizado_em TEXT")
         conn.execute("UPDATE avisos SET atualizado_em = COALESCE(resolvido_em, criado_em) "
                      "WHERE atualizado_em IS NULL")
+    # migração: de quando é a quantidade do aviso (o estoque daquele lote NAQUELE
+    # dia). Nasce no registro e só anda quando uma edição muda a quantidade —
+    # `atualizado_em` não serve: anda com qualquer edição e com resolver/reabrir.
+    if "quantidade_em" not in {r[1] for r in conn.execute("PRAGMA table_info(avisos)")}:
+        conn.execute("ALTER TABLE avisos ADD COLUMN quantidade_em TEXT")
+        _backfill_quantidade_em(conn)
     # migração: inclusão do vencido na nota de vencido do fornecedor pelo agente
     # do ERP (scripts/vencidos_notas.py). `nota_situacao`: NULL (livre) |
     # em_andamento | incluido | a_conferir | pulado | falhou.
@@ -164,6 +170,25 @@ def _init_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aviso_atualizado ON avisos(atualizado_em)")
     conn.commit()
     _backfill_fornecedor_id(conn)
+
+
+def _backfill_quantidade_em(conn):
+    """Preenche `quantidade_em` dos avisos antigos: o registro, ou a edição da
+    auditoria em que a quantidade mudou ("... · 10 un · vence ..."). A 1ª edição
+    não tem com o que comparar (o registro não anota a quantidade) e conta como
+    sem mudança — nas que existem, ela corrigiu digitação minutos depois."""
+    conn.execute("UPDATE avisos SET quantidade_em = criado_em WHERE quantidade_em IS NULL")
+    anterior = {}
+    for aid, quando, detalhe in conn.execute(
+            "SELECT entidade_id, quando, detalhe FROM auditoria "
+            "WHERE entidade='aviso' AND acao='editar' ORDER BY entidade_id, quando").fetchall():
+        m = re.search(r"· ([\d.]+) un ·", detalhe or "")
+        if not m:
+            continue
+        qtd = float(m.group(1))
+        if aid in anterior and anterior[aid] != qtd:
+            conn.execute("UPDATE avisos SET quantidade_em = ? WHERE id = ?", (quando, aid))
+        anterior[aid] = qtd
 
 
 _BACKFILL_FEITO = False   # roda uma vez por processo
@@ -386,12 +411,13 @@ def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
         conn.execute(
             "INSERT INTO avisos (id, produto, codigo_barras, quantidade, fornecedor, "
             "fornecedor_id, responsavel, data_vencimento, custo, venda, valor_promocional, "
-            "obs, registrado_por, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "obs, registrado_por, criado_em, atualizado_em, quantidade_em) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (aid, produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
              (fornecedor_id or "").strip() or None,
              (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
              _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
-             (obs or "").strip(), usuario, agora, agora),
+             (obs or "").strip(), usuario, agora, agora, agora),
         )
         _auditar(conn, "aviso", aid, "criar", f"{produto} · vence {_fmt_dia(dv)}", usuario)
         conn.commit()
@@ -406,65 +432,166 @@ def registrar_aviso(produto, codigo_barras, quantidade, fornecedor, responsavel,
 
 
 # ── Risco de sobra (cruzamento com o módulo de relatórios de venda) ──────────
+RISCO_MESES = 3   # meses mais recentes do vendas.db que fazem o ritmo de venda
+
+_PERIODO_PAT = re.compile(r"(\d{2})/(\d{2})/(\d{4})\s*a\s*(\d{2})/(\d{2})/(\d{4})")
+
+
+def _dias_cobertos(mes, periodo):
+    """Quantos dias o relatório daquele mês cobre ("01/10/2026 a 30/10/2026" →
+    30). Sem período legível, o mês inteiro."""
+    m = _PERIODO_PAT.search(periodo or "")
+    if m:
+        try:
+            ini = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            fim = date(int(m.group(6)), int(m.group(5)), int(m.group(4)))
+            if fim >= ini:
+                return (fim - ini).days + 1
+        except ValueError:
+            pass
+    ano, mm = int(mes[:4]), int(mes[5:7])
+    prox = date(ano + (mm == 12), mm % 12 + 1, 1)
+    return (prox - date(ano, mm, 1)).days
+
+
+def _ritmo_venda(codigos):
+    """{codigo_barras: unidades por dia} pelos `RISCO_MESES` meses mais recentes
+    do vendas.db. O ritmo é por DIA COBERTO, não por mês: um PDF de meio mês
+    (01 a 15) conta 15 dias, em vez de puxar a média como se fosse um mês
+    inteiro de venda fraca. Mês em que o produto não aparece conta como venda
+    zero (a Curva ABC só lista o que vendeu). Produto sem venda nenhuma na
+    janela não entra (sem estimativa). Levanta exceção se o banco falhar."""
+    from scripts import relatorios_vendas
+    if not codigos or not os.path.exists(relatorios_vendas.BANCO):
+        return {}
+    conn = sqlite3.connect(f"file:{relatorios_vendas.BANCO}?mode=ro", uri=True)
+    try:
+        rels = conn.execute("SELECT mes, periodo FROM relatorios ORDER BY mes DESC LIMIT ?",
+                            (RISCO_MESES,)).fetchall()
+        if not rels:
+            return {}
+        dias = sum(_dias_cobertos(m, p) for m, p in rels)
+        meses = [m for m, _ in rels]
+        # vendas.db guarda códigos com zeros à esquerda — casa pelas duas formas
+        candidatos = {}
+        for cb in codigos:
+            for forma in (cb, cb.zfill(14)):
+                candidatos.setdefault(forma, cb)
+        marks = ",".join("?" * len(candidatos))
+        mmarks = ",".join("?" * len(meses))
+        somas = {}
+        for forma, qtd in conn.execute(
+                f"SELECT codigo_barras, SUM(qtd) FROM vendas "
+                f"WHERE codigo_barras IN ({marks}) AND mes IN ({mmarks}) "
+                f"GROUP BY codigo_barras", (*candidatos.keys(), *meses)):
+            cb = candidatos.get(forma)
+            if cb:
+                somas[cb] = somas.get(cb, 0) + (qtd or 0)
+    finally:
+        conn.close()
+    return {cb: total / dias for cb, total in somas.items()}
+
+
+def _consumo_fifo(lotes, por_dia):
+    """Distribui a venda esperada entre os lotes do MESMO produto, o que vence
+    antes primeiro (é o que a gôndola faz). Cada lote = {id, qtd, desde, vence}
+    (datas `date`): ele existe de `desde` (o dia da quantidade avisada) até a
+    véspera do vencimento. Dia a dia, a venda do dia vai para o lote ativo de
+    vencimento mais próximo; o que sobrar dele, para o seguinte. Devolve
+    {id: unidades vendidas desse lote até vencer}.
+    Sem isso, três avisos do mesmo produto abatiam cada um a venda inteira —
+    a mesma venda contada três vezes."""
+    lotes = sorted(lotes, key=lambda l: (l["vence"], l["desde"], l["id"]))
+    resto = {l["id"]: l["qtd"] for l in lotes}
+    vendido = {l["id"]: 0.0 for l in lotes}
+    if not lotes or por_dia <= 0:
+        return vendido
+    dia = min(l["desde"] for l in lotes)
+    ultimo = max(l["vence"] for l in lotes)
+    while dia < ultimo:
+        verba = por_dia
+        for l in lotes:
+            if verba <= 0:
+                break
+            if l["desde"] <= dia < l["vence"] and resto[l["id"]] > 0:
+                tira = min(resto[l["id"]], verba)
+                resto[l["id"]] -= tira
+                vendido[l["id"]] += tira
+                verba -= tira
+        dia += timedelta(days=1)
+    return vendido
+
+
 def _riscos_para(avisos):
-    """Para cada aviso ativo com código de barras, estima o risco de sobrar
-    estoque no vencimento usando o ritmo de venda (vendas.db do módulo de
-    relatórios). Enriquecimento em LOTE (uma consulta) e tolerante a falha:
-    se o banco de vendas não existir/estiver fora, ninguém quebra."""
+    """Para cada aviso ativo com código de barras, estima o estoque que sobra
+    no vencimento pelo ritmo de venda (vendas.db do módulo de relatórios).
+
+    A quantidade avisada é o estoque daquele lote NO DIA DO AVISO (ou da edição
+    que mudou a quantidade — `quantidade_em`), então a venda esperada conta
+    desde esse dia, não desde hoje: o que vendeu entre o aviso e hoje já saiu
+    do lote. Avisos do mesmo código dividem a venda (`_consumo_fifo`), por isso
+    os irmãos são lidos do banco mesmo quando a lista da tela está filtrada.
+
+    Enriquecimento em LOTE e tolerante a falha: sem banco de vendas, ninguém
+    quebra — o aviso só fica sem estimativa."""
     alvo = [a for a in avisos
             if a.get("status") not in ("resolvido",) and (a.get("codigo_barras") or "").strip()]
     if not alvo:
         return
+    codigos = sorted({a["codigo_barras"].strip() for a in alvo})
     try:
-        from scripts import relatorios_vendas
-        if not os.path.exists(relatorios_vendas.BANCO):
-            return
-        conn = sqlite3.connect(f"file:{relatorios_vendas.BANCO}?mode=ro", uri=True)
-        try:
-            conn.row_factory = sqlite3.Row
-            meses = [r[0] for r in conn.execute(
-                "SELECT mes FROM relatorios ORDER BY mes DESC LIMIT 3")]
-            if not meses:
-                return
-            # vendas.db guarda códigos com zeros à esquerda — casa pelas duas formas
-            candidatos = {}
-            for a in alvo:
-                cb = a["codigo_barras"].strip()
-                for forma in (cb, cb.zfill(14)):
-                    candidatos.setdefault(forma, cb)
-            marks = ",".join("?" * len(candidatos))
-            mmarks = ",".join("?" * len(meses))
-            somas = {}
-            for r in conn.execute(
-                f"SELECT codigo_barras, SUM(qtd) FROM vendas "
-                f"WHERE codigo_barras IN ({marks}) AND mes IN ({mmarks}) "
-                f"GROUP BY codigo_barras", (*candidatos.keys(), *meses)):
-                cb_orig = candidatos.get(r[0])
-                if cb_orig:
-                    somas[cb_orig] = somas.get(cb_orig, 0) + (r[1] or 0)
-        finally:
-            conn.close()
+        ritmo = _ritmo_venda(codigos)
     except Exception:
         return  # módulo de vendas indisponível — segue sem risco
+    if not ritmo:
+        return
 
-    n_meses = len(meses)
+    # todos os lotes ativos desses códigos, não só os da lista exibida
+    conn = _conn()
+    try:
+        com_venda = [c for c in codigos if c in ritmo]
+        marks = ",".join("?" * len(com_venda))
+        irmaos = conn.execute(
+            f"SELECT id, TRIM(codigo_barras) AS cb, quantidade, data_vencimento, "
+            f"COALESCE(quantidade_em, criado_em) AS desde FROM avisos "
+            f"WHERE excluido_em IS NULL AND resolvido_em IS NULL "
+            f"AND TRIM(codigo_barras) IN ({marks})", com_venda).fetchall()
+    finally:
+        conn.close()
+    grupos = {}
+    for r in irmaos:
+        try:
+            lote = {"id": r["id"], "qtd": r["quantidade"] or 0,
+                    "desde": date.fromisoformat(r["desde"][:10]),
+                    "vence": date.fromisoformat(r["data_vencimento"][:10])}
+        except (TypeError, ValueError):
+            continue
+        grupos.setdefault(r["cb"], []).append(lote)
+    vendido = {}
+    for cb, lotes in grupos.items():
+        vendido.update(_consumo_fifo(lotes, ritmo[cb]))
+
     for a in alvo:
-        total = somas.get(a["codigo_barras"].strip())
-        if total is None:
+        cb = a["codigo_barras"].strip()
+        if cb not in ritmo or a["id"] not in vendido:
             continue  # produto sem venda registrada — sem estimativa
-        media = total / n_meses
         dias = a.get("dias_para_vencer")
         if dias is None or dias < 0:
             continue
-        esperada = media * dias / 30
-        sobra = max(0.0, (a["quantidade"] or 0) - esperada)
-        pct = (sobra / a["quantidade"] * 100) if a["quantidade"] else 0
+        qtd = a["quantidade"] or 0
+        esperada = vendido[a["id"]]
+        sobra = max(0.0, qtd - esperada)
+        pct = (sobra / qtd * 100) if qtd else 0
+        desde = (a.get("quantidade_em") or a["criado_em"])[:10]
         a["risco"] = {
-            "media_mensal": round(media, 1),
+            "media_mensal": round(ritmo[cb] * 30, 1),
             "venda_esperada": round(esperada, 1),
             "sobra": round(sobra, 1),
             "valor_sobra": round(sobra * (a["custo"] or 0), 2),
             "nivel": "alto" if pct >= 50 else ("medio" if pct >= 20 else "baixo"),
+            "desde": desde,
+            "desde_fmt": _fmt_dia(desde),
+            "lotes": len(grupos.get(cb, [])),
         }
 
 
@@ -566,15 +693,19 @@ def editar_aviso(id_aviso, produto, quantidade, data_vencimento, codigo_barras=N
             return False, "Aviso não encontrado."
         if a["resolvido_em"]:
             return False, "Este aviso já foi resolvido por um vencido — não pode ser editado."
+        agora = _agora()
+        # quantidade nova = o estoque do lote HOJE; a estimativa de sobra passa
+        # a contar a venda a partir daqui. Mesma quantidade não mexe na data.
+        qtd_em = agora if qtd != a["quantidade"] else (a["quantidade_em"] or a["criado_em"])
         conn.execute(
             "UPDATE avisos SET produto=?, codigo_barras=?, quantidade=?, fornecedor=?, "
             "fornecedor_id=?, responsavel=?, data_vencimento=?, custo=?, venda=?, "
-            "valor_promocional=?, obs=?, atualizado_em=? WHERE id=?",
+            "valor_promocional=?, obs=?, atualizado_em=?, quantidade_em=? WHERE id=?",
             (produto, (codigo_barras or "").strip(), qtd, (fornecedor or "").strip(),
              (fornecedor_id or "").strip() or None,
              (responsavel or "").strip(), dv, _parse_valor_opcional(custo),
              _parse_valor_opcional(venda), _parse_valor_opcional(valor_promocional),
-             (obs or "").strip(), _agora(), id_aviso))
+             (obs or "").strip(), agora, qtd_em, id_aviso))
         _auditar(conn, "aviso", id_aviso, "editar",
                  f"{produto} · {qtd:g} un · vence {_fmt_dia(dv)}", usuario)
         conn.commit()
@@ -693,7 +824,14 @@ def checar_aviso(codigo_barras):
 
 # ── Vencidos ──────────────────────────────────────────────────────────────────
 def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
-                      responsavel_entrega, obs="", usuario=None, fornecedor_id=None):
+                      responsavel_entrega, obs="", usuario=None, fornecedor_id=None,
+                      foi_avisado=None):
+    """Registra o vencido e cruza pelo código de barras com um aviso ativo.
+
+    `foi_avisado`: None (padrão) = automático — avisado se houver aviso ativo.
+    Marcado por quem lança, vale o que foi marcado (como na edição): "sim" sem
+    aviso no sistema = a seção avisou por fora (fica sem vínculo); "não" com
+    aviso ativo = não vincula nem resolve o aviso, que segue na vigília."""
     produto = (produto or "").strip()
     if not produto:
         return False, "Informe o produto."
@@ -702,7 +840,13 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
         return False, "Quantidade inválida."
     cb = (codigo_barras or "").strip()
     aviso = buscar_aviso_ativo_por_barras(cb)
-    foi_avisado = 1 if aviso else 0
+    manual = foi_avisado is not None and str(foi_avisado).strip() != ""
+    if manual:
+        foi_avisado = 1 if str(foi_avisado).strip().lower() in ("1", "true", "sim", "s") else 0
+        if not foi_avisado:
+            aviso = None
+    else:
+        foi_avisado = 1 if aviso else 0
     conn = _conn()
     try:
         vid = _uid()
@@ -725,11 +869,15 @@ def registrar_vencido(produto, codigo_barras, quantidade, fornecedor, custo,
                          "atualizado_em=? WHERE id=?",
                          (agora, vid, agora, aviso["id"]))
             _auditar(conn, "aviso", aviso["id"], "resolver", f"vencido {vid}", usuario)
-        _auditar(conn, "vencido", vid, "criar",
-                 f"{produto} · {qtd:g} un · {'avisado' if foi_avisado else 'SEM aviso'}", usuario)
+        situacao = "avisado" if foi_avisado else "SEM aviso"
+        if manual and not aviso:
+            situacao += " (marcado no lançamento)"
+        _auditar(conn, "vencido", vid, "criar", f"{produto} · {qtd:g} un · {situacao}", usuario)
         conn.commit()
-        if foi_avisado:
+        if aviso:
             return True, f"Vencido '{produto}' registrado — avisado em {aviso['data_venc_fmt']}."
+        if foi_avisado:
+            return True, f"Vencido '{produto}' registrado — marcado como avisado (sem aviso no sistema)."
         return True, f"Vencido '{produto}' registrado — SEM aviso prévio."
     finally:
         conn.close()

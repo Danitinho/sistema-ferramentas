@@ -202,6 +202,7 @@ def api_vencido():
         fornecedor_id=d.get("fornecedor_id"),
         custo=d.get("custo"), responsavel_entrega=d.get("responsavel_entrega", ""),
         obs=d.get("obs", ""), usuario=_usuario(),
+        foi_avisado=d.get("foi_avisado"),   # ausente = automático pelo aviso
     )
     return jsonify({"ok": ok, "msg": msg})
 

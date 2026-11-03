@@ -1021,6 +1021,71 @@ marcá-la como concluído faria a rodada de verdade pular o produto. Também nã
 volta sozinha à fila, senão a simulação giraria nos mesmos itens — o painel tem
 botão para devolvê-la.
 
+### Painel de andamento (30/10/2026)
+
+O topo do `/reclassificacao/` é um painel de ANDAMENTO, feito para dar sensação
+de progresso a quem faz a curadoria (tarefa repetitiva). O console das máquinas
+continua inteiro logo abaixo, em `#console` ("Console das máquinas" no
+cabeçalho). Mockups: linha "Reclassificação: acompanhamento do lote" em
+https://claude.ai/artifact/HfNZB6pLA9zPw8AS6GZqPX. **Só lê**: nada ali aprova,
+reserva ou grava.
+
+- **`FilaBanco.andamento(usuario)`** (+ `andamento()` de módulo): etapas (as
+  sete somam os ativos; `simulado` conta como "confirmado na fila", `concluido`
+  inclui ja_correto/pulado), `pct_gravado`, `pct_inicio_do_dia`,
+  `proximo_marco`, `curadoria`, `gravacao`, `ritmo` (10 dias úteis),
+  `dias_seguidos_com_avanco`, `hoje_melhor_do_lote`, `departamentos` (por
+  destino; zerados à parte em `departamentos_concluidos`), `mais_perto`,
+  `maquinas`, `ultimos_gravados`, `lote_concluido_em`. **`andamento_leve()`**:
+  só etapas, %, fila e máquinas, por GROUP BY.
+- **Só ATIVOS** (coluna `ativo`, regra `VENDA_DESDE`); o total geral aparece
+  só como texto auxiliar. Por isso o ritmo antigo parece vazio: a curadoria de
+  ago/set foi quase toda em itens que hoje são inativos.
+- **Fuso**: `FUSO` = America/Sao_Paulo, com queda para UTC-3 fixo (o Python do
+  Windows não traz `tzdata`; o Brasil não tem horário de verão desde 2019).
+  Dia útil = segunda a sexta; atividade de fim de semana entra nos "hoje" e no
+  acumulado, não vira barra.
+- **Horários**: `concluido_em` já existia (preenchido por `concluir`, no
+  servidor) e cobre todos os concluídos; `curado_em`/`curado_por` idem. Nova
+  coluna **`curado_acao`** (`aceitou`|`corrigiu`, gravada em
+  `_aplicar_curadoria`, comparando com o destino que estava sugerido, e em
+  `recurar`): é ela que conta "destinos que você corrigiu". Só existe para
+  decisões a partir de 30/10/2026 — antes, a sugestão era sobrescrita ao curar.
+- **Contas**: média da curadoria = confirmados nos 7 últimos dias úteis
+  INCLUINDO hoje ÷ 7 (hoje pela metade puxa para baixo: a estimativa erra para
+  o lado seguro). Estimativa em dias úteis = faltam decidir ÷ média; média zero
+  → `None` e a tela não mostra estimativa. Segundos por produto = mediana dos
+  intervalos entre conclusões seguidas da MESMA máquina na última hora, sem os
+  acima de 60 s (`INTERVALO_MAX_S`). Estimativa da fila = fila × s ÷ máquinas
+  vivas. `mais_perto` = primeiro departamento com faltam > 0, a
+  `TEMPO_DECISAO_S` (13 s) por decisão.
+- **Frases condicionais (nunca afirmar o que não é verdade)**:
+  "é o gargalo" só se a estimativa da curadoria (1 dia útil = 8 h) passa a da
+  fila; "Tudo o que for confirmado agora é gravado ainda hoje" só com máquina
+  viva e fila acabando antes das 22h; "Hoje é o melhor dia do lote" contra TODOS
+  os dias, não só os 10 do gráfico; "N dias úteis seguidos com avanço" só com
+  N ≥ 3 (hoje sem avanço ainda não quebra a sequência); "Os itens dela voltaram
+  para a fila" só para máquina sem contato cuja reserva INTEIRA venceu; "Seria
+  o primeiro departamento concluído do lote" só se nenhum está zerado. Sem
+  nada confirmado, o ritmo vira uma frase com o botão da curadoria; lote 100%
+  gravado troca o topo por "Lote concluído" com a data.
+- **Rotas** (nomes `painel_*`/`cur_*`, nunca `api_*` — seção "As duas
+  autenticações"): `GET /painel/api/andamento` (completo, com o pesado em cache
+  de 60 s por usuário, `_andamento_com_cache`, e o rápido sempre fresco;
+  `?parte=leve` = só o leve) e `GET /curadoria/api/resumo-sessao?desde=<epoch>`
+  (`resumo_sessao`). A página já chega com os dados (`andamento_inicial`);
+  depois, leve a cada 4 s e completo a cada 60 s. Custo medido: ~80 ms o
+  completo, ~35 ms o leve.
+- **Resumo ao sair da curadoria**: botão "Encerrar sessão" no cabeçalho da
+  conferência. Início da sessão só em memória (recarregar = sessão nova). Sobe a
+  fila local (`enviarAgora`), pede o resumo e abre o modal global; zero
+  confirmações → volta direto ao painel. Conta pelo estado ATUAL do banco
+  (`curado_por` = a pessoa, `pronto=1`), então `ja_curados` e desfeitos não
+  entram. Sem `beforeunload`: só aparece quando a pessoa clica.
+- **Filtros pela URL na conferência**: `?dep=<código>` e `?conf=<ALTA|...>`
+  preenchem os filtros que a tela já tem ("Curar só Bebidas", "Ver os sem
+  destino").
+
 ### O controle remoto do agente
 
 O agente não tem tela, então o painel é o console. Mora tudo em colunas de
@@ -1246,8 +1311,6 @@ a rodada de verdade pular aquele produto para sempre.
 
 ### Pendências e ideias
 
-- **Corte por dia ou turno no painel.** Hoje ele mostra só o acumulado do lote;
-  não dá para acompanhar ritmo.
 - **Auditoria no padrão da seção 6.** Os eventos usam epoch float e tabela
   própria (`eventos`), não a `auditoria` do sistema nem datas ISO. Funciona, mas
   destoa da convenção; vale alinhar se alguém for mexer ali.
@@ -1389,6 +1452,14 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   se achar, `foi_avisado=1`, vincula (`aviso_id`) e **resolve** o aviso (sai da
   vigília). Campos de baixa: `baixa_status` (pendente|baixado), `baixa_tipo`
   (`perda`|`devolucao` — `TIPOS_BAIXA`), `baixa_ref`, `baixa_em/por`.
+  **"Foi avisado?" no lançamento** (02/11/2026): o formulário de registro mostra
+  o seletor, que acompanha a checagem do código até a pessoa clicar. Sem
+  clique, a tela não manda `foi_avisado` e o servidor decide pelo aviso (assim
+  um Registrar antes de a checagem voltar não marca errado). Marcado à mão,
+  vale o que foi marcado, como na edição: **Sim sem aviso** = a seção avisou
+  por fora (avisado, sem `aviso_id`); **Não com aviso** = não vincula nem
+  resolve o aviso, que segue na vigília. A auditoria anota "(marcado no
+  lançamento)".
 - API: `checar-aviso` alimenta a **checagem ao vivo** no formulário (mostra ✓/✗
   enquanto se digita o código de barras e pré-preenche produto/fornecedor/custo). A
   mesma resposta traz o **catálogo de produtos** (seção 17), que preenche nome,
@@ -1406,8 +1477,21 @@ Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
   código de barras alerta duplicidade (reusa `/api/checar-aviso`).
 - **Risco de sobra** (`_riscos_para`): cruza avisos ativos com o `vendas.db` do
   módulo de relatórios (import protegido, consulta em LOTE, read-only) e estima
-  `sobra = qtd − média_mensal × dias/30`. Códigos no vendas.db podem ter zeros à
+  `sobra = qtd − venda esperada`. Códigos no vendas.db podem ter zeros à
   esquerda — casa por `{cb, cb.zfill(14)}`. Falha do módulo de vendas não quebra.
+  Três regras (corrigidas em 02/11/2026; antes a sobra saía ~40% maior):
+  - **A venda conta desde o dia da quantidade, não desde hoje.** A quantidade é
+    o estoque do lote NO DIA DO AVISO (confirmado pelo usuário). Coluna
+    `avisos.quantidade_em`: nasce no registro e só anda quando `editar_aviso`
+    MUDA a quantidade (`atualizado_em` anda com qualquer edição, não serve).
+    Backfill pela auditoria (`_backfill_quantidade_em`).
+  - **Avisos do mesmo código dividem a venda** (`_consumo_fifo`, dia a dia, o
+    que vence antes vende primeiro). Os irmãos são lidos do banco, não da lista
+    da tela — com filtro de mês/busca eles continuariam existindo na gôndola.
+  - **Ritmo por dia coberto** (`_ritmo_venda`, `RISCO_MESES`=3): soma da venda
+    ÷ dias do `relatorios.periodo` (`_dias_cobertos`). PDF de meio mês conta 15
+    dias em vez de derrubar a média; mês sem o produto = venda zero.
+  `risco` ganhou `desde`/`desde_fmt` e `lotes` (a tela e o PDF mostram).
 - **Vínculo com quantidades**: `listar_vencidos` faz LEFT JOIN no aviso e expõe
   `vinculo` (avisadas × perdidas × aproveitadas) quando o vencido casou com aviso.
 - **Ordenação das listas** (`listar_vencidos(ordem=...)` / `listar_avisos(ordem=...)`
