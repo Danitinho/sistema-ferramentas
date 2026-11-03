@@ -582,6 +582,21 @@ async function postJSON(url, data) {
   return res.json();
 }
 
+// ── Utilitário: atualização periódica que DORME com a aba escondida ─────────
+// As telas de acompanhamento consultam o servidor a cada poucos segundos. Uma
+// aba esquecida aberta num PC da loja continuava consultando para sempre e
+// ocupava as threads do servidor (o log enchia de "Task queue depth"). Com a
+// aba escondida, nada roda; ao voltar a ficar visível, atualiza na hora se o
+// intervalo já passou.
+function intervaloVisivel(fn, ms) {
+  let ultimo = Date.now();
+  const rodar = () => { ultimo = Date.now(); try { fn(); } catch (e) {} };
+  setInterval(() => { if (!document.hidden) rodar(); }, ms);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && Date.now() - ultimo >= ms) rodar();
+  });
+}
+
 // ── Utilitário: formata moeda BRL ───────────────────────────────────────────
 function brl(valor) {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

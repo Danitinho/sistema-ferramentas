@@ -30,6 +30,18 @@
   .btn-remove:hover { background: var(--danger-bg); }
   .separador { text-align:center; margin:18px 0; color:var(--muted); font-weight:bold; }
 
+  /* ── Puxar do catálogo ───────────────────────────────────────────────────── */
+  .cat-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px;
+    margin-bottom: 14px; background: var(--surface-2); }
+  .cat-box textarea { width: 100%; min-height: 64px; font-family: var(--mono); font-size: 13px; }
+  .cat-acoes { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .cat-regra { font-size: 12px; color: var(--muted); }
+  .cat-msg { font-size: 13px; margin-top: 8px; color: var(--ink-2); }
+  .cat-msg .falta { color: var(--warning); }
+  .cat-tag { align-self: center; font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm);
+    background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .cat-tag.conferir { background: var(--warning-bg); color: var(--warning); }
+
   /* ── Painel de prévia + impressão ────────────────────────────────────────── */
   #painel-previa {
     display: none; margin-top: 24px; background: var(--surface);
@@ -111,8 +123,17 @@
 
     <div class="separador">— OU —</div>
 
-    <!-- Opção 2: lista manual -->
-    <label>Opção 2: Preencher manualmente</label>
+    <!-- Opção 2: lista manual (com ajuda do catálogo) -->
+    <label>Opção 2: Preencher na tela</label>
+    <div class="cat-box">
+      <label for="cat-codigos" style="margin-top:0">Puxar do catálogo: bipe ou cole os códigos de barras (um por linha)</label>
+      <textarea id="cat-codigos" inputmode="numeric" placeholder="7891000100103"></textarea>
+      <div class="cat-acoes">
+        <button type="button" class="btn btn-secondary btn-sm" id="cat-btn" onclick="puxarCatalogo()">Adicionar à lista</button>
+        <span class="cat-regra" id="cat-regra"></span>
+      </div>
+      <div class="cat-msg" id="cat-msg"></div>
+    </div>
     <div class="campos-header">
       {% for c in layout.campos %}
       {% if not c.valor_fixo %}
@@ -159,7 +180,7 @@
 <div id="painel-previa">
   <div class="previa-header">
     <div class="previa-info">
-      <strong id="previa-nome">ofertas_final.pdf</strong>
+      <strong id="previa-nome">Placas geradas</strong>
       <span id="previa-paginas" class="previa-badge" style="margin-left:8px;"></span>
     </div>
   </div>
@@ -203,12 +224,89 @@ function buildLinha() {
   return row;
 }
 function adicionarLinha() {
-  document.getElementById('lista-produtos').appendChild(buildLinha());
+  const row = buildLinha();
+  document.getElementById('lista-produtos').appendChild(row);
+  return row;
 }
+
+// ── Puxar do catálogo ─────────────────────────────────────────────────────────
+// O layout não diz qual campo é o nome e qual é o preço, então a regra é pelo
+// TIPO do campo, e fica escrita na tela:
+//   • nome  → o 1º campo de texto;
+//   • preço → se o layout tem preço riscado ("de"), o preço do catálogo vai
+//     nele e o preço da oferta fica para digitar; senão, vai no 1º campo de
+//     preço. É sempre editável.
+const CAMPO_NOME  = CAMPOS.find(c => (c.tipo || 'texto') === 'texto');
+const CAMPO_DE    = CAMPOS.find(c => c.tipo === 'texto_riscado');
+const CAMPO_PRECO = CAMPO_DE || CAMPOS.find(c => c.tipo === 'preco_split' || c.tipo === 'preco_simples');
+
+(function regraCatalogo() {
+  const partes = [];
+  if (CAMPO_NOME)  partes.push(`nome em “${CAMPO_NOME.label}”`);
+  if (CAMPO_PRECO) partes.push(`preço de venda em “${CAMPO_PRECO.label}”`);
+  document.getElementById('cat-regra').textContent =
+    partes.length ? 'Preenche ' + partes.join(' e ') + '.' : 'Este layout não tem campo de nome nem de preço.';
+})();
+
+const precoBR = v => Number(v).toFixed(2).replace('.', ',');
+
+function _linhaVazia() {
+  const rows = document.querySelectorAll('.produto-row');
+  const ult = rows[rows.length - 1];
+  return ult && [...ult.querySelectorAll('input')].every(i => !i.value.trim()) ? ult : null;
+}
+
+async function puxarCatalogo() {
+  const caixa = document.getElementById('cat-codigos');
+  const msg = document.getElementById('cat-msg');
+  const codigos = caixa.value.split(/[\s,;]+/).map(s => s.replace(/\D/g, '')).filter(Boolean);
+  if (!codigos.length) { msg.textContent = 'Bipe ou cole ao menos um código.'; return; }
+  const btn = document.getElementById('cat-btn');
+  btn.disabled = true; msg.textContent = 'Consultando o catálogo...';
+  let d;
+  try {
+    d = await postJSON('/catalogo/api/consultar', { codigos });
+  } catch (e) { d = { ok: false, erro: 'sem conexão' }; }
+  btn.disabled = false;
+  if (!d.ok) { msg.textContent = 'Não consegui consultar o catálogo: ' + (d.erro || ''); return; }
+
+  const faltam = [], sem_preco = [];
+  let postos = 0;
+  d.itens.forEach(it => {
+    if (!it.encontrado) { faltam.push(it.digitado + (it.ambiguo ? ' (mais de um cadastro)' : '')); return; }
+    const row = _linhaVazia() || adicionarLinha();
+    const inputs = row.querySelectorAll('input');
+    CAMPOS.forEach((c, i) => {
+      if (CAMPO_NOME && c.id === CAMPO_NOME.id) inputs[i].value = it.descricao || '';
+      if (CAMPO_PRECO && c.id === CAMPO_PRECO.id && it.venda != null) inputs[i].value = precoBR(it.venda);
+    });
+    if (it.venda == null) sem_preco.push(it.descricao);
+    const tag = document.createElement('span');
+    tag.className = 'cat-tag' + (it.exato ? '' : ' conferir');
+    tag.textContent = it.exato ? 'catálogo' : 'conferir';
+    tag.title = it.exato
+      ? `Do catálogo de ${d.atualizado_fmt || '?'} · código ${it.codigo_barras}`
+      : `O código ${it.digitado} não existe igual; casou com ${it.codigo_barras} (só zeros à esquerda). Confira.`;
+    row.insertBefore(tag, row.querySelector('.btn-remove'));
+    postos++;
+  });
+  caixa.value = '';
+  let html = `${postos} produto(s) adicionado(s) · catálogo de ${d.atualizado_fmt || 'data desconhecida'}.`;
+  if (sem_preco.length) html += ` <span class="falta">Sem preço no catálogo: ${sem_preco.length}.</span>`;
+  if (faltam.length) html += ` <span class="falta">Não encontrados: ${faltam.join(', ')}.</span>`;
+  msg.innerHTML = html;
+}
+document.getElementById('cat-codigos').addEventListener('keydown', e => {
+  // Leitor de código de barras manda Enter no fim; Ctrl+Enter adiciona.
+  if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); puxarCatalogo(); }
+});
 function removerLinha(btn) {
   const linhas = document.querySelectorAll('.produto-row');
   if (linhas.length > 1) btn.parentElement.remove();
-  else btn.parentElement.querySelectorAll('input').forEach(i => i.value = '');
+  else {
+    btn.parentElement.querySelectorAll('input').forEach(i => i.value = '');
+    btn.parentElement.querySelectorAll('.cat-tag').forEach(t => t.remove());
+  }
 }
 adicionarLinha();
 

@@ -201,6 +201,17 @@ function estadoClasse(e) {
   return "";
 }
 
+// Versão do agente geral que está no repositório do servidor: a máquina com
+// outra versão ficou para trás (não há atualização automática — copie a pasta
+// agente/ para ela e reabra o programa).
+let _versaoAtual = "";
+function versaoTxt(v) {
+  if (!v) return "";
+  if (_versaoAtual && v !== _versaoAtual)
+    return ` · <b style="color:var(--warning)" title="Copie a pasta agente/ do servidor para esta máquina e reabra o agente">v${esc(v)}, desatualizada (atual v${esc(_versaoAtual)})</b>`;
+  return " · v" + esc(v);
+}
+
 function desenharMaquinas(ms) {
   _maquinas = ms;
   const el = document.getElementById("maquinas");
@@ -211,7 +222,7 @@ function desenharMaquinas(ms) {
       <span class="est ${estadoClasse(m.estado)}"><span class="ponto"></span>${esc(m.estado || "—")}</span>
       <div>
         <div class="maq-nome">${esc(m.apelido || m.nome)} <span class="ev num">${m.apelido ? esc(m.nome) : ""}</span></div>
-        <div class="maq-msg">${esc(m.msg || "")}${m.versao ? " · v" + esc(m.versao) : ""}${m.silencio_s != null && !m.vivo ? " · calada há " + Math.round(m.silencio_s / 60) + " min" : ""}${m.comando === "pausado" ? " · <b>pausada no painel</b>" : ""}</div>
+        <div class="maq-msg">${esc(m.msg || "")}${versaoTxt(m.versao)}${m.silencio_s != null && !m.vivo ? " · calada há " + Math.round(m.silencio_s / 60) + " min" : ""}${m.comando === "pausado" ? " · <b>pausada no painel</b>" : ""}</div>
       </div>
       <div class="maq-acts">
         ${m.comando === "pausado"
@@ -304,6 +315,7 @@ async function atualizar() {
     const r = await fetch("/agente/painel/api/estado");
     if (!r.ok) return;
     const d = await r.json();
+    _versaoAtual = d.versao_atual || "";
     desenharMaquinas(d.maquinas); desenharPedidos(d.pedidos); desenharLog(d.log);
     desenharPareamentos(d.pareamentos || []);
   } catch (e) {}
@@ -482,6 +494,6 @@ function htmlIncluir(p) {
 }
 
 atualizar();
-setInterval(atualizar, 4000);
+intervaloVisivel(atualizar, 4000);
 </script>
 {% endblock %}

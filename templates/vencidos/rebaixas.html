@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Rebaixa de vencidos{% endblock %}
+{% block header_title %}Rebaixa de vencidos{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · <a href="/vencidos/">Controle de vencidos</a> · Rebaixa{% endblock %}
+
+{% block header_actions %}
+<a class="btn btn-secondary btn-sm" href="/vencidos/#aba-avisos">Ver os avisos</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .rb-regra { font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .rb-regra b { color: var(--ink); font-weight: 600; }
+  .rb-item { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .rb-item:last-child { border-bottom: none; }
+  .rb-top { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+  .rb-prod { font-weight: 600; font-size: 15px; }
+  .rb-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .rb-sub .num { color: var(--ink-2); }
+  .rb-risco { font-size: 13px; }
+  .rb-risco.alto { color: var(--danger); }
+  .rb-risco.medio { color: var(--warning); }
+  .rb-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px;
+    margin-top: 10px; align-items: end; }
+  @media (min-width: 760px) { .rb-form { grid-template-columns: 1.1fr 1fr 1fr 1.6fr auto; } }
+  .rb-form label { margin: 0 0 3px; font-size: 12.5px; }
+  .rb-form input { margin: 0; }
+  .rb-form .rb-acao { grid-column: 1 / -1; }
+  @media (min-width: 760px) { .rb-form .rb-acao { grid-column: auto; } }
+  .rb-regra-item { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .rb-regra-item .trava { color: var(--warning); }
+  .rb-precos { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+  .rb-precos s { color: var(--muted); }
+  .rb-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .p-cancel { color: var(--muted); background: var(--surface-3); }
+  .rb-filtro { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+  .rb-filtro input { width: 16px; height: 16px; margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Como a sugestão é feita</div>
+  <div class="rb-regra">
+    Entram os avisos ativos em que a <b>sobra estimada</b> no vencimento (pelo ritmo de venda) é de
+    <b>20% ou mais</b> do lote. Desconto: <b>{{ regra.DESCONTO_POR_RISCO.alto }}%</b> com risco alto
+    (sobra ≥ 50%), <b>{{ regra.DESCONTO_POR_RISCO.medio }}%</b> com risco médio, e
+    <b>+{{ regra.EXTRA_URGENTE }} pontos</b> quando faltam {{ regra.DIAS_URGENTE }} dias ou menos. O preço
+    fica terminado em ,99 e <b>não desce abaixo do custo</b> — abaixo do custo ainda pode valer a pena
+    (perder parte é melhor que perder tudo), mas aí é você quem digita.
+    É uma regra, não uma previsão: ajuste o preço e as datas antes de registrar.
+    <br>Registrar aqui <b>não muda o preço no ERP</b>: a rebaixa entra em “a lançar” até alguém marcar que lançou.
+  </div>
+</div>
+
+<div class="card card-flush">
+  <div class="card-head">
+    <span class="ttl">Sugestões</span>
+    <span class="hint">{{ sugestoes | length }} aviso(s) com risco de sobra, sem rebaixa em andamento</span>
+  </div>
+  {% for s in sugestoes %}
+  <div class="rb-item" id="sug-{{ s.aviso_id }}">
+    <div class="rb-top">
+      <div>
+        <div class="rb-prod">{{ s.produto }}</div>
+        <div class="rb-sub">
+          {% if s.codigo_barras %}<span class="num">{{ s.codigo_barras }}</span> · {% endif %}
+          vence {{ s.data_venc_fmt }} ({{ s.dias_para_vencer }} dia{{ "s" if s.dias_para_vencer != 1 }})
+          {% if s.fornecedor %} · {{ s.fornecedor }}{% endif %}
+        </div>
+      </div>
+      <div class="rb-risco {{ s.risco.nivel }}">
+        sobra estimada <span class="num">{{ s.risco.sobra | num_br }}</span> de
+        <span class="num">{{ s.quantidade | num_br }}</span> un
+        {% if s.risco.valor_sobra %}· <span class="num">{{ s.risco.valor_sobra | brl }}</span> no custo{% endif %}
+      </div>
+    </div>
+    {% if s.sem_preco %}
+    <div class="rb-regra-item">Sem preço de venda no aviso: edite o aviso (ou atualize o catálogo) para calcular a rebaixa.</div>
+    {% else %}
+    <div class="rb-form">
+      <div>
+        <label>De → por (R$)</label>
+        <div class="rb-precos"><s>{{ s.venda | brl }}</s></div>
+      </div>
+      <div>
+        <label for="p-{{ s.aviso_id }}">Preço da rebaixa</label>
+        <input type="text" inputmode="decimal" id="p-{{ s.aviso_id }}" class="num"
+               value="{{ ('%.2f' | format(s.sugestao.preco)).replace('.', ',') if s.sugestao else '' }}">
+      </div>
+      <div>
+        <label for="i-{{ s.aviso_id }}">De</label>
+        <input type="date" id="i-{{ s.aviso_id }}" value="{{ hoje }}" min="{{ hoje }}" max="{{ s.fim_sugerido }}">
+      </div>
+      <div>
+        <label for="f-{{ s.aviso_id }}">Até (véspera do vencimento)</label>
+        <input type="date" id="f-{{ s.aviso_id }}" value="{{ s.fim_sugerido }}" min="{{ hoje }}" max="{{ s.fim_sugerido }}">
+      </div>
+      <div class="rb-acao">
+        <button class="btn btn-primary btn-sm" onclick="registrar('{{ s.aviso_id }}')">Registrar</button>
+      </div>
+    </div>
+    <div class="rb-regra-item">
+      {% if s.sugestao %}
+        Sugestão: {{ s.sugestao.regra }}
+        {% if s.sugestao.travado_no_custo %}<span class="trava">— o custo (<span class="num">{{ s.custo | brl }}</span>) segurou o desconto em {{ s.sugestao.desconto_real_pct | num_br(1) }}%</span>{% endif %}
+      {% else %}
+        <span class="trava">O custo não deixa rebaixar pela regra. Se ainda assim quiser, digite o preço.</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty-state">Nenhum aviso com risco de sobra agora.
+    {% if not rebaixas %}<br><span style="font-size:13px">A estimativa depende do banco de vendas (Relatórios de venda) e de o aviso ter código de barras.</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card card-flush">
+  <div class="card-head">
+    <span class="ttl">Rebaixas registradas</span>
+    <label class="rb-filtro"><input type="checkbox" id="mostrar-encerradas" onchange="filtrar()"> mostrar encerradas e canceladas</label>
+  </div>
+  {% for r in rebaixas %}
+  <div class="rb-item" data-st="{{ r.status_efetivo }}">
+    <div class="rb-top">
+      <div>
+        <div class="rb-prod">{{ r.produto }}</div>
+        <div class="rb-sub">
+          {% if r.codigo_barras %}<span class="num">{{ r.codigo_barras }}</span> · {% endif %}
+          de {{ r.inicio_fmt }} até {{ r.fim_fmt }} · vence {{ r.venc_fmt }} · registrada{% if r.criado_por %} por {{ r.criado_por }}{% endif %} em {{ r.criado_fmt }}
+        </div>
+      </div>
+      <span class="pill {% if r.status_efetivo == 'a_lancar' %}p-parcial{% elif r.status_efetivo == 'lancada' %}p-quitado{% else %}p-cancel{% endif %}">{{ r.status_label }}</span>
+    </div>
+    <div class="rb-sub" style="margin-top:6px">
+      <span class="rb-precos">{% if r.preco_de %}<s>{{ r.preco_de | brl }}</s> → {% endif %}{{ r.preco_por | brl }}</span>
+      {% if r.desconto_pct is not none %} · {{ r.desconto_pct | num_br(1) }}% de desconto{% endif %}
+      {% if r.abaixo_custo %} · <span style="color:var(--warning)">abaixo do custo ({{ r.custo | brl }})</span>{% endif %}
+      {% if r.lancada_em %} · lançada por {{ r.lancada_por or "—" }} em {{ r.lancada_fmt }}{% if r.lancada_ref %} ({{ r.lancada_ref }}){% endif %}{% endif %}
+      {% if r.cancelada_motivo %} · motivo: {{ r.cancelada_motivo }}{% endif %}
+      {% if r.resultado %} · resultado: {{ r.resultado.vencidas | num_br }} de {{ r.resultado.avisadas | num_br }} un venceram{% endif %}
+    </div>
+    {% if r.status_efetivo in ('a_lancar', 'lancada') %}
+    <div class="rb-acoes">
+      {% if r.status_efetivo == 'a_lancar' %}
+      <button class="btn btn-primary btn-sm" onclick="lancada('{{ r.id }}')">Marquei no ERP</button>
+      {% else %}
+      <button class="btn btn-secondary btn-sm" onclick="desfazerLancada('{{ r.id }}')">Não foi lançada</button>
+      {% endif %}
+      <button class="btn btn-secondary btn-sm" onclick="cancelar('{{ r.id }}', {{ 'true' if r.status_efetivo == 'lancada' else 'false' }})">Cancelar</button>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty-state">Nenhuma rebaixa registrada ainda.</div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function filtrar() {
+  const todas = document.getElementById("mostrar-encerradas").checked;
+  document.querySelectorAll("[data-st]").forEach(el => {
+    el.hidden = !todas && (el.dataset.st === "encerrada" || el.dataset.st === "cancelada");
+  });
+}
+filtrar();
+
+async function registrar(id) {
+  const preco = document.getElementById("p-" + id).value.trim().replace(/\./g, "").replace(",", ".");
+  const r = await postJSON("/vencidos/api/rebaixa", {
+    aviso_id: id, preco_por: preco,
+    inicio: document.getElementById("i-" + id).value,
+    fim: document.getElementById("f-" + id).value });
+  if (r.ok) location.reload(); else alert(r.msg || r.erro);
+}
+async function lancada(id) {
+  const ref = prompt("Referência do lançamento no ERP (opcional — nº da promoção, quem lançou...):", "");
+  if (ref === null) return;
+  const r = await postJSON(`/vencidos/api/rebaixa/${id}/lancada`, { referencia: ref });
+  if (r.ok) location.reload(); else alert(r.msg || r.erro);
+}
+async function desfazerLancada(id) {
+  if (!confirm("Voltar esta rebaixa para “a lançar”?")) return;
+  const r = await postJSON(`/vencidos/api/rebaixa/${id}/lancada`, { desfazer: true });
+  if (r.ok) location.reload(); else alert(r.msg || r.erro);
+}
+async function cancelar(id, lancadaNoErp) {
+  const motivo = prompt(lancadaNoErp
+    ? "Cancelar a rebaixa? Ela já foi lançada: depois, volte o preço no ERP.\nMotivo (opcional):"
+    : "Cancelar a rebaixa? Motivo (opcional):", "");
+  if (motivo === null) return;
+  const r = await postJSON(`/vencidos/api/rebaixa/${id}/cancelar`, { motivo });
+  if (r.ok) { if (r.msg) alert(r.msg); location.reload(); } else alert(r.msg || r.erro);
+}
+</script>
+{% endblock %}

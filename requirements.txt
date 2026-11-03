@@ -2,10 +2,19 @@
 # Instale com o python do serviço:
 #   "C:\...\Python313\python.exe" -m pip install -r requirements.txt
 # (ver CLAUDE.md, seção 11 — armadilha do pip)
+#
+# Versões FIXAS (03/11/2026), as que rodam em produção: reinstalar numa máquina
+# nova (já aconteceu, com a queima do HD) não pode trazer uma versão diferente
+# que quebre algo calado. Para atualizar, suba a versão aqui, teste
+# (python -m unittest discover -s tests) e reinicie o serviço.
 
-flask>=3.0.0
-waitress>=3.0.0      # servidor de produção (server.py, porta 80)
-pillow>=10.0.0       # geração de imagens das placas de oferta
-pdfplumber>=0.11.0   # extração dos relatórios Curva ABC (PDF)
-openpyxl>=3.1.0      # planilhas Excel (débitos e relatórios)
-reportlab>=4.0.0     # relatório de vencidos em PDF (documento de apresentação)
+flask==3.1.3
+werkzeug==3.1.8
+jinja2==3.1.6
+waitress==3.0.2      # servidor de produção (server.py, HTTP na porta 80)
+cheroot==11.1.2      # HTTPS na porta 443 (server.py); sem ele o HTTP segue sozinho
+cryptography==50.0.1 # certificado da CA da loja (scripts/certificado.py)
+pillow==12.3.0       # geração de imagens das placas de oferta
+pdfplumber==0.11.10  # extração dos relatórios Curva ABC (PDF)
+openpyxl==3.1.5      # planilhas Excel (débitos, relatórios, perdas)
+reportlab==5.0.1     # relatórios em PDF (documento de apresentação)

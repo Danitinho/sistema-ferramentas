@@ -13,6 +13,7 @@ Tipos de campo suportados:
   - preco_simples   : preço como texto único (layout antigo)
 """
 
+import codecs
 import sys
 import os
 import json
@@ -262,6 +263,26 @@ def criar_imagem_com_layout(layout, valores, img_base, caminho_saida):
 # PROCESSAMENTO EM LOTE (txt)
 # =============================================================================
 
+def ler_texto(caminho):
+    """Lê a lista de produtos em qualquer codificação que chegue aqui.
+
+    O TXT costuma sair do RADGe, que exporta em UTF-16 com BOM (o mesmo do
+    catálogo) — ler como UTF-8 derrubava a geração com UnicodeDecodeError
+    (visto no log do serviço). Bloco de notas antigo grava em ANSI (cp1252)."""
+    with open(caminho, "rb") as f:
+        bruto = f.read()
+    if bruto.startswith(codecs.BOM_UTF16_LE) or bruto.startswith(codecs.BOM_UTF16_BE):
+        return bruto.decode("utf-16")
+    if bruto.startswith(codecs.BOM_UTF8):
+        return bruto.decode("utf-8-sig")
+    if len(bruto) >= 4 and bruto[1] == 0 and bruto[3] == 0:
+        return bruto.decode("utf-16-le", errors="replace")
+    try:
+        return bruto.decode("utf-8")
+    except UnicodeDecodeError:
+        return bruto.decode("cp1252", errors="replace")
+
+
 def processar_lote(layout, arquivo_lista, pasta_saida,
                    arquivo_base=None, pasta_saida_override=None):
     """
@@ -286,8 +307,7 @@ def processar_lote(layout, arquivo_lista, pasta_saida,
 
     # Lê lista
     try:
-        with open(arquivo_lista, "r", encoding="utf-8") as f:
-            linhas = f.readlines()
+        linhas = ler_texto(arquivo_lista).splitlines()
     except FileNotFoundError:
         print(f"ERRO: Arquivo não encontrado: {arquivo_lista}")
         return 0, 0

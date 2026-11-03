@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Certificado da loja{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block extra_head %}
+<style>
+  main { max-width: var(--maxw-read); padding-top: clamp(20px, 5vh, 56px); }
+  .cert-passos { margin: 0; padding-left: 20px; }
+  .cert-passos li { margin: 6px 0; line-height: 1.5; }
+  .cert-so { margin-top: 18px; }
+  .cert-so h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .cert-imp { font-size: 12px; word-break: break-all; color: var(--ink-2); }
+  .cert-acoes { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Acesso seguro (HTTPS) — certificado da loja</div>
+
+  {% if not c.existe %}
+  <div class="alertx"><span>O certificado ainda não foi criado. Ele nasce quando o serviço sobe com o
+    HTTPS ligado (<span class="num">server.py</span>). Avise o administrador.</span></div>
+  {% else %}
+  <p>O sistema também atende em <a href="{{ https_url }}">{{ https_url }}</a>. Pelo endereço seguro a
+    senha não viaja aberta no Wi-Fi, e o navegador libera o <b>microfone</b> (Jardél) e a <b>câmera</b>.</p>
+  <p>Para o aparelho confiar nesse endereço, instale <b>uma vez</b> o certificado da loja:</p>
+
+  <div class="cert-acoes">
+    <a class="btn btn-primary" href="/certificado/ca.crt">Baixar certificado da loja</a>
+    {% if not em_https %}<a class="btn btn-secondary" href="{{ https_url }}">Abrir o endereço seguro</a>{% endif %}
+  </div>
+
+  <div class="cert-so">
+    <h3>Android</h3>
+    <ol class="cert-passos">
+      <li>Baixe o certificado pelo botão acima.</li>
+      <li>Configurações → Segurança (ou “Segurança e privacidade”) → Mais configurações →
+        Criptografia e credenciais → <b>Instalar um certificado</b> → <b>Certificado de CA</b>.</li>
+      <li>Escolha o arquivo <span class="num">ca-sistema-ferramentas.crt</span> e confirme.</li>
+    </ol>
+  </div>
+  <div class="cert-so">
+    <h3>iPhone / iPad</h3>
+    <ol class="cert-passos">
+      <li>Abra esta página no <b>Safari</b> e baixe o certificado; permita o download do perfil.</li>
+      <li>Ajustes → <b>Perfil Transferido</b> → Instalar.</li>
+      <li>Ajustes → Geral → Sobre → <b>Ajustes de Confiança de Certificados</b> → ligue a chave do
+        “Sistema de Ferramentas - CA da loja”.</li>
+    </ol>
+  </div>
+  <div class="cert-so">
+    <h3>Windows (Chrome e Edge)</h3>
+    <ol class="cert-passos">
+      <li>Baixe e dê dois cliques no arquivo → <b>Instalar Certificado</b>.</li>
+      <li>Escolha <b>Usuário Atual</b> → “Colocar todos os certificados no repositório a seguir” →
+        <b>Autoridades de Certificação Raiz Confiáveis</b> → Concluir → Sim.</li>
+      <li>Feche e abra o navegador de novo.</li>
+    </ol>
+  </div>
+
+  <div class="cert-so">
+    <h3>Conferir</h3>
+    <p style="margin:0 0 6px">Antes de confirmar a instalação, a impressão digital (SHA-256) mostrada pelo
+      aparelho deve ser esta:</p>
+    <div class="cert-imp num">{{ c.ca_impressao }}</div>
+    <p class="fhelp">Certificado da loja válido até {{ c.ca_validade }}.
+      {% if c.servidor_validade %}Endereço seguro renovado sozinho; o atual vale até {{ c.servidor_validade }}
+      ({{ c.servidor_nomes | join(", ") }}).{% endif %}</p>
+  </div>
+  {% endif %}
+
+  <p class="fhelp" style="margin-top:18px"><a href="/">Voltar ao sistema</a></p>
+</div>
+{% endblock %}

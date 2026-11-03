@@ -26,8 +26,11 @@ import re
 import time
 import shutil
 import sqlite3
+import json
 import threading
 from datetime import datetime
+
+from scripts import db_util
 
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DADOS_DIR  = os.path.join(BASE_DIR, "dados")
@@ -48,6 +51,18 @@ INTERVALO_HORAS  = float(os.environ.get("BACKUP_INTERVALO_HORAS", "24"))
 RETENCAO_POR_BANCO = {"catalogo.db": 2}
 
 _TS_FMT = "%Y-%m-%d_%H%M"
+
+# Arquivos que não são banco mas sem os quais restaurar a máquina dói: a
+# SECRET_KEY (sem ela todo mundo é deslogado) e a CA do HTTPS (sem ela cada
+# aparelho teria de instalar um certificado novo). Vão para backups/_config/.
+ARQUIVOS_CONFIG = ("secret.key", os.path.join("tls", "ca.crt"), os.path.join("tls", "ca.key"))
+RETENCAO_CONFIG = 10
+PASTA_CONFIG = "_config"
+
+# O backup é considerado ATRASADO quando a cópia mais nova passou do intervalo
+# com esta folga (o agendador conta a partir da subida do serviço).
+FOLGA_ATRASO_H = 2
+ARQ_ULTIMO = "_ultimo.json"
 
 
 # ── Descoberta dos bancos ─────────────────────────────────────────────────────
@@ -75,6 +90,53 @@ def _slug(rel):
 
 
 # ── Cópia de um banco ─────────────────────────────────────────────────────────
+def _verificar(caminho):
+    """`PRAGMA quick_check` na CÓPIA: um backup que não abre não é backup, e
+    só se descobre isso no dia de restaurar. Devolve None se está bom."""
+    conn = sqlite3.connect(f"file:{caminho}?mode=ro", uri=True)
+    try:
+        r = conn.execute("PRAGMA quick_check").fetchone()
+    finally:
+        conn.close()
+    return None if r and r[0] == "ok" else f"cópia com defeito: {r[0] if r else '?'}"
+
+
+def _copiar_config(carimbo):
+    """Copia os ARQUIVOS_CONFIG que existirem para _config/<carimbo>/."""
+    existentes = [rel for rel in ARQUIVOS_CONFIG if os.path.isfile(os.path.join(DADOS_DIR, rel))]
+    if not existentes:
+        return 0
+    base = os.path.join(BACKUP_DIR, PASTA_CONFIG)
+    destino = os.path.join(base, carimbo)
+    for rel in existentes:
+        alvo = os.path.join(destino, rel)
+        os.makedirs(os.path.dirname(alvo), exist_ok=True)
+        shutil.copy2(os.path.join(DADOS_DIR, rel), alvo)
+    pastas = sorted(p for p in os.listdir(base) if os.path.isdir(os.path.join(base, p)))
+    for velha in pastas[:-RETENCAO_CONFIG]:
+        shutil.rmtree(os.path.join(base, velha), ignore_errors=True)
+    return len(existentes)
+
+
+def _gravar_ultimo(resumo):
+    try:
+        with open(os.path.join(BACKUP_DIR, ARQ_ULTIMO), "w", encoding="utf-8") as f:
+            json.dump({"quando": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                       "copiados": resumo["copiados"], "falhas": resumo["falhas"],
+                       "erros": [f"{i['banco']}: {i.get('msg', '')}" for i in resumo["itens"]
+                                 if not i["ok"]]}, f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def _ler_ultimo():
+    try:
+        with open(os.path.join(BACKUP_DIR, ARQ_ULTIMO), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def _copiar_online(origem, destino):
     """Copia um SQLite usando a API de backup online (consistente com o banco
     em uso). Cria o destino."""
@@ -119,6 +181,12 @@ def fazer_backup():
         destino = os.path.join(pasta, f"{slug}_{carimbo}.db")
         try:
             _copiar_online(abs_, destino)
+            defeito = _verificar(destino)
+            if defeito:
+                # Não entra na retenção: uma cópia ruim não pode empurrar uma
+                # boa para fora. Renomeada, para a restauração não oferecê-la.
+                os.replace(destino, destino + ".defeito")
+                raise RuntimeError(defeito)
             _aplicar_retencao(pasta, slug, _retencao(rel))
             itens.append({
                 "banco": rel, "ok": True,
@@ -127,15 +195,23 @@ def fazer_backup():
             })
         except Exception as e:  # noqa: BLE001 — continuar nos demais bancos
             itens.append({"banco": rel, "ok": False, "msg": str(e)})
+    try:
+        config = _copiar_config(carimbo)
+    except Exception as e:  # noqa: BLE001
+        config = 0
+        itens.append({"banco": PASTA_CONFIG, "ok": False, "msg": str(e)})
     ok = [i for i in itens if i["ok"]]
-    return {
+    resumo = {
         "quando": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "total": len(itens),
         "copiados": len(ok),
         "falhas": len(itens) - len(ok),
+        "config": config,
         "destino": BACKUP_DIR,
         "itens": itens,
     }
+    _gravar_ultimo(resumo)
+    return resumo
 
 
 # ── Consulta / status ─────────────────────────────────────────────────────────
@@ -161,6 +237,8 @@ def listar_backups(rel=None):
     # inclui também backups de bancos que não existem mais ao vivo
     if not rel and os.path.isdir(BACKUP_DIR):
         for slug in os.listdir(BACKUP_DIR):
+            if slug == PASTA_CONFIG or not os.path.isdir(os.path.join(BACKUP_DIR, slug)):
+                continue
             rel_do_slug = slug.replace("__", os.sep)
             if rel_do_slug not in ao_vivo and rel_do_slug not in alvos:
                 alvos.append(rel_do_slug)
@@ -177,6 +255,7 @@ def listar_backups(rel=None):
                 copias.append({
                     "arquivo": nome,
                     "quando": dt.strftime("%d/%m/%Y %H:%M") if dt else nome,
+                    "quando_dt": dt,
                     "tamanho": os.path.getsize(os.path.join(pasta, nome)),
                 })
         grupos.append({
@@ -192,21 +271,54 @@ def status():
     """Resumo para exibir na tela de administração."""
     grupos = listar_backups()
     total_copias = sum(len(g["copias"]) for g in grupos)
-    ultima = None
+    # A mais nova pela DATA (antes comparava o texto "dd/mm/aaaa", e 31/10
+    # ganhava de 03/11).
+    datas = [c["quando_dt"] for g in grupos for c in g["copias"] if c.get("quando_dt")]
+    ultima_dt = max(datas) if datas else None
     for g in grupos:
-        if g["copias"]:
-            q = g["copias"][0]["quando"]
-            if ultima is None or q > ultima:
-                ultima = q
+        for c in g["copias"]:
+            c.pop("quando_dt", None)
     return {
+        **saude(ultima_dt),
         "destino": BACKUP_DIR,
         "retencao": RETENCAO,
         "intervalo_horas": INTERVALO_HORAS,
         "total_bancos": len(grupos),
         "total_copias": total_copias,
-        "ultima_copia": ultima,
+        "ultima_copia": ultima_dt.strftime("%d/%m/%Y %H:%M") if ultima_dt else None,
         "grupos": grupos,
     }
+
+
+def saude(ultima_dt=None, agora=None):
+    """O backup está em dia? Para o aviso do menu e da tela de backup.
+    Atrasado = a cópia mais nova passou do intervalo + FOLGA_ATRASO_H, ou a
+    última rodada teve falha."""
+    agora = agora or datetime.now()
+    if ultima_dt is None:
+        datas = []
+        if os.path.isdir(BACKUP_DIR):
+            for slug in os.listdir(BACKUP_DIR):
+                pasta = os.path.join(BACKUP_DIR, slug)
+                if slug == PASTA_CONFIG or not os.path.isdir(pasta):
+                    continue
+                datas += [d for d in (_ts_do_arquivo(slug, n) for n in os.listdir(pasta)
+                                      if n.endswith(".db")) if d]
+        ultima_dt = max(datas) if datas else None
+    ultimo = _ler_ultimo() or {}
+    horas = round((agora - ultima_dt).total_seconds() / 3600, 1) if ultima_dt else None
+    limite = INTERVALO_HORAS + FOLGA_ATRASO_H
+    motivo = None
+    if ultima_dt is None:
+        motivo = "nenhuma cópia encontrada"
+    elif horas > limite:
+        motivo = f"última cópia há {horas:.0f} h"
+    elif ultimo.get("falhas"):
+        motivo = f"{ultimo['falhas']} falha(s) na última rodada"
+    return {"atrasado": motivo is not None, "motivo_atraso": motivo,
+            "horas_desde_ultima": horas,
+            "ultima_iso": ultima_dt.strftime("%Y-%m-%d %H:%M") if ultima_dt else None,
+            "erros_ultima_rodada": ultimo.get("erros", [])}
 
 
 # ── Restauração ───────────────────────────────────────────────────────────────
@@ -252,6 +364,8 @@ def restaurar(rel, nome_arquivo):
         _copiar_online(origem, destino)
     except Exception as e:  # noqa: BLE001
         return False, f"Falha ao restaurar: {e}"
+    # A cópia pode ter um esquema mais antigo: o próximo acesso migra de novo.
+    db_util.esquecer(destino)
     return True, f"Banco '{rel}' restaurado a partir de {nome_arquivo}."
 
 
@@ -278,7 +392,7 @@ def iniciar_agendador(intervalo_horas=None, delay_inicial=15):
             try:
                 r = fazer_backup()
                 print(f"[backup] {r['copiados']}/{r['total']} bancos copiados "
-                      f"em {r['quando']} → {r['destino']}")
+                      f"em {r['quando']} -> {r['destino']}")
             except Exception as e:  # noqa: BLE001
                 print(f"[backup] falha no agendador: {e}")
             time.sleep(intervalo)

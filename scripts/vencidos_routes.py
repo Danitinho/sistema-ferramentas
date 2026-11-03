@@ -319,3 +319,41 @@ def rodada_liberar(id_vencido):
 def api_del_vencido(id_vencido):
     ok, msg = v.excluir_vencido(id_vencido, usuario=_usuario())
     return jsonify({"ok": ok, "msg": msg})
+
+
+# ── Rebaixa (vencidos_rebaixa.py) ─────────────────────────────────────────────
+# Sugere preço para o que vai sobrar no vencimento e acompanha a rebaixa até
+# ser lançada no ERP. O sistema não muda preço no ERP: só registra a tarefa.
+@vencidos_bp.route("/rebaixas")
+def rebaixas():
+    from scripts import vencidos_rebaixa as rb
+    return render_template("vencidos/rebaixas.html", sugestoes=rb.sugestoes(),
+                           rebaixas=rb.listar(), regra=rb, hoje=v._hoje())
+
+
+@vencidos_bp.route("/api/rebaixa", methods=["POST"])
+def api_rebaixa():
+    from scripts import vencidos_rebaixa as rb
+    d = request.get_json(silent=True) or {}
+    ok, msg, rid = rb.registrar(d.get("aviso_id"), d.get("preco_por"), d.get("inicio"),
+                                d.get("fim"), d.get("obs"), usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg, "id": rid})
+
+
+@vencidos_bp.route("/api/rebaixa/<rid>/lancada", methods=["POST"])
+def api_rebaixa_lancada(rid):
+    from scripts import vencidos_rebaixa as rb
+    d = request.get_json(silent=True) or {}
+    if d.get("desfazer"):
+        ok, msg = rb.desfazer_lancada(rid, usuario=_usuario())
+    else:
+        ok, msg = rb.marcar_lancada(rid, d.get("referencia", ""), usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@vencidos_bp.route("/api/rebaixa/<rid>/cancelar", methods=["POST"])
+def api_rebaixa_cancelar(rid):
+    from scripts import vencidos_rebaixa as rb
+    d = request.get_json(silent=True) or {}
+    ok, msg = rb.cancelar(rid, d.get("motivo", ""), usuario=_usuario())
+    return jsonify({"ok": ok, "msg": msg})

@@ -31,6 +31,8 @@ import sqlite3
 import shutil
 from datetime import datetime
 
+from scripts import db_util
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -59,7 +61,7 @@ def _conn():
     _garantir_pastas()
     conn = sqlite3.connect(BANCO)
     conn.row_factory = sqlite3.Row
-    _init_schema(conn)
+    db_util.preparar(conn, BANCO, _init_schema)
     return conn
 
 

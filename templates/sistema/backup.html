@@ -45,6 +45,13 @@
       </div>
     </div>
     <div class="dest">→ {{ status.destino }}</div>
+    {% if status.atrasado %}
+    <div class="alertx" style="margin-top:14px;border-color:var(--danger);color:var(--danger)">
+      <span><b>Backup atrasado:</b> {{ status.motivo_atraso }}.
+      {% for e in status.erros_ultima_rodada %}<br><span class="num">{{ e }}</span>{% endfor %}
+      Use “Fazer backup agora” e, se falhar de novo, confira o espaço em disco e a pasta de destino.</span>
+    </div>
+    {% endif %}
     <div class="result-box" id="msg-agora" style="margin-top:14px">
       <div class="result-value" id="msg-agora-txt" style="font-size:14px"></div>
     </div>
@@ -74,7 +81,8 @@
         {% endfor %}
       </select>
       <button class="btn btn-secondary btn-sm"
-              onclick="restaurar('{{ g.banco | e }}', 'sel-{{ loop.index }}')">Restaurar</button>
+              onclick="restaurar('{{ g.banco | e }}', 'sel-{{ loop.index }}')"
+              {% if not perm.admin %}disabled title="Só o administrador restaura"{% endif %}>Restaurar</button>
     </div>
     <div class="muted-s">{{ g.copias | length }} cópia(s) disponível(is).</div>
     {% else %}

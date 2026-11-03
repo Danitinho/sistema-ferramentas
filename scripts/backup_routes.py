@@ -19,6 +19,12 @@ def api_status():
     return jsonify({"ok": True, "status": backup.status()})
 
 
+@backup_bp.route("/api/saude")
+def api_saude():
+    """Leve: o backup está em dia? A faixa "pendente" do menu lê isto."""
+    return jsonify({"ok": True, **backup.saude()})
+
+
 @backup_bp.route("/api/agora", methods=["POST"])
 def api_agora():
     try:

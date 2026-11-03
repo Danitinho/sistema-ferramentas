@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Perdas da loja{% endblock %}
+{% block header_title %}Perdas da loja{% endblock %}
+{% block breadcrumb %}<a href="/">Menu principal</a> · Cadastro · Perdas da loja{% endblock %}
+
+{% block header_actions %}
+<select id="sel-mes" onchange="irMes(this.value)" aria-label="Mês" style="width:auto;margin:0">
+  {% for m in meses %}<option value="{{ m.mes }}" {% if m.mes == mes %}selected{% endif %}>{{ m.rotulo }}</option>{% endfor %}
+</select>
+<a class="btn btn-secondary btn-sm" href="{{ url_for('perdas.excel', mes=mes, lanc='pendente') }}"
+   title="As perdas do mês ainda não lançadas, para digitar no ERP">Excel dos pendentes</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .pd-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+  @media (min-width: 760px) { .pd-form { grid-template-columns: 1.3fr 2fr 0.8fr 1fr; } }
+  .pd-form .larga { grid-column: 1 / -1; }
+  @media (min-width: 760px) { .pd-form .meia { grid-column: span 2; } }
+  .pd-cat { font-size: 13px; color: var(--muted); min-height: 18px; margin-top: 4px; }
+  .pd-cat.ok { color: var(--success); }
+  .pd-cat.conf { color: var(--warning); }
+  .pd-motivos { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+  .pd-motivos button { font-size: 13px; }
+  .pd-quebra { display: grid; grid-template-columns: 1fr; gap: 0; }
+  @media (min-width: 860px) { .pd-quebra { grid-template-columns: 1fr 1fr; } }
+  .pd-quebra > div { min-width: 0; }
+  .pd-tb { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .pd-tb th { text-align: left; font-size: 12.5px; color: var(--muted); font-weight: 500;
+    padding: 8px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .pd-tb td { padding: 8px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .pd-tb tr:last-child td { border-bottom: none; }
+  .pd-tb .dir { text-align: right; white-space: nowrap; }
+  .pd-barra { height: 4px; background: var(--surface-3); border-radius: 2px; margin-top: 4px; }
+  .pd-barra i { display: block; height: 100%; background: var(--danger); border-radius: 2px; }
+  .pd-wrap { overflow-x: auto; }
+  .pd-lote { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .pd-lote input[type=text] { width: 220px; margin: 0; }
+  .pd-filtros { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pd-filtros select { width: auto; margin: 0; }
+  .pd-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .pd-ck { width: 16px; height: 16px; margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set p = painel %}
+<div class="resumo full" style="--n: 3">
+  <div class="resumo-item">
+    <div class="resumo-rot">Perda em {{ p.rotulo }} (custo)</div>
+    <div class="resumo-v {{ 'v-danger' if p.total > 0.005 else 'v-zero' }}">{{ p.total | brl }}</div>
+    <div class="resumo-sub">{{ p.registros }} registro(s) aqui{% if p.vencidos %} + {{ p.vencidos }} vencido(s) baixado(s) como perda{% endif %}{% if p.sem_custo %} · <span style="color:var(--warning)">{{ p.sem_custo }} sem custo, fora do valor</span>{% endif %}</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-rot">Perda em % da venda</div>
+    {% if p.pct_venda is not none %}
+    <div class="resumo-v">{{ p.pct_venda | num_br(2) }}%</div>
+    <div class="resumo-sub">venda de {{ p.venda | brl }} ({{ p.venda_periodo }})</div>
+    {% else %}
+    <div class="resumo-v v-zero">—</div>
+    <div class="resumo-sub">a venda de {{ p.rotulo }} ainda não foi importada em Relatórios de venda</div>
+    {% endif %}
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-rot">A lançar no ERP</div>
+    <div class="resumo-v {{ 'v-zero' if not p.pendentes_lancar }}">{{ p.pendentes_lancar }}</div>
+    <div class="resumo-sub">{% if p.pendentes_lancar %}{{ p.valor_pendente | brl }} em perdas registradas aqui e ainda não lançadas{% else %}tudo deste mês já foi lançado{% endif %}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Registrar perda</div>
+  <div class="pd-form">
+    <div>
+      <label for="f-cb">Código de barras</label>
+      <input type="text" id="f-cb" inputmode="numeric" autocomplete="off" placeholder="bipe ou digite">
+    </div>
+    <div>
+      <label for="f-prod">Produto <em>*</em></label>
+      <input type="text" id="f-prod" autocomplete="off">
+    </div>
+    <div>
+      <label for="f-qtd">Quantidade <em>*</em></label>
+      <input type="text" id="f-qtd" inputmode="decimal" placeholder="un ou kg">
+    </div>
+    <div>
+      <label for="f-data">Data da perda</label>
+      <input type="date" id="f-data" value="{{ hoje }}" max="{{ hoje }}">
+    </div>
+    <div class="larga pd-cat" id="f-cat"></div>
+    <div class="larga">
+      <label>Motivo <em>*</em></label>
+      <div class="pd-motivos seg" id="f-motivo">
+        {% for k, rot in motivos.items() %}<button type="button" data-m="{{ k }}" onclick="escolherMotivo('{{ k }}')">{{ rot }}</button>{% endfor %}
+      </div>
+    </div>
+    <div>
+      <label for="f-custo">Custo unit. (R$)</label>
+      <input type="text" id="f-custo" inputmode="decimal" placeholder="do catálogo">
+    </div>
+    <div>
+      <label for="f-resp">Quem informou</label>
+      <input type="text" id="f-resp" placeholder="seção / pessoa">
+    </div>
+    <div class="meia">
+      <label for="f-obs">Observação</label>
+      <input type="text" id="f-obs" placeholder="ex.: caiu da prateleira, embalagem furada">
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+    <button class="btn btn-primary" id="btn-reg" onclick="registrar()">Registrar perda</button>
+    <span id="f-msg" style="font-size:13.5px"></span>
+  </div>
+</div>
+
+<div class="card card-flush full">
+  <div class="card-head"><span class="ttl">Onde está a perda de {{ p.rotulo }}</span>
+    <span class="hint">departamento = o do produto no catálogo hoje</span></div>
+  <div class="pd-quebra">
+    <div class="pd-wrap">
+      <table class="pd-tb">
+        <thead><tr><th>Motivo</th><th class="dir">Valor</th><th class="dir">% da perda</th></tr></thead>
+        <tbody>
+        {% for m in p.por_motivo %}
+          <tr><td>{{ m.rotulo }}<div class="pd-barra"><i style="width:{{ m.pct_total }}%"></i></div></td>
+            <td class="dir num">{{ m.valor | brl }}</td><td class="dir num">{{ m.pct_total | num_br(1) }}%</td></tr>
+        {% else %}<tr><td colspan="3" class="empty-state">Nenhuma perda no mês.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="pd-wrap">
+      <table class="pd-tb">
+        <thead><tr><th>Departamento</th><th class="dir">Perda</th><th class="dir">% da venda dele</th></tr></thead>
+        <tbody>
+        {% for d in p.por_dep %}
+          <tr><td>{{ d.nome }}</td><td class="dir num">{{ d.valor | brl }}</td>
+            <td class="dir num">{% if d.pct_venda is not none %}{{ d.pct_venda | num_br(2) }}%{% else %}—{% endif %}</td></tr>
+        {% else %}<tr><td colspan="3" class="empty-state">—</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card card-flush full">
+  <div class="card-head">
+    <span class="ttl">Perdas registradas em {{ p.rotulo }}</span>
+    <div class="pd-filtros">
+      <select onchange="filtro('motivo', this.value)" aria-label="Motivo">
+        <option value="">Todos os motivos</option>
+        {% for k, rot in motivos.items() %}<option value="{{ k }}" {% if motivo == k %}selected{% endif %}>{{ rot }}</option>{% endfor %}
+      </select>
+      <select onchange="filtro('lanc', this.value)" aria-label="Situação no ERP">
+        <option value="">Lançadas e pendentes</option>
+        <option value="pendente" {% if lanc == 'pendente' %}selected{% endif %}>Só pendentes</option>
+        <option value="lancada" {% if lanc == 'lancada' %}selected{% endif %}>Só lançadas</option>
+      </select>
+    </div>
+  </div>
+  {% if perdas %}
+  <div class="pd-lote">
+    <label style="display:flex;gap:6px;align-items:center;margin:0;font-size:13.5px">
+      <input type="checkbox" class="pd-ck" id="ck-todos" onchange="marcarTodos(this.checked)"> todos os pendentes</label>
+    <input type="text" id="lote-ref" placeholder="nº da nota de perda / ajuste">
+    <button class="btn btn-primary btn-sm" onclick="lancarSelecionadas()">Marcar selecionadas como lançadas</button>
+    <span id="lote-n" style="color:var(--muted)"></span>
+  </div>
+  <div class="pd-wrap">
+  <table class="pd-tb">
+    <thead><tr><th></th><th>Data</th><th>Produto</th><th class="dir">Qtd</th><th class="dir">Valor</th><th>Motivo</th><th>ERP</th><th></th></tr></thead>
+    <tbody>
+    {% for x in perdas %}
+    <tr>
+      <td>{% if x.lanc_status == 'pendente' %}<input type="checkbox" class="pd-ck ck-perda" value="{{ x.id }}" onchange="contar()">{% endif %}</td>
+      <td class="num">{{ x.data_fmt }}</td>
+      <td>{{ x.produto }}
+        <div class="pd-sub">{% if x.codigo_barras %}<span class="num">{{ x.codigo_barras }}</span> · {% endif %}{{ x.dep_nome }}{% if x.responsavel %} · {{ x.responsavel }}{% endif %}{% if x.obs %} · {{ x.obs }}{% endif %}</div></td>
+      <td class="dir num">{{ x.quantidade | num_br }}</td>
+      <td class="dir num">{% if x.valor is not none %}{{ x.valor | brl }}{% else %}<span style="color:var(--warning)">sem custo</span>{% endif %}</td>
+      <td>{{ x.motivo_label }}</td>
+      <td>{% if x.lanc_status == 'lancada' %}<span class="pill p-quitado" title="por {{ x.lanc_por or '—' }} em {{ x.lanc_fmt }}">{{ x.lanc_ref or 'lançada' }}</span>
+          <button class="btn-lixo" style="color:var(--muted)" title="Desmarcar o lançamento" onclick="desfazer('{{ x.id }}')">↺</button>
+        {% else %}<span class="pill p-parcial">pendente</span>{% endif %}</td>
+      <td>{% if x.lanc_status == 'pendente' %}<button class="btn-lixo" title="Excluir" onclick="excluir('{{ x.id }}')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 4h11M5.5 4V2.5h4V4M4 4l.8 9h6.4l.8-9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Nenhuma perda registrada neste mês{% if motivo or lanc %} com esse filtro{% endif %}.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const $ = id => document.getElementById(id);
+let _motivo = null;
+
+function irMes(m) { const u = new URL(location.href); u.searchParams.set("mes", m); location.href = u; }
+function filtro(k, v) {
+  const u = new URL(location.href);
+  if (v) u.searchParams.set(k, v); else u.searchParams.delete(k);
+  location.href = u;
+}
+function escolherMotivo(m) {
+  _motivo = m;
+  document.querySelectorAll("#f-motivo button").forEach(b => b.classList.toggle("ativo", b.dataset.m === m));
+}
+
+// ── Bipou o código: o catálogo preenche o que está vazio ────────────────────
+let _ultimoCb = "", _tCb = null;
+$("f-cb").addEventListener("input", () => { clearTimeout(_tCb); _tCb = setTimeout(consultarCb, 350); });
+$("f-cb").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); consultarCb(); $("f-qtd").focus(); } });
+async function consultarCb() {
+  const cb = $("f-cb").value.replace(/\D/g, "");
+  const info = $("f-cat");
+  if (!cb || cb === _ultimoCb) return;
+  _ultimoCb = cb;
+  info.className = "larga pd-cat"; info.textContent = "consultando o catálogo...";
+  let r;
+  try { r = await (await fetch("/perdas/api/produto?cb=" + encodeURIComponent(cb))).json(); }
+  catch (e) { info.textContent = "catálogo fora do ar — preencha à mão"; return; }
+  if (!r.encontrado) {
+    info.textContent = r.ambiguo ? "mais de um cadastro com esse código (zeros à esquerda) — preencha à mão"
+                                 : "fora do catálogo — preencha produto e custo à mão";
+    return;
+  }
+  if (!$("f-prod").value.trim()) $("f-prod").value = r.descricao || "";
+  if (!$("f-custo").value.trim() && r.custo != null) $("f-custo").value = r.custo.toFixed(2).replace(".", ",");
+  info.className = "larga pd-cat " + (r.exato ? "ok" : "conf");
+  info.textContent = (r.exato ? "do catálogo" : `casou com ${r.codigo_barras} (zeros à esquerda) — confira`)
+    + ` · ${r.dep_nome || "sem departamento"}`
+    + (r.custo == null ? " · sem custo no catálogo" : "")
+    + (r.atualizado_fmt ? ` · foto de ${r.atualizado_fmt}` : "");
+}
+
+async function registrar() {
+  const msg = $("f-msg");
+  if (!_motivo) { msg.style.color = "var(--danger)"; msg.textContent = "Escolha o motivo."; return; }
+  $("btn-reg").disabled = true;
+  const r = await postJSON("/perdas/api/perda", {
+    codigo_barras: $("f-cb").value, produto: $("f-prod").value, quantidade: $("f-qtd").value,
+    data: $("f-data").value, motivo: _motivo, custo: $("f-custo").value,
+    responsavel: $("f-resp").value, obs: $("f-obs").value });
+  $("btn-reg").disabled = false;
+  msg.style.color = r.ok ? "var(--success)" : "var(--danger)";
+  msg.textContent = r.msg || r.erro;
+  if (r.ok) setTimeout(() => location.reload(), 700);
+}
+
+// ── Lançamento no ERP em lote ────────────────────────────────────────────────
+function selecionadas() { return [...document.querySelectorAll(".ck-perda:checked")].map(c => c.value); }
+function contar() { const n = selecionadas().length; $("lote-n").textContent = n ? `${n} selecionada(s)` : ""; }
+function marcarTodos(v) { document.querySelectorAll(".ck-perda").forEach(c => c.checked = v); contar(); }
+async function lancarSelecionadas() {
+  const ids = selecionadas();
+  if (!ids.length) { alert("Selecione as perdas que foram lançadas."); return; }
+  const r = await postJSON("/perdas/api/lancadas", { ids, referencia: $("lote-ref").value });
+  if (r.ok) location.reload(); else alert(r.msg || r.erro);
+}
+async function desfazer(id) {
+  if (!confirm("Desmarcar o lançamento desta perda (volta para pendente)?")) return;
+  const r = await postJSON("/perdas/api/lancadas", { ids: [id], desfazer: true });
+  if (r.ok) location.reload(); else alert(r.msg || r.erro);
+}
+async function excluir(id) {
+  if (!confirm("Excluir esta perda?")) return;
+  const r = await (await fetch("/perdas/api/perda/" + id, { method: "DELETE" })).json();
+  if (r.ok) location.reload(); else alert(r.msg || r.erro);
+}
+</script>
+{% endblock %}

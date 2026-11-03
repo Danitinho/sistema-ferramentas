@@ -66,6 +66,22 @@
     </div>
   </div>
 
+  <label>A margem é</label>
+  <div class="seg" id="seg-tipo">
+    <button class="ativo" id="tipo-custo" onclick="selecionarTipo('custo')"
+            title="Preço = custo × (1 + margem). 30% sobre R$ 10 = R$ 13,00">Sobre o custo (markup)</button>
+    <button id="tipo-venda" onclick="selecionarTipo('venda')"
+            title="A margem é a fatia do PREÇO que sobra. 30% sobre a venda de R$ 10 de custo = R$ 14,29">Sobre a venda</button>
+  </div>
+
+  <label for="arred">Arredondar o preço</label>
+  <select id="arred" onchange="lembrar(); if ($('resultado').classList.contains('show')) calcular()">
+    <option value="">Não arredondar</option>
+    <option value="99">Para cima, terminando em ,99</option>
+    <option value="90">Para cima, terminando em ,90</option>
+    <option value="49_99">Para cima, terminando em ,49 ou ,99</option>
+  </select>
+
   <button class="btn btn-primary" onclick="calcular()">Calcular</button>
 
   <div class="result-box error" id="erro">
@@ -86,6 +102,43 @@ const $ = id => document.getElementById(id);
 let _origem = "dentro";
 // Acréscimo por origem — o mesmo mapa da rota em app.py. "sem" = só a margem.
 const TAXAS = { dentro: 0.05, fora: 0.19, sem: 0 };
+// Tipo de margem e arredondamento: as mesmas contas de app.py (calcular_preco).
+let _tipo = "custo";
+
+function selecionarTipo(tipo) {
+  _tipo = tipo;
+  $("tipo-custo").classList.toggle("ativo", tipo === "custo");
+  $("tipo-venda").classList.toggle("ativo", tipo === "venda");
+  lembrar();
+  if ($("resultado").classList.contains("show")) calcular();
+}
+
+// Preferência de quem usa este aparelho (conveniência; nada depende disto).
+function lembrar() {
+  try { localStorage.setItem("calc_pref", JSON.stringify({ tipo: _tipo, arred: $("arred").value })); } catch (e) {}
+}
+(function restaurarPref() {
+  try {
+    const p = JSON.parse(localStorage.getItem("calc_pref") || "{}");
+    if (p.tipo === "venda") selecionarTipo("venda");
+    if (p.arred !== undefined && [...$("arred").options].some(o => o.value === p.arred)) $("arred").value = p.arred;
+  } catch (e) {}
+})();
+
+// Arredonda SEMPRE para cima (nunca come a margem): o menor preço com o final
+// escolhido que seja >= o calculado. Trabalha em centavos para não errar 0,01.
+function arredondar(preco, modo) {
+  if (!modo) return preco;
+  const c = Math.round(preco * 100);
+  const finais = modo === "49_99" ? [49, 99] : [Number(modo)];
+  let melhor = null;
+  for (let base = Math.floor(c / 100) * 100; melhor === null; base += 100) {
+    for (const f of finais) {
+      if (base + f >= c) { melhor = base + f; break; }
+    }
+  }
+  return melhor / 100;
+}
 
 function selecionarOrigem(origem) {
   _origem = origem;
@@ -107,8 +160,10 @@ function calcular() {
     $("erro").classList.add("show");
     return;
   }
-  if (isNaN(margem) || margem < 0) {
-    $("msg-erro").textContent = "Informe uma margem válida.";
+  if (isNaN(margem) || margem < 0 || (_tipo === "venda" && margem >= 100)) {
+    $("msg-erro").textContent = _tipo === "venda"
+      ? "Margem sobre a venda tem de ficar abaixo de 100%."
+      : "Informe uma margem válida.";
     $("erro").classList.add("show");
     return;
   }
@@ -125,10 +180,17 @@ function calcular() {
   const custoLiquido    = custo - valorDesconto;
   const taxa            = TAXAS[_origem] ?? 0.05;
   const custoComImposto = custoLiquido * (1 + taxa);
-  const preco           = custoComImposto * (1 + margem / 100);
+  const precoCalc       = _tipo === "venda"
+                          ? custoComImposto / (1 - margem / 100)
+                          : custoComImposto * (1 + margem / 100);
+  const preco           = arredondar(precoCalc, $("arred").value);
   const valorImposto    = custoComImposto - custoLiquido;
-  const valorMargem     = preco - custoComImposto;
-  const taxaPct         = (taxa * 100).toLocaleString("pt-BR");
+  const taxaPct        = (taxa * 100).toLocaleString("pt-BR");
+  const pct = v => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
+  // As duas leituras do MESMO preço final (já arredondado): é a confusão mais
+  // comum entre quem fala "margem" — o catálogo mostra a margem sobre a venda.
+  const markupFinal     = (preco / custoComImposto - 1) * 100;
+  const margemVendaFinal = (1 - custoComImposto / preco) * 100;
 
   $("preco-final").textContent = brl(preco);
   $("detalhes").innerHTML = `
@@ -159,12 +221,25 @@ function calcular() {
       <span class="val">+ ${brl(0)}</span>
     </div>`}
     <div class="detalhe">
-      <span class="rot">Margem (${margem.toLocaleString("pt-BR")}%)</span>
-      <span class="val">+ ${brl(valorMargem)}</span>
+      <span class="rot">Margem (${margem.toLocaleString("pt-BR")}% ${_tipo === "venda" ? "sobre a venda" : "sobre o custo"})</span>
+      <span class="val">+ ${brl(precoCalc - custoComImposto)}</span>
     </div>
+    ${preco !== precoCalc ? `
+    <div class="detalhe">
+      <span class="rot">Arredondamento</span>
+      <span class="val">+ ${brl(preco - precoCalc)}</span>
+    </div>` : ""}
     <div class="detalhe sep">
       <span class="rot">Preço de venda</span>
       <span class="val">${brl(preco)}</span>
+    </div>
+    <div class="detalhe">
+      <span class="rot">Neste preço: markup sobre o custo</span>
+      <span class="val">${pct(markupFinal)}</span>
+    </div>
+    <div class="detalhe">
+      <span class="rot">Neste preço: margem sobre a venda</span>
+      <span class="val">${pct(margemVendaFinal)}</span>
     </div>
   `;
   $("resultado").classList.add("show");

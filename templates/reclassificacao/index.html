@@ -840,8 +840,8 @@ async function andCompleto() {
 }
 
 desenharTudo(_and);
-setInterval(andLeve, 4000);
-setInterval(andCompleto, 60000);
+intervaloVisivel(andLeve, 4000);
+intervaloVisivel(andCompleto, 60000);
 </script>
 <script>
 // Atualização ao vivo. O agente não tem tela: sem isto o coordenador teria de
@@ -904,6 +904,6 @@ async function atualizar() {
 }
 
 atualizar();
-setInterval(atualizar, 4000);
+intervaloVisivel(atualizar, 4000);
 </script>
 {% endblock %}

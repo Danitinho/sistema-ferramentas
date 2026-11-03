@@ -53,3 +53,7 @@ dados/agente.db
 dados/agente.db-wal
 dados/agente.db-shm
 logs/
+
+# Perdas da loja e certificado HTTPS (a CHAVE da CA nunca vai para o git)
+dados/perdas.db
+dados/tls/

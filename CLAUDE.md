@@ -13,21 +13,32 @@ pelo navegador de outros dispositivos (celulares/tablets/PCs) pela **rede
 local**. Idioma do projeto: **português (pt-BR)** — nomes de rotas, variáveis,
 templates e mensagens são em português; mantenha esse padrão.
 
+> **O sistema NÃO é um ERP** (decisão do usuário, 03/11/2026). Ele é o registro
+> das atividades do escritório que depois são **lançadas no ERP** (RADGe):
+> perda, rebaixa, vencido, débito. Não faz entrada de mercadoria, estoque nem
+> pedido de compra. Funcionalidade nova segue o mesmo modelo: **registrar aqui
+> → marcar "lançado no ERP" com a referência**. Proposta que transforme o
+> sistema em ERP (ruptura, sugestão de compra, validade no recebimento) está
+> fora de escopo.
+
 Ferramentas atuais, agrupadas por setor:
 - **Cadastro:** calculadora de preço, placas de oferta, placas hortifruti,
-  relatórios de venda, **controle de vencidos** (avisos → vencidos → baixa).
+  relatórios de venda, **controle de vencidos** (avisos → vencidos → baixa),
+  **rebaixa de vencidos** e **perdas da loja** (seção 20).
 - **Loja:** lote e vencimento.
 - **Financeiro:** débitos, pagamentos e alocações (acompanhamento de quitação
   NF-a-NF).
-- **Sistema:** login/usuários e backup/restauração.
+- **Sistema:** login/usuários, backup/restauração e o certificado do HTTPS.
 
 Algumas ainda são *placeholders* (ver seção 10).
 
 > **Acesso protegido por login.** Há uma guarda global (`before_request`) que
 > exige sessão para tudo, menos `/login`, `/setup` e estáticos. No primeiro
 > acesso (banco de usuários vazio) o sistema leva para `/setup` para criar o
-> administrador. A guarda é *fail-open*: se o módulo de auth não carregar, o
-> sistema segue no ar sem login (aviso no log) — disponibilidade acima de tudo.
+> administrador. A guarda é **fail-closed** desde 03/11/2026: se o módulo de
+> auth não carregar, as telas respondem 503 (só a API dos agentes, que tem
+> token próprio, continua). Antes era fail-open — o sistema ficava no ar SEM
+> login, com débitos abertos para a rede.
 
 ---
 
@@ -37,8 +48,10 @@ Algumas ainda são *placeholders* (ver seção 10).
 - **Dois entrypoints:**
   - `app.py` — desenvolvimento. Sobe o servidor de dev do Flask na **porta
     5000** (`python app.py`). Mostra o IP local no terminal.
-  - `server.py` — produção. Usa **waitress** na **porta 80**
-    (`python server.py`). É este que roda como serviço Windows via NSSM.
+  - `server.py` — produção. **waitress** na **porta 80** (HTTP) e **cheroot**
+    na **porta 443** (HTTPS com a CA da loja, seção 21), no mesmo processo, 16
+    threads (`SERVIDOR_THREADS`). É este que roda como serviço Windows via
+    NSSM. Erros também vão para `logs/sistema.log` (rotação 5 × 5 MB).
 - **Persistência:** sem banco central único, mas o padrão hoje é **SQLite** por
   módulo (ver seção 6). Débitos, relatórios, usuários e vencidos usam SQLite;
   layouts de placa usam JSON. Todos os bancos SQLite ganham backup automático
@@ -52,19 +65,26 @@ python app.py          # http://localhost:5000
 
 Rodar como em produção (local):
 ```bash
-python server.py       # http://localhost:80  (requer waitress)
+python server.py       # http://localhost:80 e https://localhost:443
+```
+
+Testes (seção 22) — nunca tocam em `dados/`:
+```bash
+python -m unittest discover -s tests -t .
 ```
 
 ### Dependências (`requirements.txt`)
-- `flask` — framework web.
-- `waitress` — servidor WSGI de produção (usado por `server.py`).
+**Versões fixas** (`==`, 03/11/2026): reinstalar numa máquina nova não pode
+trazer uma versão diferente calada. Para atualizar: sobe a versão, roda os
+testes, reinicia o serviço.
+- `flask` (+ `werkzeug`, `jinja2`) — framework web.
+- `waitress` — servidor de produção, HTTP (porta 80).
+- `cheroot` — HTTPS (porta 443). Sem ele o HTTP sobe sozinho.
+- `cryptography` — gera a CA da loja e o certificado do servidor.
 - `pillow` — geração/manipulação de imagens das placas de oferta.
 - `pdfplumber` — extração dos relatórios Curva ABC em PDF.
-- `openpyxl` — leitura/escrita de planilhas Excel (débitos e relatórios).
-
-> Nota: `waitress` foi adicionado ao `requirements.txt`. Ele era importado por
-> `server.py` mas estava ausente — se você atualizar um ambiente antigo, rode
-> `pip install -r requirements.txt` de novo.
+- `openpyxl` — leitura/escrita de planilhas Excel.
+- `reportlab` — relatórios em PDF.
 
 ---
 
@@ -94,7 +114,11 @@ sistema_ferramentas_refatorado/
 │   ├── relatorios_routes.py   # Blueprint /relatorios
 │   ├── reclassificacao.py     # fila + curadoria + controle do agente (seção 10-B)
 │   ├── reclassificacao_estrutura.py  # estrutura merceológica e validação do trio
-│   └── reclassificacao_routes.py  # Blueprint /reclassificacao + API por token
+│   ├── reclassificacao_routes.py  # Blueprint /reclassificacao + API por token
+│   ├── db_util.py             # preparo do esquema SQLite uma vez por processo
+│   ├── perdas.py / perdas_routes.py   # perdas da loja (seção 20)
+│   ├── vencidos_rebaixa.py    # rebaixa do que vai sobrar no vencimento (seção 20)
+│   └── certificado.py / certificado_routes.py  # CA da loja + /certificado (seção 21)
 │
 ├── templates/             # CAMADA DE VIEW (Jinja2, todas estendem base.html)
 │   ├── base.html              # layout + DESIGN SYSTEM (paleta, responsivo) — seção 8
@@ -127,7 +151,8 @@ sistema_ferramentas_refatorado/
 │       └── vendas.db          # banco SQLite consolidado
 │
 ├── uploads/               # uploads temporários (ex.: lista de produtos das placas)
-└── outputs/               # saídas geradas (ex.: ofertas_final.pdf)
+├── outputs/               # saídas geradas (ofertas_<id>.pdf, guardados 1 dia)
+└── tests/                 # unittest; ambiente.py isola os bancos (seção 22)
 ```
 
 ---
@@ -162,6 +187,8 @@ MODULOS = [
     ("scripts.backup_routes",     "backup_bp"),       # /sistema/backup
     ("scripts.reclassificacao_routes", "reclassificacao_bp"),  # /reclassificacao
     ("scripts.agente_erp_routes", "agente_bp"),       # /agente (seção 18)
+    ("scripts.certificado_routes", "certificado_bp"),  # /certificado (público)
+    ("scripts.perdas_routes",     "perdas_bp"),       # /perdas (seção 20)
 ]
 ```
 Ao adicionar um módulo novo, some uma entrada aqui — **não** volte a importar o
@@ -177,6 +204,12 @@ blueprints próprios.
 - `GET /` → menu principal (`index.html`).
 - `GET /cadastro/calculadora` + `POST /cadastro/calculadora/calcular`
   → calcula preço de venda por margem e imposto (lógica inline no `app.py`).
+  `tipo_margem`: `custo` (padrão, **markup**: custo × (1+m) — o de sempre) ou
+  `venda` (a margem é a fatia do preço: custo ÷ (1−m), a mesma leitura do
+  catálogo). `arredondamento`: `99` | `90` | `49_99`, **sempre para cima**
+  (`arredondar_preco`, em centavos). A resposta e a tela mostram as DUAS
+  leituras do preço final (markup e margem sobre a venda). A tela repete as
+  contas em JS: mude os dois lados juntos.
 - `GET /cadastro/placas-hortifruti` + `POST .../gerar` → **placeholder**.
 - `GET /cadastro/registro-perda` + `POST .../salvar` → **placeholder**.
 - `GET /loja/lote-vencimento` + `POST .../consultar` → **placeholder**.
@@ -188,6 +221,19 @@ Editor/gerador de placas de preço a partir de uma lista de produtos, usando
 listar (`/`), cadastrar, editar/excluir layout, gerar (`/<id>/gerar`),
 PDF (`/pdf/<arquivo>`), imprimir, preview. O template `cadastro/placas_ofertas.html`
 existe mas a geração efetiva passa pelo blueprint `/layouts`.
+- **Cada geração tem arquivos próprios** (03/11/2026): lista
+  `uploads/produtos_<id>.txt`, imagens em `outputs/ofertas_geradas/<id>/` (as
+  duas apagadas no fim) e `outputs/ofertas_<id>.pdf` (guardado 1 dia, para a
+  prévia e a reimpressão). Antes tudo era fixo e a pasta era apagada a cada
+  geração: duas pessoas ao mesmo tempo recebiam as placas uma da outra.
+  `/pdf/` e `/imprimir/` só aceitam esse padrão de nome.
+- **A lista TXT é lida em qualquer codificação** (`gerador_layouts.ler_texto`):
+  o RADGe exporta UTF-16 com BOM, e ler como UTF-8 derrubava a geração.
+- `:` separa os campos da lista; dentro de um valor digitado ele vira espaço.
+- **Puxar do catálogo** (tela de gerar): bipa/cola códigos e cada um vira uma
+  linha. O layout não diz qual campo é nome e qual é preço, então a regra é
+  pelo TIPO e fica escrita na tela: nome no 1º campo `texto`; preço de venda no
+  `texto_riscado` (o "de") se houver, senão no 1º campo de preço.
 
 ### Débitos, pagamentos e alocações — Blueprint `/debitos` (`debitos_routes.py` + `debitos.py`)
 Controle por empresa (CNPJ) com **acompanhamento de quitação NF-a-NF**.
@@ -342,7 +388,9 @@ Não há um banco único. Cada módulo persiste de um jeito:
 | Débitos/pagamentos/alocações | `dados/debitos.db` | SQLite |
 | Fornecedores (cadastro central) | `dados/fornecedores.db` | SQLite |
 | Catálogo de produtos (espelho do ERP) | `dados/catalogo.db` | SQLite |
-| Produtos vencidos | `dados/vencidos.db`           | SQLite |
+| Produtos vencidos + rebaixas | `dados/vencidos.db`  | SQLite |
+| Perdas da loja    | `dados/perdas.db`             | SQLite |
+| CA da loja e certificado HTTPS | `dados/tls/`     | PEM (a chave da CA vai no backup, nunca no git) |
 | Usuários + SECRET_KEY | `dados/sistema.db` + `dados/secret.key` | SQLite + arquivo |
 | Layouts de placa  | `assets/layouts/*.json`       | JSON |
 | Relatórios venda  | `dados/relatorios/vendas.db`  | SQLite |
@@ -365,6 +413,12 @@ Não há um banco único. Cada módulo persiste de um jeito:
 - **Auditoria**: registre criar/excluir na tabela `auditoria` com o `usuario`
   (vindo de `session.get("usuario")` na camada de rotas).
 - `PRAGMA busy_timeout = 5000` na conexão (evita erro imediato sob concorrência).
+- **Esquema preparado UMA vez por processo**: no `_conn()`, chame
+  `db_util.preparar(conn, BANCO, _init_schema)` em vez de `_init_schema(conn)`.
+  Antes cada conexão rodava CREATE/ALTER/backfill — o de usuários, em TODA
+  requisição. `preparar` é reentrante (o init de vencidos abre o banco de
+  fornecedores) e `backup.restaurar` chama `db_util.esquecer` (a cópia pode
+  ter um esquema mais antigo).
 
 Ao criar um módulo novo, prefira **SQLite** quando houver consulta/cruzamento de
 dados (é o caminho adotado no módulo mais recente). Excel/JSON só quando o
@@ -595,8 +649,13 @@ Todo template começa com:
 {% block extra_scripts %}<script>...</script>{% endblock %}
 ```
 Helpers globais já disponíveis em `base.html`: `postJSON(url, data)`,
-`brl(valor)` (moeda BRL), o drag-and-drop automático de `.upload-area` e o
-seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 14).
+`brl(valor)` (moeda BRL), o drag-and-drop automático de `.upload-area`, o
+seletor de fornecedor `fornecedorPicker(input, opts)` (CSS `.fpick` — seção 14)
+e **`intervaloVisivel(fn, ms)`** — use-o em vez de `setInterval` para consultar
+o servidor: com a aba escondida não roda nada e, ao voltar, atualiza na hora.
+Abas esquecidas consultando a cada 4 s esgotavam as threads do servidor.
+Filtros Jinja do `app.py`: `brl` e **`num_br`** (`2.5` → `2,5`; `num_br(1)` fixa
+as casas) — número na tela leva vírgula, nunca `'%g' | format`.
 
 ### Outras regras de UI
 - **Ícones:** SVG **inline** de linha (não emoji, não CDN). Decisão
@@ -620,6 +679,10 @@ numa porta própria. Screenshot pelo Edge sem janela:
 **Ele não desce de 492px de largura**: para ver o celular de verdade, ponha a
 página num `<iframe>` de 390px (o iframe tem viewport próprio, então as media
 queries valem). Confira sempre os dois temas.
+O jeito mais curto de servir uma cópia é `tests/ambiente.py` (`montar()` aponta
+todos os bancos para uma pasta temporária) + `werkzeug.serving.make_server`;
+para pular o login nessa cópia, ponha um `before_request` que preenche a
+sessão NA FRENTE da guarda (`app.before_request_funcs[None].insert(0, f)`).
 
 ---
 
@@ -646,6 +709,13 @@ queries valem). Confira sempre os dois temas.
 - `cadastro/*` (calculadora) e `loja/*` ainda são rotas diretas no `app.py` —
   candidatas a virar blueprints.
 - Typo proposital/legado: rota `/debitos/api/debito/rebaxa` (ver seção 5).
+- Perdas: sem edição (pendente se exclui e registra de novo; lançada se
+  desmarca antes). Departamento = o do catálogo HOJE, que muda com a
+  reclassificação.
+- Os agentes não se atualizam sozinhos: o `/agente` só AVISA a máquina com
+  versão diferente da `agente/geral.py` do servidor.
+- Sessão de 7 dias mantida de propósito (aparelhos da loja); a sessão de conta
+  excluída cai na hora.
 - Há arquivos de mídia do WhatsApp (`.ogg`, `.mp4`) espalhados na raiz, em
   `scripts/` e `templates/layouts/` — são lixo de desenvolvimento e podem ser
   removidos (o `.gitignore` já os ignora).
@@ -1370,7 +1440,11 @@ motivo de futuras quedas.
 
 ### Firewall
 Se outros dispositivos não acessarem, libere a porta no Windows Defender
-Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
+Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev). O HTTPS precisa da
+**443** também (prompt de administrador):
+```bat
+netsh advfirewall firewall add rule name="SistemaFerramentas HTTPS" dir=in action=allow protocol=TCP localport=443
+```
 
 ---
 
@@ -1391,8 +1465,9 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
 7. Seguir as **convenções de confiabilidade** da seção 6 (ISO, soft-delete,
    auditoria, `busy_timeout`) se o módulo gravar dado que importa. Para gravar o
    autor, leia `session.get("usuario")` na camada de rotas e passe adiante.
-8. Testar de verdade antes de entregar: subir o app (`python app.py`) e exercer
-   as rotas; para a lógica, um teste rápido importando o módulo direto.
+8. Testar de verdade antes de entregar: um `tests/test_<modulo>.py` com
+   `tests.ambiente.montar()` (seção 22) e a suíte inteira passando. Se o módulo
+   tem banco próprio, aponte o `BANCO` dele em `Ambiente._apontar`.
 
 ---
 
@@ -1422,8 +1497,24 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
   templates recebem `perm` (`perm.admin`, `perm.agente`) para **esconder**
   botões — esconder é conforto; quem barra é a guarda. **Endpoint novo que
   manda o agente trabalhar tem de entrar em `ENDPOINTS_AGENTE`.**
-- Só admin: criar/excluir usuário, mudar acesso ao agente, aprovar/recusar/
-  revogar máquina. Auditoria em `sistema.db.auditoria`.
+- Só admin: criar/excluir usuário, **redefinir a senha de outra pessoa**
+  (ícone de chave em `/sistema/usuarios`), mudar acesso ao agente,
+  aprovar/recusar/revogar máquina e **restaurar backup**. Auditoria em
+  `sistema.db.auditoria`.
+- **Excluir usuário é soft-delete** (`excluido_em`/`excluido_por`): a conta não
+  entra, some da lista e a **sessão aberta dela cai** na requisição seguinte
+  (`permissoes` devolve `existe: False`). Criar de novo o mesmo nome reaproveita
+  a linha, sem herdar o acesso ao agente.
+- **Senha nova: mínimo 6** (`SENHA_MINIMA`). Senha antiga mais curta continua
+  entrando — a regra vale ao criar/trocar.
+- **Limite de tentativas** (em memória; reiniciar zera): 5 erros na mesma conta
+  ou 20 no mesmo IP em 15 min → 5 min bloqueado, resposta 429. Acertar zera a
+  conta, não o IP.
+- **Pedido de outro site** (`origem_confiavel`, primeira coisa da guarda): POST/
+  DELETE com `Origin` (ou `Referer`) de outro endereço → 403; `Origin: null`
+  também. Sem os dois cabeçalhos passa (é o agente ou um programa, não um
+  navegador). Cookie `SameSite=Lax` + `HttpOnly`. Upload limitado a 256 MB
+  (413 JSON).
 - Cada mutação de dado sensível grava o autor na auditoria via
   `session.get("usuario")` (ver `debitos_routes._usuario` / `vencidos_routes._usuario`).
 
@@ -1438,7 +1529,18 @@ Firewall (regra de entrada, TCP, porta 80 — ou 5000 em dev).
 - Destino configurável por `BACKUP_DIR` — **aponte para a pasta do Google Drive
   desktop** para que as cópias saiam do PC automaticamente.
 - Restauração (`/sistema/backup`) salva o estado atual em `_pre_restauracao/`
-  antes de sobrescrever, então também é reversível.
+  antes de sobrescrever, então também é reversível. **Só admin.**
+- **Cada cópia passa por `PRAGMA quick_check`**; a com defeito vira
+  `.defeito`, fica fora da retenção (não empurra uma boa para fora) e conta
+  como falha.
+- **Não-banco também vai**: `secret.key` e a CA do HTTPS (`tls/ca.crt` +
+  `ca.key`) em `backups/_config/<carimbo>/`, 10 cópias. Sem a CA, cada aparelho
+  teria de reinstalar o certificado.
+- **Atraso avisa**: `saude()` (e `GET /sistema/backup/api/saude`) diz se a
+  cópia mais nova passou de intervalo + 2 h ou se a última rodada falhou
+  (`_ultimo.json` no destino). A faixa "pendente" do menu ganha o item
+  "Backup atrasado" só nesse caso. A "última cópia" agora é a mais nova pela
+  DATA (comparava o texto dd/mm e 31/10 ganhava de 03/11).
 
 ### Controle de vencidos (`scripts/vencidos.py` + `vencidos_routes.py`)
 Persiste em `dados/vencidos.db`. Fluxo em **dois estágios + baixa**:
@@ -2144,3 +2246,110 @@ solto depois, pergunta de mês, desempate de nomes parecidos, perda simulando,
 fornecedor sem nº, mês sem pendência, sem nota aberta, agente sem
 `nf.abrir_perda`, fornecedor desconhecido); `_voltar_foco` antes do `concluir`
 no sucesso e na falha. **Não testado com microfone e ERP reais.**
+---
+
+## 20. Perdas da loja (`/perdas`) e rebaixa de vencidos (`/vencidos/rebaixas`)
+
+Pedido do usuário (03/11/2026), depois da revisão do sistema. Os dois seguem o
+modelo da seção 1: **registrar aqui → marcar "lançado no ERP"**. Nenhum dos
+dois mexe em estoque ou preço no RADGe.
+
+### Perdas (`scripts/perdas.py` + `perdas_routes.py` + `templates/perdas/index.html`)
+A quebra que NÃO é vencido: avaria, furto/desaparecido, consumo interno,
+degustação, uso na produção, doação, outro (`MOTIVOS`). O vencido continua no
+`/vencidos`. Persiste em `dados/perdas.db` (ISO, soft-delete, auditoria).
+- **Bipou, preencheu**: com o código de barras, produto, custo, venda, código
+  interno e departamento vêm do catálogo (`catalogo.consultar`, a regra dos
+  zeros); o que a pessoa digitou vence. Fora do catálogo registra igual, sem
+  departamento. Sem custo, a perda conta em quantidade mas não em R$ — e o
+  painel diz quantas estão assim.
+- Data não pode ser futura. Departamento gravado no registro (o do catálogo
+  naquele dia).
+- **ERP**: nasce `pendente`; "Marcar selecionadas como lançadas" exige a
+  referência (nº da nota de perda / ajuste) e vale para várias de uma vez — o
+  lançamento costuma ser uma nota só. Lançada não se exclui; desmarca antes.
+  `GET /perdas/excel?mes=&lanc=pendente` = a lista para digitar no ERP (plana,
+  autofiltro, total).
+- **Painel do mês** (`painel`): total em R$ (custo), **perda em % da venda**
+  (venda = `relatorios.total_geral` do mês no `vendas.db`), por motivo e por
+  departamento. A venda por departamento liga `vendas.codigo` ao
+  `catalogo.codigo_interno` (o código interno casa EXATO, inclusive os de
+  balança como `6029`; não depende de código de barras). **Vencido baixado como
+  `perda`** no `/vencidos` entra como mais um motivo (pela data da baixa), para
+  o total ser a perda inteira; devolução (troca) não é perda e fica fora.
+- Nenhum número de referência de mercado é mostrado — o sistema não inventa
+  benchmark.
+
+### Rebaixa (`scripts/vencidos_rebaixa.py`, tabela `rebaixas` no `vencidos.db`)
+Fecha o ciclo da sobra estimada (`vencidos._riscos_para`):
+- **Sugestões** = avisos ativos com risco médio/alto (sobra ≥ 20%), vencendo em
+  1 dia ou mais, sem rebaixa em andamento; o que vence antes e o que mais sobra
+  em R$ primeiro.
+- **A sugestão é uma REGRA, escrita na tela** — não há dado de elasticidade e
+  o sistema não finge prever: 30% (alto) / 15% (médio), +10 pontos faltando
+  ≤ 7 dias, preço terminado em ,99 para baixo, **piso no custo** (a sugestão
+  avisa quando o custo segurou o desconto; abaixo do custo só digitando).
+- **Registrar** valida: preço abaixo da venda, fim antes do vencimento (padrão:
+  véspera), um aviso só tem uma rebaixa em andamento. O preço também vai para
+  `avisos.valor_promocional` (o campo que a tela e o relatório já mostram).
+- Estados gravados: `a_lancar` → `lancada` (com referência) | `cancelada`.
+  **`encerrada` é derivado**: aviso resolvido (virou vencido) ou fim passou.
+  Cancelar limpa o `valor_promocional` se ainda for o da rebaixa; se já estava
+  lançada, a mensagem manda voltar o preço no ERP.
+- Encerrada com aviso resolvido mostra o resultado: N de M unidades venceram.
+
+---
+
+## 21. HTTPS na rede da loja (`scripts/certificado.py`, `/certificado`)
+
+Por `http://` a senha viaja aberta no Wi-Fi e o navegador não libera microfone
+(Jardél, seção 19) nem câmera. Sem domínio público, o sistema tem a **própria
+CA**:
+- `dados/tls/ca.crt` + `ca.key` — 10 anos, criada uma vez. **Nunca é trocada
+  sozinha** (trocar obrigaria reinstalar em todo aparelho). Vai no backup
+  (`_config/`), nunca no git.
+- `dados/tls/servidor.crt` + `.key` — assinado pela CA, 800 dias (o iPhone
+  recusa > 825), com os IPs e nomes da máquina + `localhost`/`127.0.0.1`.
+  `garantir()` refaz sozinho ao subir quando falta, vence em < 60 dias ou o IP
+  mudou; como a CA é a mesma, os aparelhos não percebem.
+- `server.py` sobe o HTTPS na 443 com `cheroot`, numa thread, no MESMO processo
+  do waitress (a fila depende de processo único). Falhou? Loga e o HTTP segue.
+  `HTTPS_PORTA=0` desliga.
+- `/certificado` (e `/certificado/ca.crt`) é **público** (`PUBLICOS` em
+  `auth_routes`): a CA não é segredo e quem precisa dela ainda não confia no
+  HTTPS. Mostra o passo a passo para Android, iPhone e Windows e a impressão
+  digital SHA-256 para conferir. A chave nunca é servida (teste garante).
+- O HTTP da porta 80 **continua**: os agentes falam por ele
+  (`servidor_url = http://192.168.0.52`). Não há redirecionamento forçado.
+- Verificado (03/11/2026): TLS validando contra a CA em `localhost`,
+  `127.0.0.1` e `192.168.0.52`.
+
+---
+
+## 22. Testes automatizados (`tests/`)
+
+`python -m unittest discover -s tests -t .` — stdlib, sem dependência nova,
+~20 s, 45 testes (03/11/2026).
+- **`tests/ambiente.py`** monta o app com TODOS os bancos numa pasta
+  temporária (troca `BANCO`/`DADOS_DIR` de cada módulo, a `FilaBanco` e o
+  `BancoAgente`, as pastas das placas, a do backup e a do certificado) ANTES de
+  importar o `app`, e desliga o agendador de backup. **Nunca rode teste contra
+  `dados/`.** Módulo novo com banco próprio entra em `_apontar`.
+- `tests/dados_teste.py`: catálogo e um mês de vendas de mentira.
+- Cobertura: login (senha mínima, soft-delete, sessão de excluído caindo,
+  limite de tentativas, só-admin, pedido de outro site, 413, fail-closed num
+  subprocesso), `db_util` (reentrância), débitos (100 × R$ 0,10 quitando sem
+  centavo fantasma, excedente virando crédito, `valor_pago` = soma das
+  alocações, estorno), calculadora (markup, margem sobre a venda,
+  arredondamento), placas (4 codificações, duas gerações simultâneas sem
+  mistura, `:` no nome, nome de PDF), backup (quick_check, `_config`, atraso,
+  restauração re-preparando o esquema), certificado (CA estável, refeito com IP
+  novo, assinatura, download sem chave), fila da reclassificação (nada
+  `pronto` sem curadoria, blocos disjuntos sob concorrência, só o dono fecha),
+  rebaixa (regra, piso, fluxo completo) e perdas (catálogo, validações, % da
+  venda por departamento, vencido como perda, lançamento em lote) e todas as
+  páginas abrindo.
+- Os dados de débitos em produção foram conferidos (03/11/2026, só leitura):
+  nenhum valor fora de 2 casas e `valor_pago`/`valor_alocado` batendo com as
+  alocações — a soma com `ROUND(...,2)` no SQL e a tolerância `_EPS` já
+  seguravam. Por isso a migração para centavos inteiros NÃO foi feita.

@@ -34,6 +34,8 @@ import sqlite3
 import calendar
 from datetime import datetime
 
+from scripts import db_util
+
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DADOS_DIR = os.path.join(BASE_DIR, "dados")
 BANCO     = os.path.join(DADOS_DIR, "debitos.db")
@@ -62,7 +64,7 @@ def _conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
-    _init_schema(conn)
+    db_util.preparar(conn, BANCO, _init_schema)
     return conn
 
 

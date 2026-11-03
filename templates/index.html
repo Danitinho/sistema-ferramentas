@@ -114,6 +114,13 @@
     <span class="pend-ir">Abrir o painel do agente</span>
   </a>
   {% endif %}
+  <!-- Só aparece quando o backup está atrasado: em dia, não é pendência. -->
+  <a class="pend-item" href="/sistema/backup" id="pend-bkp" hidden>
+    <span class="pend-rot">Backup</span>
+    <span class="pend-v txt" id="pend-bkp-v" style="color:var(--danger)">atrasado</span>
+    <span class="pend-sub" id="pend-bkp-sub"></span>
+    <span class="pend-ir">Abrir o backup</span>
+  </a>
 </div>
 
 <div class="searchbox">
@@ -156,6 +163,18 @@
       <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z"/><path d="M8 6h8"/><path d="M9 12l2 2 4-4"/></svg></span>
       <span class="tool-name">Controle de vencidos</span>
       <span class="tool-desc">Avisos, entrada de vencidos e baixa</span>
+    </a>
+
+    <a href="/vencidos/rebaixas" class="tool-card" data-nome="rebaixa preço promoção queima vencimento sobra aviso desconto">
+      <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/><path d="M10 15l4-4"/></svg></span>
+      <span class="tool-name">Rebaixa de vencidos</span>
+      <span class="tool-desc">Preço para o que vai sobrar no vencimento</span>
+    </a>
+
+    <a href="/perdas/" class="tool-card" data-nome="perdas quebra avaria furto consumo interno degustação produção doação ajuste estoque nota de perda">
+      <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/><path d="M3 21h18"/></svg></span>
+      <span class="tool-name">Perdas da loja</span>
+      <span class="tool-desc">Avaria, furto, consumo e % da venda</span>
     </a>
 
     <a href="/fornecedores" class="tool-card" data-nome="fornecedores empresas cnpj número código erp radge cadastro juntar mesclar duplicado">
@@ -216,6 +235,12 @@
       <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
       <span class="tool-name">Usuários</span>
       <span class="tool-desc">Contas de acesso ao sistema</span>
+    </a>
+
+    <a href="/certificado" class="tool-card" data-nome="certificado https seguro microfone câmera celular instalar acesso seguro">
+      <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><path d="M12 15v2"/></svg></span>
+      <span class="tool-name">Acesso seguro (HTTPS)</span>
+      <span class="tool-desc">Certificado da loja para os aparelhos</span>
     </a>
 
     {% if perm.agente %}
@@ -307,6 +332,21 @@ const fmt = n => Number(n || 0).toLocaleString("pt-BR");
   } catch (e) {
     sub.textContent = "não consegui ler o painel agora";
   }
+})();
+
+(async function backupAtrasado() {
+  // Em dia (ou API fora do ar), o item fica escondido: o menu não grita à toa.
+  try {
+    const r = await fetch("/sistema/backup/api/saude");
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.atrasado) return;
+    document.getElementById("pend-bkp-sub").textContent =
+      d.motivo_atraso + " · avise o administrador";
+    document.getElementById("pend-bkp").hidden = false;
+    const p = document.getElementById("pend");
+    p.style.setProperty("--n", Number(getComputedStyle(p).getPropertyValue("--n")) + 1);
+  } catch (e) { /* sem aviso */ }
 })();
 </script>
 {% endblock %}

@@ -9,10 +9,13 @@ Registre no app.py:
 Adicione ao index.html um card apontando para /layouts
 """
 import os
+import re
 import shutil
 import json
+import time
+import uuid
 from flask import (Blueprint, render_template, request, jsonify,
-                   send_file, redirect, url_for)
+                   send_file, send_from_directory, abort, redirect, url_for)
 from scripts import gerador_layouts as gl
 from scripts import gira_imagem, gera_pdf
 
@@ -23,15 +26,35 @@ OUTPUT_FOLDER = "outputs"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+# Cada geração usa arquivos PRÓPRIOS (lista, pasta de imagens e PDF com um id).
+# Antes eram fixos — uploads/produtos_layout.txt, outputs/ofertas_geradas/ e
+# outputs/ofertas_final.pdf — e a pasta era apagada a cada geração: duas pessoas
+# gerando ao mesmo tempo recebiam as placas uma da outra, ou um PDF pela metade.
+PDF_NOME = re.compile(r"^ofertas_[0-9a-f]{12}\.pdf$")
+GUARDAR_PDF_S = 24 * 3600        # PDFs gerados ficam um dia (prévia e reimpressão)
+EXT_IMAGEM = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
-def _pasta_saida():
-    return os.path.join(OUTPUT_FOLDER, "ofertas_geradas")
+
+def _pasta_saida(gid):
+    return os.path.join(OUTPUT_FOLDER, "ofertas_geradas", gid)
 
 
-def _limpar_pasta(pasta):
-    if os.path.exists(pasta):
-        shutil.rmtree(pasta)
-    os.makedirs(pasta, exist_ok=True)
+def _limpar_antigos(pasta_pdfs):
+    """Apaga PDFs de geração com mais de um dia (e o PDF fixo da versão
+    antiga). Falha ao apagar não impede gerar."""
+    agora = time.time()
+    try:
+        nomes = os.listdir(pasta_pdfs)
+    except OSError:
+        return
+    for nome in nomes:
+        if PDF_NOME.match(nome) or nome == "ofertas_final.pdf":
+            caminho = os.path.join(pasta_pdfs, nome)
+            try:
+                if agora - os.path.getmtime(caminho) > GUARDAR_PDF_S:
+                    os.remove(caminho)
+            except OSError:
+                pass
 
 
 # ── Listagem ──────────────────────────────────────────────────────────────────
@@ -86,6 +109,8 @@ def upload_imagem():
         return jsonify({"ok": False, "msg": "Nenhum arquivo enviado."}), 400
 
     ext      = os.path.splitext(arquivo.filename)[1].lower()
+    if ext not in EXT_IMAGEM:
+        return jsonify({"ok": False, "msg": "Envie uma imagem (PNG ou JPG)."}), 400
     nome     = f"layout_{os.urandom(4).hex()}{ext}"
     destino  = os.path.join(gl.ASSETS_DIR, nome)
     arquivo.save(destino)
@@ -140,11 +165,24 @@ def gerar_post(layout_id):
         return jsonify({"mensagem": "Layout não encontrado."}), 404
 
     pdf_layout = int(request.form.get("pdf_layout", 4))
-    pasta      = _pasta_saida()
-    _limpar_pasta(pasta)
+    gid        = uuid.uuid4().hex[:12]
+    pasta      = _pasta_saida(gid)
+    os.makedirs(pasta, exist_ok=True)
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    try:
+        return _gerar(layout, pdf_layout, gid, pasta)
+    finally:
+        # As imagens e a lista são intermediárias: o que fica é o PDF.
+        shutil.rmtree(pasta, ignore_errors=True)
+        try:
+            os.remove(os.path.join(UPLOAD_FOLDER, f"produtos_{gid}.txt"))
+        except OSError:
+            pass
 
+
+def _gerar(layout, pdf_layout, gid, pasta):
     # ── Origem dos dados: arquivo txt ou formulário manual ────────────────────
-    caminho_txt = os.path.join(UPLOAD_FOLDER, "produtos_layout.txt")
+    caminho_txt = os.path.join(UPLOAD_FOLDER, f"produtos_{gid}.txt")
     arquivo     = request.files.get("produtos")
 
     if arquivo and arquivo.filename != "":
@@ -165,7 +203,9 @@ def gerar_post(layout_id):
             for campo in campos:
                 cid    = campo["id"]
                 valores = request.form.getlist(f"{cid}[]")
-                partes.append(valores[i] if i < len(valores) else "")
+                # ":" separa os campos na lista; dentro de um valor (descrição
+                # do catálogo, por exemplo) empurraria os campos seguintes.
+                partes.append((valores[i] if i < len(valores) else "").replace(":", " "))
             linha = ":".join(partes)
             if linha.replace(":", "").strip():  # ignora linhas completamente vazias
                 linhas.append(linha)
@@ -212,8 +252,9 @@ def gerar_post(layout_id):
 
     # ── PDF ───────────────────────────────────────────────────────────────────
     from flask import current_app
-    caminho_pdf = os.path.join(current_app.root_path, OUTPUT_FOLDER,
-                                "ofertas_final.pdf")
+    pasta_pdfs = os.path.join(current_app.root_path, OUTPUT_FOLDER)
+    _limpar_antigos(pasta_pdfs)
+    caminho_pdf = os.path.join(pasta_pdfs, f"ofertas_{gid}.pdf")
     gera_pdf.gerar_pdf_preenchimento_total(
         pasta_entrada=pasta,
         nome_saida=caminho_pdf,
@@ -243,18 +284,21 @@ def gerar_post(layout_id):
 @layouts_bp.route("/pdf/<filename>")
 def servir_pdf(filename):
     from flask import current_app
+    if not (PDF_NOME.match(filename) or filename == "ofertas_final.pdf"):
+        abort(404)
     pasta = os.path.join(current_app.root_path, OUTPUT_FOLDER)
-    return send_file(os.path.join(pasta, filename), mimetype="application/pdf")
+    return send_from_directory(pasta, filename, mimetype="application/pdf")
 
 
 # ── Impressão no servidor via SumatraPDF ──────────────────────────────────────
-
-SUMATRA_PATH = r"C:\Users\CADASTRO\AppData\Local\SumatraPDF\SumatraPDF.exe"
 
 @layouts_bp.route("/imprimir/<filename>", methods=["POST"])
 def imprimir(filename):
     import ctypes
     from flask import current_app
+
+    if not PDF_NOME.match(filename):
+        return jsonify({"ok": False, "msg": "Arquivo inválido."}), 400
 
     caminho_pdf = os.path.join(current_app.root_path, OUTPUT_FOLDER, filename)
 

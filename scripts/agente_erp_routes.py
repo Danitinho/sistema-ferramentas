@@ -145,10 +145,27 @@ def mapa_gravar():
     return redirect(url_for(".index", aviso="Mapa do ERP gravado; os agentes pegam na próxima volta."))
 
 
+def _versao_do_repositorio():
+    """A versão do agente geral que está NESTE repositório (lida do fonte, sem
+    importar: ele puxa o pywinauto). As máquinas não se atualizam sozinhas; o
+    painel compara e avisa quem ficou para trás."""
+    import os
+    import re
+    arq = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "agente", "geral.py")
+    try:
+        with open(arq, encoding="utf-8") as f:
+            m = re.search(r'^VERSAO\s*=\s*"([^"]+)"', f.read(), re.M)
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
 @agente_bp.get("/painel/api/estado")
 def painel_estado():
     b = ag.banco()
     return jsonify({"maquinas": b.listar_maquinas(), "pedidos": b.listar_pedidos(25),
+                    "versao_atual": _versao_do_repositorio(),
                     "pareamentos": b.listar_pareamentos(),
                     "log": b.ler_log(request.args.get("maquina", ""), 80)})
 

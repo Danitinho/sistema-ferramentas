@@ -4,6 +4,7 @@ Blueprint de autenticação: login, logout, primeiro acesso (setup) e
 gerenciamento de usuários. Também instala a guarda global de sessão.
 """
 from functools import wraps
+from urllib.parse import urlsplit
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    session, jsonify, g)
 from scripts import auth
@@ -11,7 +12,9 @@ from scripts import auth
 auth_bp = Blueprint("auth", __name__)
 
 # Endpoints acessíveis sem login.
-PUBLICOS = {"auth.login", "auth.logout", "auth.setup", "static"}
+PUBLICOS = {"auth.login", "auth.logout", "auth.setup", "static",
+            # certificado da CA da loja: público, não é segredo (ver certificado_routes)
+            "certificado.pagina", "certificado.baixar"}
 
 # Arquivos de /assets liberados sem login: só as FONTES, para a tela de login e
 # o setup carregarem a fonte do sistema (ali ninguém tem sessão ainda). Nunca o
@@ -30,6 +33,9 @@ PREFIXOS_PUBLICOS = ("reclassificacao.api_", "agente.api_")
 # Só o admin: contas e tudo que decide QUEM (ou que máquina) fala com o agente.
 ENDPOINTS_ADMIN = {
     "auth.api_criar_usuario", "auth.api_excluir_usuario", "auth.api_acesso_agente",
+    "auth.api_redefinir_senha",
+    # restaurar sobrescreve um banco inteiro (débitos, vencidos...): só admin
+    "backup.api_restaurar",
     "agente.pareamento_aprovar", "agente.pareamento_recusar", "agente.maquina_revogar",
     "reclassificacao.revogar_operador",
 }
@@ -69,6 +75,31 @@ def _negar(exige):
     return render_template("sistema/sem_acesso.html", msg=msg), 403
 
 
+# ── Pedido de outro site (CSRF) ───────────────────────────────────────────────
+METODOS_SEGUROS = {"GET", "HEAD", "OPTIONS"}
+
+
+def origem_confiavel():
+    """Recusa o pedido que GRAVA vindo de outra página.
+
+    Sem isto, um site qualquer aberto num aparelho logado conseguia mandar um
+    formulário para cá — o do catálogo, por exemplo, que troca o catálogo
+    inteiro. O navegador manda `Origin` (ou ao menos `Referer`) em todo POST;
+    ele tem de apontar para este mesmo endereço. Pedido SEM os dois cabeçalhos
+    passa: é o agente das máquinas (que se autentica por token) ou um
+    programa, não um navegador sendo usado por outro site."""
+    if request.method in METODOS_SEGUROS:
+        return True
+    origem = request.headers.get("Origin")
+    if origem is None:
+        origem = request.headers.get("Referer")
+        if origem is None:
+            return True
+    if origem == "null":
+        return False
+    return urlsplit(origem).netloc.lower() == (request.host or "").lower()
+
+
 # ── Guarda global ─────────────────────────────────────────────────────────────
 def instalar_guarda(app):
     """Exige login para tudo, menos os endpoints públicos. Enquanto não houver
@@ -76,6 +107,11 @@ def instalar_guarda(app):
     @app.before_request
     def _guarda():
         ep = request.endpoint or ""
+        if not origem_confiavel():
+            msg = "Pedido vindo de outro site recusado."
+            if "/api/" in request.path or request.is_json:
+                return jsonify({"ok": False, "erro": msg, "msg": msg}), 403
+            return msg, 403
         if ep in PUBLICOS:
             return None
         if ep == "assets":
@@ -86,6 +122,16 @@ def instalar_guarda(app):
         if ep.startswith(PREFIXOS_PUBLICOS):
             return None
         if session.get("usuario"):
+            try:
+                existe = permissoes_atuais().get("existe", True)
+            except Exception:              # banco fora: a regra de cada rota decide
+                existe = True
+            if not existe:
+                # Conta excluída com a sessão ainda aberta num aparelho: sai.
+                session.clear()
+                if "/api/" in request.path:
+                    return jsonify({"ok": False, "erro": "Não autenticado."}), 401
+                return redirect(url_for("auth.login", next=request.path))
             exige = _exigencia(ep)
             if exige:
                 try:
@@ -162,12 +208,22 @@ def login():
     if request.method == "POST":
         usuario = request.form.get("usuario", "")
         senha   = request.form.get("senha", "")
+        ip      = request.remote_addr or ""
+        espera  = auth.bloqueio_restante(usuario, ip)
+        if espera:
+            minutos = max(1, round(espera / 60))
+            return render_template(
+                "sistema/login.html", proximo=request.form.get("next", "/"),
+                erro=f"Muitas tentativas erradas. Tente de novo em {minutos} min."), 429
         u = auth.verificar(usuario, senha)
         if u:
+            auth.limpar_falhas(usuario)
+            session.clear()
             session.permanent = True
             session["usuario"] = u["usuario"]
             session["nome"] = u["nome"]
             return redirect(_destino_seguro(request.form.get("next", "/")))
+        auth.registrar_falha(usuario, ip)
         return render_template("sistema/login.html", erro="Usuário ou senha inválidos.",
                                proximo=request.form.get("next", "/"))
     return render_template("sistema/login.html", erro=None,
@@ -215,6 +271,19 @@ def api_alterar_senha():
     d = request.get_json(silent=True) or {}
     # cada um só altera a própria senha
     ok, msg = auth.alterar_senha(session.get("usuario"), d.get("senha", ""))
+    return jsonify({"ok": ok, "msg": msg})
+
+
+@auth_bp.route("/sistema/usuarios/api/redefinir-senha", methods=["POST"])
+def api_redefinir_senha():
+    """O admin define uma senha nova para outra conta (quem esqueceu a senha).
+    Só admin — está em ENDPOINTS_ADMIN."""
+    d = request.get_json(silent=True) or {}
+    alvo = (d.get("usuario") or "").strip().lower()
+    ok, msg = auth.alterar_senha(alvo, d.get("senha", ""), por=session.get("usuario"))
+    if ok:
+        auth.limpar_falhas(alvo)
+        msg = "Senha redefinida. Passe a senha nova para a pessoa."
     return jsonify({"ok": ok, "msg": msg})
 
 
