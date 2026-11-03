@@ -27,10 +27,20 @@
     senha não viaja aberta no Wi-Fi, e o navegador libera o <b>microfone</b> (Jardél) e a <b>câmera</b>.</p>
   <p>Para o aparelho confiar nesse endereço, instale <b>uma vez</b> o certificado da loja:</p>
 
+  {% if not em_https and https_movel.porta %}
+  <div class="alertx" id="cert-aviso" hidden><span>Este aparelho ainda não confia no certificado da
+    loja. Pelo celular, o sistema só abre depois de instalar — siga os passos abaixo e toque em
+    <b>Já instalei, testar</b>.</span></div>
+  {% endif %}
+
   <div class="cert-acoes">
     <a class="btn btn-primary" href="/certificado/ca.crt">Baixar certificado da loja</a>
-    {% if not em_https %}<a class="btn btn-secondary" href="{{ https_url }}">Abrir o endereço seguro</a>{% endif %}
+    {% if not em_https %}
+      {% if https_movel.porta %}<button class="btn btn-secondary" onclick="testar()">Já instalei, testar</button>
+      {% else %}<a class="btn btn-secondary" href="{{ https_url }}">Abrir o endereço seguro</a>{% endif %}
+    {% endif %}
   </div>
+  <div id="cert-teste" class="fhelp" style="margin:0 0 6px"></div>
 
   <div class="cert-so">
     <h3>Android</h3>
@@ -71,6 +81,29 @@
   </div>
   {% endif %}
 
-  <p class="fhelp" style="margin-top:18px"><a href="/">Voltar ao sistema</a></p>
+  <p class="fhelp" style="margin-top:18px"><a href="{{ voltar }}">Voltar ao sistema</a></p>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const VOLTAR = {{ voltar | tojson }};
+// Chegou aqui mandado pelo teste do base.html: diga por quê.
+if (/[?&]voltar=/.test(location.search)) {
+  const av = document.getElementById("cert-aviso");
+  if (av) av.hidden = false;
+}
+function testar() {
+  const el = document.getElementById("cert-teste");
+  el.style.color = ""; el.textContent = "Testando...";
+  window.sfTestarHttps(
+    base => { el.style.color = "var(--success)"; el.textContent = "Tudo certo. Abrindo o endereço seguro...";
+              location.replace(base + VOLTAR); },
+    () => { el.style.color = "var(--danger)";
+            el.textContent = "O aparelho ainda não confia no certificado. Confira os passos — no iPhone, " +
+                             "falta ligar a chave em Ajustes de Confiança de Certificados. Feche e abra o navegador depois."; },
+    () => { el.style.color = "var(--warning)";
+            el.textContent = "O endereço seguro não respondeu (a porta 443 pode estar bloqueada). Avise o administrador."; });
+}
+</script>
 {% endblock %}

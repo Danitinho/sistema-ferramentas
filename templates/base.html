@@ -9,6 +9,45 @@
 <script>
 /* Aplica o tema salvo ANTES do CSS pintar (evita flash). Claro é o padrão. */
 (function(){try{if(localStorage.getItem("tema")==="escuro")document.documentElement.dataset.theme="escuro";}catch(e){}})();
+
+/* Celular por http:// → precisa do certificado da loja (seção 21).
+   Testa buscando /certificado/ok por https://: se o aparelho NÃO confia no
+   certificado, o navegador recusa e o fetch falha na hora → vai para
+   /certificado. Se confia → troca para o endereço seguro. Sem resposta em 3 s
+   (porta 443 bloqueada no firewall, por exemplo) não manda ninguém para lá:
+   não dá para distinguir de "não confia", e trancar o celular numa página
+   que não resolve seria pior. Só liga quando o servidor diz que o HTTPS está
+   de pé (`https_movel.porta`, ligado pelo server.py). PC não é obrigado. */
+(function(){
+  var cfg = {{ (https_movel or {}) | tojson }};
+  var ua = navigator.userAgent || "";
+  var movel = (navigator.userAgentData && navigator.userAgentData.mobile) ||
+              /Android|iPhone|iPad|iPod|Mobile/i.test(ua) ||
+              (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);   // iPadOS
+  var base = "https://" + location.hostname + (cfg.sufixo || "");
+  window.sfTestarHttps = function(confia, naoConfia, semResposta) {
+    var ctl = window.AbortController ? new AbortController() : null;
+    var t = setTimeout(function(){ if (ctl) ctl.abort(); }, 3000);
+    fetch(base + "/certificado/ok?t=" + Date.now(),
+          { mode: "no-cors", cache: "no-store", signal: ctl ? ctl.signal : undefined })
+      .then(function(){ clearTimeout(t); confia(base); })
+      .catch(function(e){ clearTimeout(t);
+        (e && e.name === "AbortError" ? semResposta : naoConfia)(); });
+  };
+  if (!cfg.porta || !movel || location.protocol !== "http:" || !window.fetch) return;
+  var naPaginaCert = location.pathname === "/certificado";
+  window.sfTestarHttps(function(b){
+    var destino = location.pathname + location.search + location.hash;
+    if (naPaginaCert) {
+      destino = new URLSearchParams(location.search).get("voltar") || "/";
+      if (destino.charAt(0) !== "/" || destino.charAt(1) === "/") destino = "/";
+    }
+    location.replace(b + destino);
+  }, function(){
+    if (!naPaginaCert)
+      location.replace("/certificado?voltar=" + encodeURIComponent(location.pathname + location.search));
+  }, function(){});
+})();
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

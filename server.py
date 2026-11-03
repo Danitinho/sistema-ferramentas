@@ -57,6 +57,7 @@ def _subir_https():
         srv = wsgi.Server(("0.0.0.0", PORTA_HTTPS), app, numthreads=THREADS,
                           server_name="sistema-ferramentas")
         srv.ssl_adapter = BuiltinSSLAdapter(c["cert"], c["chave"])
+        srv.prepare()            # abre a porta AQUI: falhou, nem liga o aviso
     except Exception as e:  # noqa: BLE001 — sem HTTPS, o HTTP continua
         print(f"[https] NAO subiu (o HTTP segue normal): {e!r}")
         app.logger.error("HTTPS não subiu: %r", e)
@@ -64,11 +65,16 @@ def _subir_https():
 
     def _rodar():
         try:
-            srv.start()
+            srv.serve()
         except Exception as e:  # noqa: BLE001
+            app.config["HTTPS_PORTA_ATIVA"] = 0
             print(f"[https] parou: {e!r}")
             app.logger.error("HTTPS parou: %r", e)
 
+    # Só com o HTTPS de pé o celular é mandado para /certificado (base.html).
+    # Sem isto, um HTTPS fora do ar trancaria todo celular na página do
+    # certificado.
+    app.config["HTTPS_PORTA_ATIVA"] = PORTA_HTTPS
     threading.Thread(target=_rodar, name="https", daemon=True).start()
     print(f"[https] https://0.0.0.0:{PORTA_HTTPS}  (certificado: /certificado)")
 

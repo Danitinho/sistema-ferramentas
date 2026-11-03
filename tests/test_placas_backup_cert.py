@@ -168,6 +168,43 @@ class TestCertificado(unittest.TestCase):
         r.close()
 
 
+class TestCelularObrigadoAoCertificado(unittest.TestCase):
+    """O teste em si roda no navegador (base.html); aqui, o lado do servidor.
+    Verificado de ponta a ponta com o Edge fingindo ser celular (03/11/2026)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.amb = montar()
+        cls.amb.criar_usuario("cel")
+
+    def test_rota_de_teste_publica_e_sem_cache(self):
+        r = self.amb.cliente().get("/certificado/ok")
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(r.headers["Cache-Control"], "no-store")
+
+    def test_so_exige_com_https_de_pe(self):
+        app = self.amb.app
+        cli = self.amb.cliente("cel")
+        app.config.pop("HTTPS_PORTA_ATIVA", None)
+        self.assertIn(b'{"porta": 0', cli.get("/").data)       # dev / HTTPS fora: nada
+        app.config["HTTPS_PORTA_ATIVA"] = 8443
+        try:
+            html = cli.get("/").data
+            self.assertIn(b'"porta": 8443', html)
+            self.assertIn(b'"sufixo": ":8443"', html)
+            self.assertIn(b"sfTestarHttps", html)
+        finally:
+            app.config.pop("HTTPS_PORTA_ATIVA", None)
+
+    def test_voltar_so_aceita_caminho_interno(self):
+        cli = self.amb.cliente()
+        for ruim in ("//site-malicioso.com/x", "https://site.com/", "javascript:alert(1)"):
+            html = cli.get("/certificado", query_string={"voltar": ruim}).data
+            self.assertIn(b'const VOLTAR = "/";', html, ruim)
+        html = cli.get("/certificado", query_string={"voltar": "/perdas/?mes=2026-10"}).data
+        self.assertIn(b'"/perdas/?mes=2026-10"', html)
+
+
 class TestFilaReclassificacao(unittest.TestCase):
     def test_reserva_entrega_blocos_disjuntos_e_so_pronto(self):
         montar()

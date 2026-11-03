@@ -14,7 +14,7 @@ auth_bp = Blueprint("auth", __name__)
 # Endpoints acessíveis sem login.
 PUBLICOS = {"auth.login", "auth.logout", "auth.setup", "static",
             # certificado da CA da loja: público, não é segredo (ver certificado_routes)
-            "certificado.pagina", "certificado.baixar"}
+            "certificado.pagina", "certificado.baixar", "certificado.ok"}
 
 # Arquivos de /assets liberados sem login: só as FONTES, para a tela de login e
 # o setup carregarem a fonte do sistema (ali ninguém tem sessão ainda). Nunca o

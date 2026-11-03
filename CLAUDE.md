@@ -2320,7 +2320,22 @@ CA**:
   HTTPS. Mostra o passo a passo para Android, iPhone e Windows e a impressão
   digital SHA-256 para conferir. A chave nunca é servida (teste garante).
 - O HTTP da porta 80 **continua**: os agentes falam por ele
-  (`servidor_url = http://192.168.0.52`). Não há redirecionamento forçado.
+  (`servidor_url = http://192.168.0.52`). PC não é redirecionado.
+- **Celular é obrigado a instalar o certificado** (pedido do usuário,
+  03/11/2026). Script no `<head>` do `base.html`: em celular (UA/`userAgentData`,
+  inclusive iPadOS) aberto por `http://`, busca `https://<host>/certificado/ok`
+  (`no-cors`, sem cache). **Falhou na hora** = o aparelho não confia → vai para
+  `/certificado?voltar=<página>` (que mostra o aviso e "Já instalei, testar").
+  **Deu certo** = confia → troca para a mesma página em `https://` (e em
+  `/certificado`, para o `voltar`). **Sem resposta em 3 s** (443 bloqueada no
+  firewall) não manda ninguém: não dá para distinguir de "não confia" e
+  trancaria todos os celulares. Só liga com `HTTPS_PORTA_ATIVA` no
+  `app.config`, que o `server.py` põe DEPOIS de abrir a porta (`prepare()`) e
+  zera se o HTTPS parar — no `python app.py` nunca liga. `/certificado/ok` é
+  pública; o `voltar` só aceita caminho interno (`/x`, nunca `//x`).
+  Verificado com o Edge fingindo ser Android/iPhone: sem confiar → página do
+  certificado (sem laço, inclusive no `/login`); confiando → mesma página em
+  `https://`; PC → fica onde está.
 - Verificado (03/11/2026): TLS validando contra a CA em `localhost`,
   `127.0.0.1` e `192.168.0.52`.
 
