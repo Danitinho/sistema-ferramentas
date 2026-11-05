@@ -24,6 +24,9 @@ declarou):
                                       ("%perda%vencidos"): a nota de perda
                                       de vencidos da loja
   nf.incluir_itens {itens, nota}      inclui produtos na nota carregada
+  nf.criar_nota {tipo, fornecedor,    cria a nota interna (vencido do
+    meses, dcpoa?, simular}           fornecedor ou perda da loja) se nao
+                                      houver uma aberta no periodo
 
 Para interromper um pedido no meio, SEGURE ESC por um segundo.
 """
@@ -41,7 +44,7 @@ from agente.entradas import DriverEntradas, _data, _int
 from agente.servidor import Cliente, ErroServidor, TokenInvalido
 from agente.tecla_esc import esc_segurado
 
-VERSAO = "1.4"
+VERSAO = "1.5"
 PASTA = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -60,7 +63,7 @@ NADA_GRAVADO = "nada gravado:"
 
 
 # ── capacidades ──────────────────────────────────────────────────────────────
-BUSCA_PERDA = "%perda%vencidos"
+BUSCA_PERDA = "%perda%vencidos%"   # a nota nova leva "perda vencidos MM/AAAA"
 
 
 def nf_abrir_perda(ag, params):
@@ -273,10 +276,130 @@ def nf_incluir_itens(ag, params):
     return res
 
 
+def _mes_da(data_br):
+    d = _data(data_br)
+    return d.strftime("%Y-%m") if d.year > 1 else ""
+
+
+def nf_criar_nota(ag, params):
+    """Cria na tela Entradas uma nota interna (tipo 3) — de vencido do
+    fornecedor ou, com `dcpoa`, a de perda de vencidos da loja — e a deixa
+    carregada. Devolve o mesmo formato do nf.abrir_ultima, com `criada`.
+
+    Antes de criar, PROCURA: se já há nota aberta com entrada num dos `meses`
+    (o mês corrente e o anterior), devolve essa e não cria nada. É o que
+    impede duas notas quando um pedido cai depois do Salvar e é repetido.
+
+    Passos: Limpar -> Incluir (da nota) -> Tipo NF + Enter (a caixa do CFOP
+    leva OK) -> Estoque Origem -> Fornecedor -> Modelo (setas, conferido
+    "1B") -> Série -> [DCPOA] -> Salvar. Simulação = tudo igual e Cancelar no
+    lugar do Salvar. Falha antes do Salvar cancela a inclusão: nada criado.
+    """
+    try:
+        pedido = ag.pedido_atual or {}
+        if not pedido.get("autorizado_por"):
+            raise ErroPedido("pedido de gravação sem autorização de uma pessoa")
+        tipo = str(params.get("tipo") or "3")
+        forn = str(params.get("fornecedor") or "")
+        if not forn:
+            raise ErroPedido("pedido sem fornecedor")
+        dcpoa = str(params.get("dcpoa") or "")
+        busca = str(params.get("busca_dcpoa") or "")
+        meses = set(params.get("meses") or [])
+        simular = bool(params.get("simular")) or ag.forcar_simulacao
+        achada = nf_abrir_ultima(ag, {"dcpoa": busca} if busca
+                                 else {"tipo": tipo, "fornecedor": forn})
+        if achada.get("encontrada") and (
+                not meses or _mes_da(achada["nota"].get("entrada")) in meses):
+            n = achada["nota"]
+            ag.log(f"Ja existe nota aberta do periodo: {n['numero']} (lancamento "
+                   f"{n['lancamento']}, entrada {n['entrada']}). Nao criei outra.")
+            return {**achada, "criada": False, "ja_existia": True}
+        drv = ag.driver()
+        drv.limpar(obrigatorio=True)
+        ag._checar_interrupcao()
+        drv.incluir_nota()
+    except (ErroPedido, erp_base.ErroERP) as e:
+        raise ErroPedido(f"{NADA_GRAVADO} {e}")
+    except Interrompido as e:
+        raise ErroPedido(f"{NADA_GRAVADO} interrompido: {e}")
+
+    ag.log(f"Criando nota tipo {tipo}, fornecedor {forn}"
+           + (f", DCPOA '{dcpoa}'" if dcpoa else "") + (", em SIMULACAO." if simular else "."))
+    preenchido = {}
+
+    def desistir(motivo):
+        """Sai da inclusão sem gravar e diz se conseguiu."""
+        try:
+            c = drv.cancelar_nota()
+        except Exception as e:
+            c = {"cancelado": False, "caixa": f"erro: {e}"}
+        if c["cancelado"]:
+            ag.log("Inclusao da nota cancelada; nada foi criado.")
+            return f"{NADA_GRAVADO} {motivo}"
+        ag.log("ATENCAO: a nota continua em edicao no ERP; clique em Cancelar na tela.")
+        return (f"{NADA_GRAVADO} {motivo} — e a nota continua em edição no ERP: "
+                "clique em Cancelar na tela Entradas")
+
+    try:
+        preenchido["tipo"] = drv.tipo_nf(tipo)
+        ag._checar_interrupcao()
+        preenchido["estoque"] = drv.escrever_campo("estoque_origem", "Estoque Origem",
+                                                   str(params.get("estoque") or "1"))
+        ag._checar_interrupcao()
+        preenchido["fornecedor_nome"] = drv.fornecedor_nota(forn)
+        ag._checar_interrupcao()
+        preenchido["modelo"] = drv.modelo_nota(int(params.get("modelo_setas") or 9),
+                                               str(params.get("modelo") or "1B"))
+        ag._checar_interrupcao()
+        preenchido["serie"] = drv.escrever_campo("serie", "Serie",
+                                                 str(params.get("serie") or "1"))
+        if dcpoa:
+            drv.escrever_campo("dcpoa", "DCPOA", dcpoa, depois="{TAB}")
+            preenchido["dcpoa"] = dcpoa
+        ag._checar_interrupcao()       # última chance de o ESC impedir o Salvar
+        if simular:
+            msg = desistir("simulação: a nota foi preenchida e cancelada, nada foi criado")
+            return {"encontrada": False, "criada": False, "simulado": True,
+                    "tipo": tipo, "fornecedor": forn, "dcpoa": dcpoa,
+                    "preenchido": preenchido, "msg": msg[len(NADA_GRAVADO):].strip()}
+    except Interrompido as e:
+        raise ErroPedido(desistir(f"interrompido: {e}"))
+    except (ErroPedido, erp_base.ErroERP) as e:
+        raise ErroPedido(desistir(str(e)))
+
+    try:
+        nota = drv.salvar_nota()
+    except entradas.NotaRecusada as e:
+        raise ErroPedido(desistir(f"o ERP não salvou a nota, ficou informação pendente: {e}"))
+    except erp_base.ErroERP as e:
+        # depois do clique em Salvar: não se sabe se a nota existe
+        raise ErroPedido(f"cliquei em Salvar e não sei se a nota foi criada ({e}); "
+                         "confira a tela Entradas antes de pedir de novo")
+    if not (nota["numero"] or nota["lancamento"]):
+        raise ErroPedido("salvei, mas a nota não mostra número nem lançamento; "
+                         "confira a tela Entradas")
+    if not nota["aberta"]:
+        raise ErroPedido(f"a nota {nota['numero'] or nota['lancamento']} foi criada, mas "
+                         "aparece FECHADA; confira a tela Entradas")
+    conf = drv.ler_campos(["fornecedor", "emissao", "entrada"])
+    nota_res = {"numero": nota["numero"], "lancamento": nota["lancamento"],
+                "entrada": nota["entrada"] or conf.get("entrada") or "",
+                "emissao": conf.get("emissao") or "", "valor": nota["valor"],
+                "aberta": True, "i": -1}
+    ag.log(f"Nota criada: {nota_res['numero']} (lancamento {nota_res['lancamento']}), "
+           f"entrada {nota_res['entrada']}.")
+    return {"encontrada": True, "criada": True, "tipo": tipo, "fornecedor": forn,
+            "fornecedor_nome": preenchido.get("fornecedor_nome") or nota["fornecedor"],
+            "dcpoa": dcpoa, "nota": nota_res, "preenchido": preenchido,
+            "conferencia": {k: conf.get(k) for k in ("fornecedor", "emissao", "entrada")}}
+
+
 CAPACIDADES = {
     "nf.abrir_ultima": nf_abrir_ultima,
     "nf.abrir_perda": nf_abrir_perda,
     "nf.incluir_itens": nf_incluir_itens,
+    "nf.criar_nota": nf_criar_nota,
 }
 
 

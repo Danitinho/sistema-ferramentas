@@ -257,6 +257,15 @@ def rodada_abrir(fid):
     return jsonify({"ok": ok, "msg": msg, "pedido": p})
 
 
+@vencidos_bp.route("/api/rodada/<fid>/criar", methods=["POST"])
+def rodada_criar(fid):
+    from scripts import vencidos_notas as vn
+    d = request.get_json() or {}
+    ok, msg, p = vn.criar_nota(fid, d.get("mes", ""), _usuario(), d.get("maquina", ""),
+                               simular=bool(d.get("simular")))
+    return jsonify({"ok": ok, "msg": msg, "pedido": p})
+
+
 @vencidos_bp.route("/api/rodada/<fid>/incluir", methods=["POST"])
 def rodada_incluir(fid):
     from scripts import vencidos_notas as vn
@@ -277,6 +286,15 @@ def rodada_perda_abrir():
     from scripts import vencidos_notas as vn
     d = request.get_json() or {}
     ok, msg, p = vn.abrir_nota_perda(_usuario(), d.get("maquina", ""))
+    return jsonify({"ok": ok, "msg": msg, "pedido": p})
+
+
+@vencidos_bp.route("/api/rodada-perda/criar", methods=["POST"])
+def rodada_perda_criar():
+    from scripts import vencidos_notas as vn
+    d = request.get_json() or {}
+    ok, msg, p = vn.criar_nota_perda(d.get("mes", ""), _usuario(), d.get("maquina", ""),
+                                     simular=bool(d.get("simular")))
     return jsonify({"ok": ok, "msg": msg, "pedido": p})
 
 

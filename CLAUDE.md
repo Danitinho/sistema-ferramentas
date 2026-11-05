@@ -2085,6 +2085,53 @@ e o fornecedor da nota não é comparado.
   propósito: um agente antigo ignoraria o parâmetro e cairia em "pedido sem
   fornecedor"; com nome próprio ele só não pega o pedido.
 
+### `nf.criar_nota {tipo, fornecedor, meses[], estoque, modelo, modelo_setas, serie, dcpoa?, busca_dcpoa?, simular}` (agente v1.5, 05/11/2026)
+Cria a nota interna (tipo 3) quando não há nota aberta que sirva. **Grava**:
+exige `autorizado_por`. Pedido do usuário: só com o consentimento da pessoa,
+pelo botão "Criar a nota… no ERP" da rodada do `/vencidos`.
+- **Que nota serve** (`vencidos_notas.meses_aceitos`): entrada no **mês
+  corrente ou no anterior** — em novembro, nota de outubro ou de novembro
+  (fecha-se outubro já em novembro). A nota aberta mais recente mais velha que
+  isso vira a etapa `notavelha` na tela, com o Criar, e o `incluir` a
+  **recusa** no servidor (`_nota_do_pedido`). Nota criada pelo agente sempre
+  serve (`criada: true`).
+- **Procura antes de criar, no mesmo pedido**: roda o `nf_abrir_ultima` e, com
+  uma nota aberta de um dos `meses`, devolve essa (`criada: false,
+  ja_existia: true`). É o que impede duas notas se um pedido for repetido.
+- **Passos** (confirmados pelo usuário): Limpar → **Incluir da NOTA** (menu da
+  esquerda, abaixo do Buscar; texto exato "Incluir", nunca o `&Incluir` dos
+  itens) → Núm Lanc/NúmeroNF o ERP gera → **Tipo NF 3** + Enter → a caixa
+  "Não foi encontrado nenhum CFOP com o código 3" leva **OK** (qualquer outra
+  caixa para) → o cursor vai para **Estoque Origem = 1** → **Fornecedor** →
+  **Modelo**: clique + 9×↓ + Enter, e o texto **tem de começar com "1B"**
+  ("1B - NF Avulsa") → **Série = 1** → [DCPOA] → **Salvar** (abaixo do
+  Cancelar). Caixa no Salvar = informação pendente: o texto vai no erro e a
+  inclusão é **cancelada**. Simular = tudo igual e Cancelar no lugar do Salvar.
+- **Troca**: fornecedor = `fornecedores.numero`. **Perda**: fornecedor
+  **3100** (a loja) e DCPOA **"perda vencidos MM/AAAA"** (mês dos vencidos);
+  procura pelo DCPOA `%perda%vencidos%` — o `%` do fim entrou em 05/11/2026
+  para achar a nota com o mês no texto.
+- **Campos** (medidos no RADGe em 05/11/2026; `CAMPOS_PADRAO` em
+  `agente/entradas.py`, o mapa do servidor vence): Estoque Origem `TDBEdit`
+  x 392/y 150 · Modelo `TwwDBComboBox` x 542/y 227 · Série `TDBEdit` x 677/y 227.
+  Os rótulos da tela são `TLabel` (sem janela): achar "pelo rótulo" não
+  funciona aqui. Botões da nota pelo texto exato (`BOTOES_NOTA_TEXTO`: Incluir,
+  Cancelar, Salvar — não confundir com o "Salvar Nota" do meio da tela).
+  "Em edição" = o Salvar da nota habilitado (conferido: na edição Incluir e
+  Buscar desabilitam, Cancelar e Salvar habilitam).
+- **O Cancelar da nota pergunta SEM "?"**: "Deseja Cancelar a Inclusão
+  pendente" (`TfrmMensagens`) — leva Sim. A 1a versão exigia o "?" e
+  respondia Não, deixando a nota em edição.
+- Erro antes do Salvar sai com `nada gravado:`; erro depois do clique no
+  Salvar diz para conferir a tela antes de pedir de novo (e o pedido repetido
+  acha a nota, se ela foi criada).
+- Testado com driver falso (`tests/test_criar_nota.py`) e **no RADGe real**
+  (05/11/2026, fornecedor 3100, direto pelo `nf_criar_nota`, sem servidor):
+  simulação preenchendo tudo e cancelando; criação de verdade (nota 4895,
+  entrada 05/11/2026, aberta, Salvar sem pendência); e a segunda chamada
+  achando a 4895 em vez de criar outra. **Ainda não testado**: a nota de
+  perda (DCPOA) e o fluxo pela tela do `/vencidos` com o agente da máquina.
+
 ### `nf.incluir_itens {itens[{codigo, qtd, esperado}], simular, nota?, fornecedor?, tipo?}`
 Inclui produtos na nota ABERTA carregada na tela (ou, com `fornecedor`, abre a
 última nota dele antes — é o caminho que o `/vencidos` vai usar). **Grava**, então
@@ -2158,13 +2205,14 @@ e `baixa_por` = quem autorizou. Os pedidos saem com `modulo="vencidos"`.
   (`chave = "perda|AAAA-MM"`, `tipo: "perda"`, lista `fornecedores`), sem exigir
   o nº do RADGe. `abrir_nota_perda` → `nf.abrir_perda` → conferência →
   `incluir_perda(mes, pedido_abrir)` → item gravado vira baixa **`perda`**. Rotas
-  `/vencidos/api/rodada-perda/abrir|incluir` (hífen, para não disputar com
+  `/vencidos/api/rodada-perda/abrir|criar|incluir` (hífen, para não disputar com
   `/rodada/<fid>/...`), em `ENDPOINTS_AGENTE`. O destino viaja junto da nota guardada (`nota_numero.destino`) e é
   ele que escolhe a baixa em `aplicar_resultado`. Troca e perda dividem o miolo
   `_reservar_e_enviar`.
 - **Fornecedor sem `numero`** não abre nota: modal na própria tela grava o nº
-  pela `/fornecedores/api/<id>/editar`. **Sem nota aberta** = mensagem para criar
-  a nota no ERP + "Tentar de novo".
+  pela `/fornecedores/api/<id>/editar`. **Sem nota aberta do mês corrente ou do
+  anterior** = a tela pergunta e oferece "Criar a nota… no ERP" (`nf.criar_nota`,
+  rotas `/rodada/<fid>/criar` e `/rodada-perda/criar`, em `ENDPOINTS_AGENTE`).
 - **Nunca incluir duas vezes** (duplicaria o item no ERP): colunas
   `nota_situacao`/`nota_pedido`/`nota_numero`/`nota_detalhe`/`nota_em` no
   vencido + `nota_pedido_itens` (posição no pedido → vencido; o resultado volta
@@ -2357,7 +2405,7 @@ CA**:
 ## 22. Testes automatizados (`tests/`)
 
 `python -m unittest discover -s tests -t .` — stdlib, sem dependência nova,
-~20 s, 45 testes (03/11/2026).
+~20 s, 64 testes (05/11/2026).
 - **`tests/ambiente.py`** monta o app com TODOS os bancos numa pasta
   temporária (troca `BANCO`/`DADOS_DIR` de cada módulo, a `FilaBanco` e o
   `BancoAgente`, as pastas das placas, a do backup e a do certificado) ANTES de

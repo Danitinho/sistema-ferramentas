@@ -394,6 +394,25 @@ class Janela:
         self.trazer_para_frente()
         self.win.type_keys(teclas, set_foreground=False)
 
+    def focado(self):
+        """O controle com o foco do teclado no ERP agora (ou None). Serve aos
+        campos que o ERP alcança sozinho depois de um Enter e que ainda não
+        estão no mapa (Estoque Origem, Série na criação da nota)."""
+        try:
+            return self.win.wrapper_object().get_focus()
+        except Exception:
+            return None
+
+    def descrever(self, c):
+        """'TDBEdit em x 120, y 210' — a posição medida como o mapa mede (do
+        canto da janela principal), para o log dizer o que pôr no mapa."""
+        try:
+            wl, wt, _, _ = _rect(self.win.wrapper_object())
+            l, t, r, b = _rect(c)
+            return f"{c.class_name()} em x {(l + r) // 2 - wl}, y {(t + b) // 2 - wt}"
+        except Exception:
+            return "controle desconhecido"
+
     # ── caixas de diálogo ─────────────────────────────────────────────────────
     def dialogos(self):
         """Caixas abertas pelo ERP agora: [{texto, botoes, janela}]."""

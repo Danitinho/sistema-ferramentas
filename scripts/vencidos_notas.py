@@ -15,7 +15,11 @@ Fluxo de uma RODADA (pedido do usuário, 28/09/2026):
   3. troca: fornecedor sem o nº do RADGe no cadastro não anda (a tela pede o
      número). Perda não precisa dele;
   4. troca: `nf.abrir_ultima` tipo 3 do fornecedor; perda: `nf.abrir_perda`
-     (DCPOA "%perda%vencidos") -> a pessoa confere a nota no ERP e a lista ->
+     (DCPOA "%perda%vencidos%"). A nota só serve com entrada no mês corrente
+     ou no anterior (05/11/2026); sem uma assim, a tela pergunta e, com o
+     sim da pessoa, `nf.criar_nota` cria (troca: tipo 3 + fornecedor; perda:
+     fornecedor 3100 + DCPOA "perda vencidos MM/AAAA") -> a pessoa confere a
+     nota no ERP e a lista ->
      aprova -> `nf.incluir_itens` com o nº da nota (o agente recusa se a nota
      na tela tiver mudado) -> cada item GRAVADO vira baixa "Devolução ao
      fornecedor" (troca) ou "Perda" com o nº da nota; pulado/falhou volta a
@@ -36,13 +40,16 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from datetime import date
 
 from scripts import vencidos as v
 
 DESTINOS = ("troca", "perda")
 DESTINO_PADRAO = "troca"
 TIPO_NOTA_VENCIDO = "3"
-BUSCA_PERDA = "%perda%vencidos"            # DCPOA da nota de perda (agente: nf.abrir_perda)
+BUSCA_PERDA = "%perda%vencidos%"           # DCPOA da nota de perda (agente: nf.abrir_perda)
+FORNECEDOR_PERDA = "3100"                  # a LOJA no RADGe: fornecedor da nota de perda
+TIPOS_ABRIR = ("nf.abrir_ultima", "nf.abrir_perda", "nf.criar_nota")
 CHAVE_PERDA = "perda"                      # grupo da nota de perda na rodada: "perda|AAAA-MM"
 LIVRES = ("", "pulado", "falhou")          # nota_situacao que pode entrar numa rodada
 # prefixo do erro do agente quando o pedido falhou antes de tocar no ERP
@@ -53,6 +60,35 @@ _MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 def _conn():
     return v._conn()
+
+
+# ── o mês da nota (pedido do usuário, 05/11/2026) ────────────────────────────
+# Os vencidos entram numa nota com entrada no mês CORRENTE ou no ANTERIOR: em
+# novembro, nota de outubro ou de novembro (fecha-se outubro já em novembro).
+# Nota aberta mais velha que isso não serve — a tela oferece criar uma nova.
+def meses_aceitos(hoje: date | None = None) -> list:
+    hoje = hoje or date.today()
+    anterior = date(hoje.year - (hoje.month == 1), (hoje.month - 2) % 12 + 1, 1)
+    return [anterior.strftime("%Y-%m"), hoje.strftime("%Y-%m")]
+
+
+def rotulo_prazo(hoje: date | None = None) -> str:
+    return " ou ".join(v.rotulo_mes(m) for m in meses_aceitos(hoje))
+
+
+def _mes_da_data(br) -> str:
+    """'05/11/2026' -> '2026-11'; '' se não for data."""
+    m = re.match(r"^\s*(\d{2})/(\d{2})/(\d{4})", str(br or ""))
+    return f"{m.group(3)}-{m.group(2)}" if m else ""
+
+
+def nota_no_prazo(nota, hoje: date | None = None) -> bool:
+    return _mes_da_data((nota or {}).get("entrada")) in meses_aceitos(hoje)
+
+
+def dcpoa_perda(mes: str) -> str:
+    """O DCPOA da nota de perda criada pelo agente: "perda vencidos 10/2026"."""
+    return f"perda vencidos {mes[5:7]}/{mes[:4]}"
 
 
 def _agente():
@@ -204,6 +240,7 @@ def montar_rodada() -> dict:
     meses = [{"mes": m, "rotulo": v.rotulo_mes(m), "itens": n}
              for m, n in sorted(contagem.items())]
     return {"grupos": saida, "meses": meses, "sem_fornecedor": sem_fornecedor,
+            "prazo_nota": {"meses": meses_aceitos(), "rotulo": rotulo_prazo()},
             "andamento": [_item(r) | {"pedido": r.get("nota_pedido") or ""} for r in andamento],
             "maquinas": _maquinas()}
 
@@ -246,17 +283,52 @@ def abrir_nota_perda(usuario: str, maquina: str = ""):
     return True, "Pedido enviado ao agente.", p
 
 
+# ── passo 1b: criar a nota (sem nota aberta do mês, e com a pessoa de acordo) ─
+def _pedir_criacao(params, mes, usuario, maquina, simular):
+    if not _MES_RE.match(mes or ""):
+        return False, "Escolha o mês dos vencidos.", None
+    params = dict(params, tipo=TIPO_NOTA_VENCIDO, meses=meses_aceitos(), simular=bool(simular),
+                  estoque="1", modelo="1B", modelo_setas=9, serie="1")
+    try:
+        p = _agente().banco().criar_pedido("nf.criar_nota", params, usuario, modulo="vencidos",
+                                           maquina_alvo=maquina, autorizado_por=usuario)
+    except ValueError as e:
+        return False, str(e), None
+    return True, "Pedido enviado ao agente.", p
+
+
+def criar_nota(fid: str, mes: str, usuario: str, maquina: str = "", simular: bool = False):
+    """TROCA: cria a nota de vencido (tipo 3) do fornecedor. O agente procura
+    antes e não cria se já houver uma aberta do mês corrente ou do anterior."""
+    f = _fornecedor(fid)
+    if not f:
+        return False, "Fornecedor não encontrado no cadastro.", None
+    if not f.get("numero"):
+        return False, (f"{f['nome']} não tem o nº de fornecedor do RADGe no cadastro. "
+                       "Informe o número antes."), None
+    return _pedir_criacao({"fornecedor": f["numero"]}, mes, usuario, maquina, simular)
+
+
+def criar_nota_perda(mes: str, usuario: str, maquina: str = "", simular: bool = False):
+    """PERDA: a nota é da loja — fornecedor 3100 e o mês dos vencidos no DCPOA."""
+    if not _MES_RE.match(mes or ""):
+        return False, "Escolha o mês dos vencidos.", None
+    return _pedir_criacao({"fornecedor": FORNECEDOR_PERDA, "dcpoa": dcpoa_perda(mes),
+                           "busca_dcpoa": BUSCA_PERDA}, mes, usuario, maquina, simular)
+
+
 # ── passo 2: incluir (depois da conferência da pessoa) ───────────────────────
 def _chave_nota(nota: dict) -> str:
     nota = nota or {}
     return str(nota.get("lancamento") or nota.get("numero") or "").strip()
 
 
-def _nota_do_pedido(pedido_abrir, tipo, conferir_params=None):
-    """Confere o pedido de abrir a nota. Devolve (nota, erro)."""
+def _nota_do_pedido(pedido_abrir, aceitos):
+    """Confere o pedido que abriu (ou criou) a nota. `aceitos` = {tipo do
+    pedido: conferência dos params}. Devolve (nota, erro)."""
     pa = _agente().banco().pedido(int(pedido_abrir))
-    if (not pa or pa["tipo"] != tipo or pa["estado"] != "feito"
-            or (conferir_params and not conferir_params(pa["params"] or {}))):
+    conferir = aceitos.get(pa["tipo"]) if pa else None
+    if not pa or conferir is None or pa["estado"] != "feito" or not conferir(pa["params"] or {}):
         return None, "A nota ainda não foi aberta pelo agente."
     res = pa.get("resultado") or {}
     if not res.get("encontrada"):
@@ -264,6 +336,10 @@ def _nota_do_pedido(pedido_abrir, tipo, conferir_params=None):
     nota = res.get("nota") or {}
     if not _chave_nota(nota):
         return None, "A nota aberta não tem número nem lançamento para conferir."
+    if not res.get("criada") and not nota_no_prazo(nota):
+        return None, (f"A nota {nota.get('numero') or nota.get('lancamento')} tem entrada em "
+                      f"{nota.get('entrada') or 'data desconhecida'}: os vencidos só entram em "
+                      f"nota de {rotulo_prazo()}. Crie uma nota nova.")
     return nota, ""
 
 
@@ -289,9 +365,11 @@ def incluir(fid: str, mes: str, pedido_abrir: int, usuario: str, maquina: str = 
     if destinos().get(fid, DESTINO_PADRAO) != "troca":
         return False, ("Este fornecedor está marcado como PERDA (sem troca): os vencidos dele "
                        "vão para a nota de perda da loja."), None
-    nota, erro = _nota_do_pedido(
-        pedido_abrir, "nf.abrir_ultima",
-        lambda prm: str(prm.get("fornecedor")) == str(f["numero"]))
+    def do_fornecedor(prm):
+        return str(prm.get("fornecedor")) == str(f["numero"])
+    nota, erro = _nota_do_pedido(pedido_abrir, {
+        "nf.abrir_ultima": do_fornecedor,
+        "nf.criar_nota": lambda prm: do_fornecedor(prm) and not prm.get("dcpoa")})
     if erro:
         return False, erro, None
     return _reservar_e_enviar(
@@ -306,7 +384,9 @@ def incluir_perda(mes: str, pedido_abrir: int, usuario: str, maquina: str = "",
     perda vão para a nota de perda da loja aberta pelo agente."""
     if not _MES_RE.match(mes or ""):
         return False, "Escolha o mês dos vencidos a incluir.", None
-    nota, erro = _nota_do_pedido(pedido_abrir, "nf.abrir_perda")
+    nota, erro = _nota_do_pedido(pedido_abrir, {
+        "nf.abrir_perda": lambda prm: True,
+        "nf.criar_nota": lambda prm: bool(prm.get("dcpoa"))})
     if erro:
         return False, erro, None
     de_perda = {f for f, d in destinos().items() if d == "perda"}
@@ -391,6 +471,14 @@ def aplicar_resultado(pedido_id) -> dict:
     p = _agente().banco().pedido(int(pid))
     if not p:
         return {"ok": False, "msg": "Pedido não existe."}
+    if p["tipo"] in TIPOS_ABRIR:
+        # abrir/criar a nota não mexe em vencido nenhum; só diz se a nota
+        # achada serve (mês corrente ou anterior)
+        res = p.get("resultado") or {}
+        return {"ok": True, "pedido": p, "aplicado": None, "ids": [],
+                "nota_no_prazo": bool(res.get("encontrada")) and (
+                    bool(res.get("criada")) or nota_no_prazo(res.get("nota"))),
+                "prazo_rotulo": rotulo_prazo()}
     if p["estado"] in ("pendente", "executando"):
         return {"ok": True, "pedido": p, "aplicado": None}
     res = p.get("resultado") or {}

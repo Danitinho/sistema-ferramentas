@@ -163,7 +163,9 @@ def _params_abrir_ultima(p: dict) -> dict:
     return {"tipo": tipo, "fornecedor": forn}
 
 
-BUSCA_PERDA = "%perda%vencidos"
+# curinga no fim: a nota de perda criada pelo agente leva o mês no DCPOA
+# ("perda vencidos 10/2026")
+BUSCA_PERDA = "%perda%vencidos%"
 
 
 def _params_abrir_perda(p: dict) -> dict:
@@ -172,6 +174,38 @@ def _params_abrir_perda(p: dict) -> dict:
     if not dcpoa or len(dcpoa) > 60:
         raise ValueError("texto de busca do DCPOA inválido")
     return {"dcpoa": dcpoa}
+
+
+_MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _params_criar_nota(p: dict) -> dict:
+    """Nota interna nova (tipo 3): a de vencido do fornecedor ou, com
+    `dcpoa`, a de perda da loja (fornecedor da loja + o texto do DCPOA).
+    `meses` = em que meses uma nota JÁ aberta vale: com uma delas, o agente
+    não cria nada e devolve essa."""
+    out = _params_abrir_ultima(p)
+    meses = sorted({str(m) for m in (p.get("meses") or []) if _MES_RE.match(str(m))})
+    if not meses:
+        raise ValueError("informe os meses (AAAA-MM) em que uma nota aberta ainda vale")
+    dcpoa = re.sub(r"\s+", " ", str(p.get("dcpoa") or "")).strip()
+    if len(dcpoa) > 60:
+        raise ValueError("DCPOA longo demais")
+    out.update(meses=meses, simular=bool(p.get("simular")),
+               estoque=_codigo(p.get("estoque") or "1") or "1",
+               serie=_so_digitos(p.get("serie") or "1") or "1",
+               modelo=re.sub(r"[^0-9A-Za-z]", "", str(p.get("modelo") or "1B"))[:4] or "1B")
+    try:
+        setas = int(p.get("modelo_setas") or 9)
+    except (TypeError, ValueError):
+        raise ValueError("modelo_setas inválido")
+    if not 0 <= setas <= 40:
+        raise ValueError("modelo_setas fora do intervalo")
+    out["modelo_setas"] = setas
+    if dcpoa:
+        out["dcpoa"] = dcpoa
+        out["busca_dcpoa"] = _params_abrir_perda({"dcpoa": p.get("busca_dcpoa")})["dcpoa"]
+    return out
 
 
 MAX_ITENS = 100
@@ -248,6 +282,11 @@ CAPACIDADES = {
         "rotulo": "Incluir itens na nota de entrada",
         "grava": True,
         "validar": _params_incluir_itens,
+    },
+    "nf.criar_nota": {
+        "rotulo": "Criar nota interna (vencido / perda)",
+        "grava": True,
+        "validar": _params_criar_nota,
     },
 }
 

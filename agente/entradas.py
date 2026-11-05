@@ -9,7 +9,10 @@ O mapa vem do painel (/agente), em `mapa_erp.telas.nota_fiscal`:
                   RADGe mostra a tela ativa entre colchetes no título
   controles       numero, lancamento, tipo, fornecedor_cod, fornecedor (rótulo
                   com o nome), emissao, entrada, valor, limpar, grade, form,
-                  grade_notas, situacao_aberto, fechar_nf...
+                  grade_notas, situacao_aberto, fechar_nf... Para criar a nota
+                  (opcionais; sem eles o agente acha pelo texto, pelo rótulo
+                  ou pelo cursor): nota_incluir, nota_cancelar, nota_salvar,
+                  estoque_origem, modelo, serie
   buscar          tecla da busca ("{F5}")
   conferir        campos que precisam estar vazios depois do Limpar
   espera_*_s      pausas calibradas na máquina real
@@ -41,7 +44,13 @@ MAX_LINHAS = 500
 #          "Data/hora" (x 155-253): x 88-208, y 284-305 — filtra a nota de
 #          perda. (A 1a versão usou um TcxTextEdit da inspeção do pedido #39,
 #          que varria a janela inteira e era de OUTRA tela aberta ao lado.)
-CAMPOS_PADRAO = {"dcpoa": {"class_name": "TDBEdit", "x": 148, "y": 294}}
+#   estoque_origem, modelo, serie: medidos na criação da nota (05/11/2026,
+#          inspeção + captura da TfrmEntradas). Os rótulos são TLabel, sem
+#          janela — por isso o "Modelo" não se acha pelo rótulo.
+CAMPOS_PADRAO = {"dcpoa": {"class_name": "TDBEdit", "x": 148, "y": 294},
+                 "estoque_origem": {"class_name": "TDBEdit", "x": 392, "y": 150},
+                 "modelo": {"class_name": "TwwDBComboBox", "x": 542, "y": 227},
+                 "serie": {"class_name": "TDBEdit", "x": 677, "y": 227}}
 
 
 class ErroTela(erp_base.ErroERP):
@@ -56,6 +65,11 @@ class ItemPulado(ErroItem):
     """O ERP disse que o produto não existe (não cadastrado / código errado)."""
 
 
+class NotaRecusada(erp_base.ErroERP):
+    """O ERP respondeu ao Salvar da nota nova com uma caixa: ficou informação
+    pendente. A nota continua em edição, sem gravar — o agente cancela."""
+
+
 # Caixas da busca que querem dizer "este código não é um produto" (sem acento,
 # minúsculas — comparadas com erp.normalizar).
 NAO_CADASTRADO = ("nao cadastrad", "nao encontrad", "inexistente", "invalid",
@@ -65,6 +79,16 @@ SIM = ["Sim", "&Sim", "Yes", "&Yes"]
 # "Incluir"/"Cancelar" sem & e em outra posição são os botões da NOTA.
 BOTOES_ITEM_TEXTO = {"item_incluir": "&Incluir", "item_gravar": "Gravar",
                      "item_cancelar": "&Canc"}
+# Botões da NOTA, no menu da esquerda (Buscar, Incluir, Cancelar, Salvar, de
+# cima para baixo). Texto EXATO: "&Incluir"/"&Canc"/"Gravar" são os dos itens,
+# e "Gravar" nunca pode ser confundido com o Salvar da nota.
+BOTOES_NOTA_TEXTO = {"nota_incluir": ("Incluir",), "nota_cancelar": ("Cancelar",),
+                     "nota_salvar": ("Salvar", "&Salvar")}
+# Classes de caixa de escolha do Delphi/DevExpress — para achar o "Modelo" pelo
+# rótulo enquanto ele não estiver no mapa.
+CLASSES_COMBO = ("TDBLookupComboBox", "TwwDBLookupCombo", "TcxDBLookupComboBox",
+                 "TDBComboBox", "TwwDBComboBox", "TcxDBComboBox", "TcxDBImageComboBox",
+                 "TcxDBExtLookupComboBox", "TComboBox")
 
 
 def num_br(s):
@@ -731,4 +755,249 @@ class DriverEntradas:
             if not self.em_inclusao():
                 return {"cancelado": True, "caixa": " / ".join(textos)}
             self.log(f"  Cancelar nao tirou do modo de inclusao (tentativa {tentativa}).")
+        return {"cancelado": False, "caixa": " / ".join(textos)}
+
+    # ── criar a nota (nf.criar_nota) ─────────────────────────────────────────
+    # Fluxo manual confirmado pelo usuário (05/11/2026): Limpar -> Incluir (o
+    # da NOTA, no menu da esquerda, abaixo do Buscar) -> Núm Lanc e NúmeroNF o
+    # ERP gera -> Tipo NF 3 + Enter -> caixa "Não foi encontrado nenhum CFOP
+    # com o código 3" leva OK (a nota de vencido é interna, não é CFOP) -> o
+    # cursor vai para Estoque Origem: 1 -> Fornecedor -> Modelo: clicar e 9×↓
+    # dá "1B - NF Avulsa", Enter -> Série: 1 -> Salvar (abaixo do Cancelar).
+    # Caixa no Salvar = ficou informação pendente.
+    def _botao_nota(self, nome):
+        """Botão da nota: pelo mapa, se ele tiver; senão pelo texto EXATO."""
+        if nome in self.c:
+            return self.j.achar(nome, self.c[nome], visivel=True)
+        erro = None
+        for texto in BOTOES_NOTA_TEXTO[nome]:
+            try:
+                return self.j.achar(f"{nome}:{texto}", {"class_name": "TcxButton",
+                                                        "texto_exato": texto},
+                                    visivel=True, espera=0 if erro else None)
+            except erp_base.ErroERP as e:
+                erro = erro or e
+        raise erro
+
+    def _clicar_nota(self, nome):
+        c = self._botao_nota(nome)
+        try:
+            c.click()
+        except Exception:
+            try:
+                c.click_input()
+            except Exception as e:
+                self.j.esquecer()
+                raise erp_base.ErroERP(f"não consegui clicar em '{nome}': {e}")
+
+    def nota_em_edicao(self):
+        """Nota em inclusão/edição: o Salvar da nota fica habilitado."""
+        c = self._botao_nota("nota_salvar")
+        try:
+            return c.is_enabled()
+        except Exception:
+            return False
+
+    def incluir_nota(self):
+        """Incluir da NOTA e confere que o ERP entrou em modo de inclusão."""
+        self._destravar("antes do Incluir da nota")
+        if self.nota_em_edicao():
+            raise ErroTela("a tela Entradas já está editando uma nota (Salvar habilitado); "
+                           "termine ou cancele no ERP e peça de novo")
+        self._clicar_nota("nota_incluir")
+        self._espera("espera_incluir_s", 1.0)
+        caixas = self._caixas_item("Incluir da nota")
+        if caixas:
+            raise ErroTela(f"o ERP respondeu ao Incluir da nota: {' / '.join(caixas)}")
+        if not self.nota_em_edicao():
+            raise ErroTela("cliquei em Incluir e o ERP não entrou em modo de inclusão da nota")
+        v = self.ler_campos(["lancamento", "numero"])
+        self.log(f"Modo de inclusao da nota (lancamento {v.get('lancamento') or '-'}, "
+                 f"numero {v.get('numero') or '-'}).")
+
+    def tipo_nf(self, tipo):
+        """Tipo NF + Enter. A caixa do CFOP é esperada e leva OK; qualquer
+        outra caixa para tudo."""
+        self.j.escrever("tipo", self._spec("tipo"), tipo, depois="{ENTER}")
+        fim = time.time() + float(self.m.get("espera_cfop_s", 2.5))
+        vistos = []
+        while time.time() < fim:
+            dlg = self.j.dialogos()
+            if dlg:
+                for d in dlg:
+                    if "cfop" not in erp_base.normalizar(d["texto"]):
+                        raise ErroTela(f"o ERP respondeu ao tipo {tipo} com uma caixa que eu "
+                                       f"não esperava: '{d['texto']}'")
+                    if not self.j.responder(d, FECHAR):
+                        raise ErroTela(f"a caixa do CFOP não tem OK: {d['botoes']}")
+                    vistos.append(d["texto"])
+                    self.log(f"  caixa do ERP (tipo NF): {d['texto']} -> OK")
+                time.sleep(0.4)
+                if not self.j.dialogos():
+                    break
+            time.sleep(0.15)
+        if not vistos:
+            self.log("  (o ERP não mostrou a caixa do CFOP)")
+        lido = self.ler("tipo")
+        if _int(lido) != _int(tipo):
+            raise ErroTela(f"o Tipo NF não entrou: pedi {tipo}, o campo ficou '{lido}'")
+        self.log(f"  Tipo NF = {tipo}")
+        return lido
+
+    def _proibidos(self):
+        """Controles onde o foco NÃO pode estar ao digitar "no campo focado":
+        se ficou num destes, o Enter não levou o cursor adiante."""
+        saida = set()
+        for nome in ("tipo", "fornecedor_cod", "lancamento", "numero"):
+            try:
+                saida.add(self.j.achar(nome, self._spec(nome)).handle)
+            except Exception:
+                pass
+        return saida
+
+    def escrever_focado(self, rotulo, texto, depois="{ENTER}"):
+        """Digita no controle que está com o foco (o ERP leva o cursor sozinho
+        depois do Enter) e relê antes de sair dele. O log diz qual controle
+        era, para completar o mapa."""
+        time.sleep(0.3)
+        c = self.j.focado()
+        if c is None:
+            raise ErroTela(f"não sei onde está o cursor para preencher {rotulo}")
+        desc = self.j.descrever(c)
+        if c.handle in self._proibidos():
+            raise ErroTela(f"o cursor não foi para {rotulo} (continua em {desc})")
+        try:
+            c.type_keys("{HOME}+{END}{DEL}", set_foreground=False)
+            c.type_keys(str(texto), with_spaces=True, set_foreground=False, pause=0.08)
+            time.sleep(0.15)
+            lido = (c.window_text() or "").strip()
+        except Exception as e:
+            self.j.esquecer()
+            raise erp_base.ErroERP(f"não consegui digitar em {rotulo}: {e}")
+        if lido != str(texto):
+            raise ErroTela(f"{rotulo}: digitei '{texto}' e o campo ({desc}) ficou '{lido}'")
+        if depois:
+            c.type_keys(depois, set_foreground=False)
+        self.log(f"  {rotulo} = {texto} ({desc})")
+        return lido
+
+    def escrever_campo(self, nome, rotulo, texto, depois="{ENTER}"):
+        """O campo pelo mapa (ou CAMPOS_PADRAO), se houver; senão, o que está
+        com o foco."""
+        spec = self.c.get(nome) or CAMPOS_PADRAO.get(nome)
+        if not spec:
+            return self.escrever_focado(rotulo, texto, depois)
+        self.j.escrever(nome, spec, texto, depois=depois)
+        time.sleep(0.3)
+        lido = self.j.ler(nome, spec)
+        if lido.strip().lower() != str(texto).strip().lower():
+            raise ErroTela(f"{rotulo}: digitei '{texto}' e o campo ficou '{lido}' "
+                           "(confira o mapa do ERP)")
+        self.log(f"  {rotulo} = {texto}")
+        return lido
+
+    def fornecedor_nota(self, fornecedor):
+        """Código do fornecedor + TAB (o ERP busca o nome). Caixa = o ERP não
+        conhece o código."""
+        self.j.escrever("fornecedor_cod", self._spec("fornecedor_cod"), fornecedor)
+        time.sleep(float(self.m.get("espera_aviso_s", 1.2)))
+        caixas = self._caixas_item("fornecedor")
+        if caixas:
+            raise ErroTela(f"o ERP reclamou do fornecedor {fornecedor}: {' / '.join(caixas)}")
+        lido = self.ler("fornecedor_cod")
+        if _int(lido) != _int(fornecedor):
+            raise ErroTela(f"o fornecedor não entrou: pedi {fornecedor}, o campo ficou '{lido}'")
+        nome = ""
+        try:
+            nome = self.ler("fornecedor")
+        except erp_base.ErroERP:
+            pass
+        self.log(f"  Fornecedor = {fornecedor}" + (f" ({nome})" if nome else ""))
+        return nome
+
+    def _combo_modelo(self):
+        spec = self.c.get("modelo") or CAMPOS_PADRAO.get("modelo")
+        if spec:
+            try:
+                return self.j.achar("modelo", spec, visivel=True)
+            except erp_base.ErroERP as e:
+                if "modelo" in self.c:
+                    raise
+                self.log(f"  Modelo fora da posicao padrao ({e}); procurando pelo rotulo.")
+        for classe in CLASSES_COMBO:
+            c = self.j._resolver({"class_name": classe, "ancora": "Modelo"}, True)
+            if c is not None:
+                return c
+        # sem mapa e sem rótulo achável: diz o que há na tela, para o mapa
+        vistos = []
+        for classe in CLASSES_COMBO:
+            try:
+                vistos += [f"{self.j.descrever(c)} '{(c.window_text() or '').strip()}'"
+                           for c in self.j._todos(classe) if c.is_visible()]
+            except Exception:
+                pass
+        raise ErroTela("não achei o campo Modelo; ponha 'modelo' no mapa do ERP "
+                       f"(caixas de escolha visíveis: {'; '.join(vistos) or 'nenhuma'})")
+
+    def modelo_nota(self, setas, alvo):
+        """Clica no Modelo, desce `setas` vezes, Enter — e só aceita se o
+        campo ficou com `alvo` ("1B"). As setas sozinhas mudariam de opção
+        caladas se o ERP ganhar um modelo novo na lista."""
+        c = self._combo_modelo()
+        desc = self.j.descrever(c)
+        try:
+            c.click_input()
+            time.sleep(0.4)
+            c.type_keys("{DOWN}" * int(setas), set_foreground=False, pause=0.08)
+            time.sleep(0.2)
+            c.type_keys("{ENTER}", set_foreground=False)
+            time.sleep(0.4)
+            lido = (c.window_text() or "").strip()
+        except Exception as e:
+            self.j.esquecer()
+            raise erp_base.ErroERP(f"não consegui escolher o Modelo: {e}")
+        if not erp_base.normalizar(lido).startswith(erp_base.normalizar(alvo)):
+            raise ErroTela(f"o Modelo ficou '{lido}' depois de {setas} setas, e precisa ser "
+                           f"'{alvo}' ({desc}); ajuste 'modelo_setas' no mapa")
+        self.log(f"  Modelo = {lido} ({desc})")
+        return lido
+
+    def salvar_nota(self):
+        """Salvar da nota. Caixa = informação pendente (NotaRecusada, com o
+        texto). Sem caixa, o ERP tem de sair da edição; se não sair, o estado
+        é incerto (ErroTela)."""
+        self._clicar_nota("nota_salvar")
+        self._espera("espera_salvar_s", 1.5)
+        caixas = self._caixas_item("Salvar da nota")
+        if caixas:
+            raise NotaRecusada(" / ".join(caixas))
+        if self.nota_em_edicao():
+            raise ErroTela("cliquei em Salvar e a nota continuou em edição, sem caixa "
+                           "nenhuma; confira a tela Entradas")
+        self.log("Nota salva.")
+        return self.nota_atual()
+
+    def cancelar_nota(self):
+        """Descarta a nota em inclusão. A pergunta de confirmação do
+        cancelamento leva Sim (é a intenção); qualquer outra, Não/OK. O RADGe
+        pergunta SEM ponto de interrogação ("Deseja Cancelar a Inclusão
+        pendente", TfrmMensagens, visto em 05/11/2026) — por isso aqui não se
+        exige o "?" como no Canc dos itens."""
+        textos = []
+        for tentativa in range(1, 3):
+            textos += self._caixas_item("antes do Cancelar da nota")
+            if not self.nota_em_edicao():
+                return {"cancelado": True, "caixa": " / ".join(textos)}
+            self._clicar_nota("nota_cancelar")
+            self._espera("espera_cancelar_s", 0.8)
+            for d in self.j.dialogos():
+                textos.append(d["texto"])
+                if "cancelar a inclus" in erp_base.normalizar(d["texto"]):
+                    self.j.responder(d, SIM)
+                else:
+                    self.j.responder(d, NEGATIVOS + FECHAR)
+                time.sleep(0.4)
+            if not self.nota_em_edicao():
+                return {"cancelado": True, "caixa": " / ".join(textos)}
+            self.log(f"  Cancelar nao tirou a nota de edicao (tentativa {tentativa}).")
         return {"cancelado": False, "caixa": " / ".join(textos)}

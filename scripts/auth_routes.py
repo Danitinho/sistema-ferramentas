@@ -48,6 +48,7 @@ ENDPOINTS_AGENTE = {
     "reclassificacao.rev_previa", "reclassificacao.rev_aplicar",
     "vencidos.rodada_abrir", "vencidos.rodada_incluir",
     "vencidos.rodada_perda_abrir", "vencidos.rodada_perda_incluir",
+    "vencidos.rodada_criar", "vencidos.rodada_perda_criar",
 }
 
 

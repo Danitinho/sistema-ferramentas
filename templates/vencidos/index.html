@@ -655,11 +655,12 @@
       </div>
       <p class="rd-ajuda">Uma nota por vez: o agente abre a <b>última nota de vencido (tipo 3) aberta</b>
         do fornecedor — ou, para os marcados como <b>perda</b>, a última <b>nota de perda de vencidos</b>
-        da loja (DCPOA "%perda%vencidos") —, você confere a nota na tela do ERP e a lista abaixo, e só
+        da loja (DCPOA "%perda%vencidos%") —, você confere a nota na tela do ERP e a lista abaixo, e só
         então aprova a inclusão. Cada item gravado vira baixa · <b>Devolução ao fornecedor</b> (troca)
         ou <b>Perda</b>, com o nº da nota.
         A rodada é separada por <b>mês de registro</b>, mas a nota aceita vencidos de qualquer mês
-        (ex.: um produto esquecido no mês anterior).</p>
+        (ex.: um produto esquecido no mês anterior). Só vale nota com entrada no <b>mês corrente ou no
+        anterior</b>; sem uma assim, o sistema pergunta se o agente deve <b>criar a nota</b>.</p>
       <div id="rd-corpo"><div class="empty-state">Carregando…</div></div>
     </div>
     <div class="modal-footer">
@@ -1020,6 +1021,8 @@ async function confirmarBaixa() {
 const escH = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const _rd = { dados: null, est: {}, mudou: false, numFid: null, meses: new Set() };
 const FINAIS = ["feito", "erro", "expirado", "cancelado"];
+// etapas em que o grupo está com o agente (ou esperando a conferência)
+const TRABALHANDO = ["abrindo", "criando", "conferir", "incluindo"];
 
 async function abrirRodada() {
   _rd.est = {}; _rd.mudou = false; _rd.meses = new Set();
@@ -1027,7 +1030,7 @@ async function abrirRodada() {
   await carregarRodada();
 }
 function fecharRodada() {
-  if (Object.values(_rd.est).some(e => ["abrindo", "incluindo"].includes(e.etapa))
+  if (Object.values(_rd.est).some(e => ["abrindo", "criando", "incluindo"].includes(e.etapa))
       && !confirm("O agente ainda está trabalhando. Fechar mesmo assim? (o pedido continua, e o resultado aparece na lista)")) return;
   fecharModal("modal-rodada");
   if (_rd.mudou) location.reload();
@@ -1050,12 +1053,12 @@ function marcarMes(mes, on) {
   desenharRodada();
 }
 function ocupado(excetoChave) {
-  return Object.entries(_rd.est).some(([c, e]) => c !== excetoChave && ["abrindo", "conferir", "incluindo"].includes(e.etapa));
+  return Object.entries(_rd.est).some(([c, e]) => c !== excetoChave && TRABALHANDO.includes(e.etapa));
 }
 function desenharRodada() {
   const d = _rd.dados;
   // grupo com o agente trabalhando nunca some da tela, mesmo se o mês for desmarcado
-  const visivel = g => _rd.meses.has(g.mes) || ["abrindo", "conferir", "incluindo"].includes((_rd.est[g.chave] || {}).etapa);
+  const visivel = g => _rd.meses.has(g.mes) || TRABALHANDO.includes((_rd.est[g.chave] || {}).etapa);
   $("rd-meses").innerHTML = (d.meses || []).map(m => `<label class="rd-mes ${_rd.meses.has(m.mes) ? "on" : ""}">
       <input type="checkbox" ${_rd.meses.has(m.mes) ? "checked" : ""} onchange="marcarMes('${m.mes}', this.checked)">
       ${escH(m.rotulo)} <span class="ev">${m.itens}</span></label>`).join("")
@@ -1122,12 +1125,12 @@ async function liberarItem(id) {
 }
 // Dois tipos de grupo: TROCA (um fornecedor, nota de vencido dele) e PERDA
 // (todos os fornecedores marcados como perda no mês, nota de perda da LOJA,
-// achada pelo DCPOA "%perda%vencidos"). Os passos são os mesmos.
+// achada pelo DCPOA "%perda%vencidos%"). Os passos são os mesmos.
 function htmlGrupo(g) {
   const c = g.chave;
   const e = _rd.est[c] || { etapa: "inicio" };
   const perda = g.tipo === "perda";
-  const livre = e.etapa === "inicio" || e.etapa === "semnota";
+  const livre = ["inicio", "semnota", "notavelha"].includes(e.etapa);
   const cab = perda
     ? `<div class="rd-cab">
         <span class="rd-nome">${escH(g.nome)}</span>
@@ -1176,9 +1179,19 @@ function htmlGrupo(g) {
       ${bloqueado ? '<span class="ev">termine a nota em andamento antes</span>' : ""}`;
   } else if (e.etapa === "abrindo") {
     acao = `<span class="spinner"></span> O agente está abrindo a última ${qual.slice(2)} aberta…`;
-  } else if (e.etapa === "semnota") {
-    acao = `<span class="rd-erro"><b>${escH(e.msg)}</b></span>
-      <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado ? "disabled" : ""}>Tentar de novo</button>`;
+  } else if (e.etapa === "semnota" || e.etapa === "notavelha") {
+    const sabeCriar = !m || (m.capacidades || []).includes("nf.criar_nota");
+    acao = `<div style="width:100%">
+        <div class="rd-erro"><b>${escH(e.msg)}</b></div>
+        ${e.simulou ? `<div class="ev" style="margin-top:4px">${escH(e.simulou)}</div>` : ""}
+        <div style="margin-top:8px">
+        ${sabeCriar
+          ? `<button class="btn btn-primary btn-sm" onclick="criarNota('${c}')" ${bloqueado ? "disabled" : ""}>Criar ${perda ? "a nota de perda" : "a nota de vencido"} no ERP</button>`
+          : `<span class="rd-aviso">O agente de ${escH(m.apelido)} ainda não sabe criar a nota: atualize o agente nessa máquina (versão 1.5 ou mais nova) e abra-o de novo — ou crie a nota no ERP à mão.</span>`}
+        <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado ? "disabled" : ""}>Procurar de novo</button>
+        </div></div>`;
+  } else if (e.etapa === "criando") {
+    acao = `<span class="spinner"></span> O agente está ${e.simular ? "simulando a criação d" : "criando "}${qual} no ERP…`;
   } else if (e.etapa === "conferir") {
     const n = e.nota || {};
     acao = `<div style="width:100%">
@@ -1189,6 +1202,7 @@ function htmlGrupo(g) {
           <div><div class="k">Emissão</div><div class="v">${escH(n.emissao || "")}</div></div>
           <div><div class="k">No ERP</div><div class="v">${escH((e.conferencia || {}).fornecedor || "")}</div></div>
         </div>
+        ${e.criada ? '<div class="ev" style="margin-top:8px">Nota criada agora pelo agente.</div>' : ""}
         <div style="margin:10px 0 8px"><b>Confira na tela do ERP</b> se esta é ${perda ? "a nota de perda de vencidos de " + escH(g.mes_rotulo) : "a nota certa"} e se a lista acima está correta.</div>
         <button class="btn btn-primary btn-sm" onclick="incluirForn('${c}')">Aprovar e incluir ${g.incluiveis} item(ns)${perda ? " na nota de perda" : ""}</button>
         <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')">Abrir de novo</button>
@@ -1206,7 +1220,7 @@ function htmlGrupo(g) {
     acao = `<span class="rd-erro"><b>${escH(e.msg)}</b></span>
       <button class="btn btn-secondary btn-sm" onclick="abrirNotaForn('${c}')" ${bloqueado ? "disabled" : ""}>Tentar de novo</button>`;
   }
-  const ativo = ["abrindo", "conferir", "incluindo"].includes(e.etapa);
+  const ativo = TRABALHANDO.includes(e.etapa);
   return `<div class="rd-grupo ${ativo ? "ativo" : ""}" data-chave="${escH(c)}">${cab}${itens}<div class="rd-acao">${acao}</div></div>`;
 }
 function grupo(chave) { return _rd.dados.grupos.find(g => g.chave === chave); }
@@ -1225,7 +1239,8 @@ async function esperarPedido(id) {
   while (true) {
     const r = await (await fetch(`/vencidos/api/rodada/pedido/${id}`)).json();
     if (!r.ok) return { estado: "erro", erro: r.msg };
-    if (FINAIS.includes(r.pedido.estado)) return Object.assign(r.pedido, { ids: r.ids || [] });
+    if (FINAIS.includes(r.pedido.estado))
+      return Object.assign(r.pedido, { ids: r.ids || [], nota_no_prazo: r.nota_no_prazo, prazo_rotulo: r.prazo_rotulo });
     await new Promise(ok => setTimeout(ok, 1200));
   }
 }
@@ -1239,11 +1254,49 @@ async function abrirNotaForn(c) {
   if (p.estado !== "feito") {
     estado(c, { etapa: "erro", msg: `O agente não abriu a nota (${p.estado}): ${p.erro || ""}` });
   } else if (!res.encontrada) {
-    estado(c, { etapa: "semnota", msg: g.tipo === "perda"
-      ? `Nenhuma nota de perda de vencidos aberta (DCPOA "%perda%vencidos"). Crie a nota no ERP (para os vencidos de ${g.mes_rotulo}) e clique em Tentar de novo.`
-      : `Nenhuma nota de vencido (tipo 3) aberta para ${g.nome}. Crie a nota no ERP (para os vencidos de ${g.mes_rotulo}) e clique em Tentar de novo.` });
+    estado(c, { etapa: "semnota", simulou: "", msg: g.tipo === "perda"
+      ? "Nenhuma nota de perda de vencidos aberta no ERP. Quer criar uma?"
+      : `Nenhuma nota de vencido (tipo 3) aberta para ${g.nome} no ERP. Quer criar uma?` });
+  } else if (!p.nota_no_prazo) {
+    // a nota aberta mais recente é de um mês que já não vale: os vencidos só
+    // entram em nota do mês corrente ou do anterior
+    const n = res.nota || {};
+    estado(c, { etapa: "notavelha", simulou: "", msg: `A nota aberta mais recente ${g.tipo === "perda" ? "de perda " : ""}`
+      + `(${n.numero || n.lancamento}, entrada ${n.entrada || "sem data"}) não é de ${p.prazo_rotulo || prazoNota()}. `
+      + "Os vencidos só entram em nota desses meses. Quer criar uma nova?" });
   } else {
-    estado(c, { etapa: "conferir", pedidoAbrir: p.id, nota: res.nota, conferencia: res.conferencia });
+    estado(c, { etapa: "conferir", pedidoAbrir: p.id, nota: res.nota, conferencia: res.conferencia, criada: false });
+  }
+}
+function prazoNota() { return ((_rd.dados || {}).prazo_nota || {}).rotulo || "do mês corrente ou do anterior"; }
+// Cria a nota no ERP pelo agente — só com o sim da pessoa, e só depois de o
+// agente não achar nota aberta que sirva. O agente procura de novo antes de
+// criar: se alguém criou nesse meio-tempo, ele devolve aquela.
+async function criarNota(c) {
+  const g = grupo(c), perda = g.tipo === "perda", simular = $("rd-simular").checked;
+  const mm = g.mes.slice(5, 7) + "/" + g.mes.slice(0, 4);
+  if (!confirm(`Criar no ERP ${perda ? "a nota de PERDA de vencidos da loja" : `uma nota de vencido para ${g.nome}`}?\n\n`
+      + `Tipo NF 3 · Estoque origem 1 · Fornecedor ${perda ? "3100 (loja)" : "nº " + g.numero} · Modelo 1B - NF Avulsa · Série 1`
+      + (perda ? ` · DCPOA "perda vencidos ${mm}"` : "")
+      + ".\nO número e o lançamento o ERP gera; a entrada é a data de hoje.\n\n"
+      + (simular ? "SIMULAÇÃO: o agente preenche a nota e cancela, nada é criado."
+                 : "Depois de criada, a nota aparece aqui para você conferir antes de incluir os itens.")
+      + "\n\nO pedido sai autorizado por você.")) return;
+  estado(c, { etapa: "criando", simular });
+  const r = await postJSON(urlRodada(g, "criar"), { mes: g.mes, maquina: $("rd-maquina").value, simular });
+  if (!r.ok) { estado(c, { etapa: "erro", msg: r.msg }); return; }
+  const p = await esperarPedido(r.pedido.id);
+  const res = p.resultado || {};
+  if (p.estado !== "feito") {
+    estado(c, { etapa: "erro", msg: `O agente não criou a nota (${p.estado}): ${p.erro || ""}` });
+  } else if (res.simulado) {
+    estado(c, { etapa: "semnota", msg: "Simulação concluída: o agente preencheu a nota e cancelou, nada foi criado no ERP.",
+                simulou: "Para criar de verdade, desmarque Simular e clique em Criar." });
+  } else if (res.encontrada) {
+    estado(c, { etapa: "conferir", pedidoAbrir: p.id, nota: res.nota, conferencia: res.conferencia,
+                criada: !!res.criada });
+  } else {
+    estado(c, { etapa: "erro", msg: res.msg || "O agente terminou sem nota." });
   }
 }
 // opts.voz: a pessoa já disse "confirmar" depois de ouvir a nota (comando de
